@@ -1,0 +1,92 @@
+{
+  "target_selector": {
+    "element_type": "target_selector",
+    "label": "Target Element",
+    "description": "Select the type of code element you want to target.",
+    "is_required": false,
+    "options": [
+      {
+        "id": "function",
+        "label": "Function",
+        "value": "function",
+        "description": "Select function from the code."
+      },
+      {
+        "id": "loop",
+        "label": "Loop",
+        "value": "loop",
+        "description": "Select loop from the code."
+      },
+      {
+        "id": "branch",
+        "label": "Branch",
+        "value": "branch",
+        "description": "Select branch from the code."
+      },
+      {
+        "id": "variable",
+        "label": "Variable",
+        "value": "variable",
+        "description": "Select variable from the code."
+      }
+    ]
+  },
+  "output_type_selector": {
+    "element_type": "output_type_selector",
+    "label": "Output Type",
+    "description": "Select the type of output you want.",
+    "is_required": true,
+    "options": [
+      {
+        "id": "list",
+        "label": "List",
+        "value": "list",
+        "description": "Return a list of all matching elements."
+      },
+      {
+        "id": "count",
+        "label": "Count",
+        "value": "count",
+        "description": "Return the count of matching elements."
+      },
+      {
+        "id": "first",
+        "label": "First",
+        "value": "first",
+        "description": "Return the first matching element."
+      },
+      {
+        "id": "last",
+        "label": "Last",
+        "value": "last",
+        "description": "Return the last matching element."
+      }
+    ]
+  },
+  "question_type_selector": {
+    "element_type": "question_type_selector",
+    "label": "Question Type",
+    "description": "Select the type of question you want to create.",
+    "is_required": true,
+    "options": [
+      {
+        "id": "mcq",
+        "label": "Multiple Choice Question",
+        "value": "mcq",
+        "description": "Select this for multiple choice questions."
+      },
+      {
+        "id": "mrq",
+        "label": "Multiple Response Question",
+        "value": "mrq",
+        "description": "Select this for multiple response questions."
+      },
+      {
+        "id": "short_answer",
+        "label": "Short Answer",
+        "value": "short_answer",
+        "description": "Select this for short answer questions."
+      }
+    ]
+  }
+}
