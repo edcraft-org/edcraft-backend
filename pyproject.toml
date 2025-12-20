@@ -1,0 +1,44 @@
+[project]
+name = "edcraft-backend"
+version = "0.1.0"
+description = "EdCraft FastAPI Backend"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "edcraft-engine",
+    "fastapi[standard]>=0.125.0",
+]
+
+[tool.uv.sources]
+edcraft-engine = { path = "../edcraft-engine", editable = true }
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "mypy>=1.19.1",
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.14.10",
+]
+
+[tool.mypy]
+python_version = "3.12"
+check_untyped_defs = true
+disallow_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = true
+no_implicit_optional = true
+strict_optional = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "C90", "I", "UP", "B", "A", "S", "T20", "Q"]
+ignore = ["B008"]
