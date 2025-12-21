@@ -18,6 +18,7 @@ EdCraft Backend is a FastAPI-based web service that exposes the EdCraft Engine f
 
 - Python 3.12+
 - [uv](https://github.com/astral-sh/uv) package manager
+- Docker
 
 ## Installation
 
@@ -34,6 +35,23 @@ uv sync
 
 The project depends on the `edcraft-engine` package, which should be located at `../edcraft-engine` relative to this directory (configured as an editable dependency).
 
+3. Set up environment variables:
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and configure your database credentials if needed.
+
+4. Start the local PostgreSQL database:
+```bash
+docker-compose up -d
+```
+
+5. Run database migrations:
+```bash
+uv run alembic upgrade head
+```
+
 ## Development
 
 ### Running the Server
@@ -41,6 +59,13 @@ The project depends on the `edcraft-engine` package, which should be located at 
 Start the development server with auto-reload:
 
 ```bash
+# 1. Start the database (runs in background)
+docker compose up -d
+
+# 2. Verify database is running
+docker compose ps
+
+# 3. Start the FastAPI development server
 make dev
 # or
 uv run uvicorn edcraft_backend.main:app --host 127.0.0.1 --port 8000 --reload
@@ -50,6 +75,8 @@ The API will be available at:
 - Main API: http://127.0.0.1:8000
 - Interactive docs: http://127.0.0.1:8000/docs
 - Alternative docs: http://127.0.0.1:8000/redoc
+
+**Note:** The database runs in the background and stays running until you stop it with `docker compose down`. You only need to start it once per session.
 
 ### Running Tests
 
@@ -118,6 +145,106 @@ edcraft-backend/
 ├── pyproject.toml               # Project configuration
 └── README.md
 ```
+
+## Database
+
+### Database Setup
+
+The application uses PostgreSQL with async SQLAlchemy for data persistence. The database configuration is managed through environment variables.
+
+#### Starting the Database
+
+Using Docker Compose:
+
+```bash
+# Start PostgreSQL in the background
+docker-compose up -d
+
+# Check database status
+docker-compose ps
+
+# View database logs
+docker-compose logs -f postgres
+
+# Stop the database
+docker-compose down
+
+# Stop and remove all data (destructive!)
+docker-compose down -v
+```
+
+#### Accessing the Database
+
+Connect to the PostgreSQL database directly using psql:
+
+```bash
+# Connect to the database
+docker exec -it edcraft-postgres psql -U edcraft_dev -d edcraft
+
+# Common psql commands once connected:
+# \dt              - List all tables
+# \d table_name    - Describe table structure
+# SELECT * FROM table_name;  - View table contents
+# \q               - Quit psql
+```
+
+#### Database Migrations
+
+The project uses Alembic for database migrations:
+
+```bash
+# Run all pending migrations
+uv run alembic upgrade head
+
+# Create a new migration (after modifying models)
+uv run alembic revision --autogenerate -m "description of changes"
+
+# Rollback the last migration
+uv run alembic downgrade -1
+
+# View migration history
+uv run alembic history
+
+# View current migration version
+uv run alembic current
+```
+
+#### Database Models
+
+Database models will be located in `edcraft_backend/models/`. When creating new models:
+
+1. Create your SQLAlchemy model inheriting from `Base`
+2. Import the model in `edcraft_backend/models/__init__.py`
+3. Import models in `alembic/env.py` for autogenerate to detect them
+4. Generate a migration: `uv run alembic revision --autogenerate -m "add model_name"`
+5. Review the generated migration file
+6. Apply the migration: `uv run alembic upgrade head`
+
+#### Connection to Database
+
+The application automatically manages database connections through FastAPI's dependency injection:
+
+```python
+from sqlalchemy.ext.asyncio import AsyncSession
+from edcraft_backend.database import get_db
+
+@router.get("/items")
+async def get_items(db: AsyncSession = Depends(get_db)):
+    # Use db session here
+    result = await db.execute(select(Item))
+    return result.scalars().all()
+```
+
+#### Environment Variables
+
+Database configuration is managed through these environment variables (see `.env.example`):
+
+- `DATABASE_URL` - Full PostgreSQL connection string
+- `ENVIRONMENT` - Set to "production" to disable SQL query logging
+- `POSTGRES_DB` - Database name (for Docker Compose)
+- `POSTGRES_USER` - Database user (for Docker Compose)
+- `POSTGRES_PASSWORD` - Database password (for Docker Compose)
+- `POSTGRES_PORT` - Database port (for Docker Compose)
 
 ## Configuration
 
