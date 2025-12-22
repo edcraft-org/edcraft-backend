@@ -211,11 +211,51 @@ uv run alembic current
 
 #### Database Models
 
-Database models will be located in `edcraft_backend/models/`. When creating new models:
+The application uses a comprehensive database schema for managing assessments, questions, and organizational structure:
+
+- **User** ([user.py](edcraft_backend/models/user.py)) - User accounts
+  - Fields: email, username
+  - Owns all content (folders, assessments, questions, templates)
+
+- **Folder** ([folder.py](edcraft_backend/models/folder.py)) - Hierarchical folder organization using tree structure
+  - Self-referential parent-child relationship
+  - Contains sub-folders, assessments and assessment templates
+  - Unique constraint: folder names must be unique per parent and user
+  - CASCADE delete: 
+    - deleting a folder removes all contents, but shared questions/templates are preserved if referenced elsewhere
+
+- **Assessment** ([assessment.py](edcraft_backend/models/assessment.py)) - Collection of questions, also serves as question bank
+  - Many-to-many relationship with questions
+
+- **Question** ([question.py](edcraft_backend/models/question.py)) - Individual question instances
+  - Hybrid structure: fixed columns + JSON for flexibility
+  - Can be created from a QuestionTemplate
+  - Reusable across multiple assessments
+  - Questions must belong to an assessment
+
+- **AssessmentQuestion** ([assessment_question.py](edcraft_backend/models/assessment_question.py)) - Association table for assessments and questions
+  - Tracks question ordering within assessments
+  - Unique constraint: each question can only be added once per assessment
+
+- **AssessmentTemplate** ([assessment_template.py](edcraft_backend/models/assessment_template.py)) - Collection of question templates, serves as question template bank
+  - Many-to-many relationship with question templates
+
+- **QuestionTemplate** ([question_template.py](edcraft_backend/models/question_template.py)) - Blueprint for creating questions
+  - Hybrid structure: fixed columns + JSON for flexibility
+  - Used to generate Question instances
+  - Questions templates must belong to an assessment template
+
+- **AssessmentTemplateQuestionTemplate** ([assessment_template_question_template.py](edcraft_backend/models/assessment_template_question_template.py)) - Association table
+  - Tracks template ordering within assessment templates
+  - Unique constraint: each template can only be added once per assessment template
+
+**Working with Models:**
+
+When creating new models:
 
 1. Create your SQLAlchemy model inheriting from `Base`
-2. Import the model in `edcraft_backend/models/__init__.py`
-3. Import models in `alembic/env.py` for autogenerate to detect them
+2. Import the model in [edcraft_backend/models/\_\_init\_\_.py](edcraft_backend/models/__init__.py)
+3. Import models in [alembic/env.py](alembic/env.py) for autogenerate to detect them
 4. Generate a migration: `uv run alembic revision --autogenerate -m "add model_name"`
 5. Review the generated migration file
 6. Apply the migration: `uv run alembic upgrade head`

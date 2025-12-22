@@ -10,6 +10,18 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 from edcraft_backend.database import Base
 
+# Import all models for autogenerate support
+from edcraft_backend.models import (  # noqa: F401
+    Assessment,
+    AssessmentQuestion,
+    AssessmentTemplate,
+    AssessmentTemplateQuestionTemplate,
+    Folder,
+    Question,
+    QuestionTemplate,
+    User,
+)
+
 # Load environment variables
 load_dotenv()
 
