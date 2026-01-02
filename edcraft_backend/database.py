@@ -1,30 +1,15 @@
 """Database configuration and session management."""
 
-import os
 from collections.abc import AsyncGenerator
 
-from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import DeclarativeBase
 
-# Load environment variables from .env file
-load_dotenv()
-
-# Get database URL from environment variable
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    msg = "DATABASE_URL environment variable is not set"
-    raise ValueError(msg)
-
-# Environment configuration
-ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
-IS_PRODUCTION = ENVIRONMENT == "production"
+from edcraft_backend.config import settings
 
 # Create async engine
 engine = create_async_engine(
-    DATABASE_URL,
-    echo=not IS_PRODUCTION,  # Log SQL queries in development
-    future=True,
+    str(settings.database_url),
+    echo=settings.database_echo,
 )
 
 # Create async session factory
@@ -33,13 +18,6 @@ AsyncSessionLocal = async_sessionmaker(
     class_=AsyncSession,
     expire_on_commit=False,
 )
-
-
-# Base class for SQLAlchemy models
-class Base(DeclarativeBase):
-    """Base class for all database models."""
-
-    pass
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

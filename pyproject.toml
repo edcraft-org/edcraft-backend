@@ -9,6 +9,7 @@ dependencies = [
     "asyncpg>=0.31.0",
     "edcraft-engine",
     "fastapi[standard]>=0.125.0",
+    "pydantic-settings>=2.7.0",
     "python-dotenv>=1.2.1",
     "sqlalchemy>=2.0.45",
 ]
@@ -38,6 +39,20 @@ strict_optional = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+asyncio_mode = "auto"
+markers = [
+    "integration: Integration tests (HTTP endpoints)",
+    "users: User router tests",
+    "folders: Folder router tests",
+    "questions: Question router tests",
+    "assessments: Assessment router tests",
+    "question_templates: Question template router tests",
+    "assessment_templates: Assessment template router tests",
+    "question_generation: Question generation router tests",
+]
 
 [tool.ruff]
 line-length = 100
@@ -45,4 +60,9 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "C90", "I", "UP", "B", "A", "S", "T20", "Q"]
-ignore = ["B008"]
+ignore = [
+    "B008",  # Allow function calls in default arguments (FastAPI Depends pattern)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101"]  # Allow asserts in tests

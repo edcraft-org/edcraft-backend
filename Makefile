@@ -1,4 +1,4 @@
-.PHONY: install test lint type-check all-checks clean dev
+.PHONY: install test lint type-check all-checks clean dev db-dev db-test db-all db-down db-status test-with-db
 
 install:
 	uv sync
@@ -29,3 +29,35 @@ update:
 
 dev:
 	uv run uvicorn edcraft_backend.main:app --host 127.0.0.1 --port 8000 --reload
+
+# Database management targets
+db-dev:
+	@echo "Starting development database..."
+	docker compose up -d postgres
+
+db-test:
+	@echo "Starting test database..."
+	docker compose --profile test up -d postgres-test
+
+db-all:
+	@echo "Starting both development and test databases..."
+	docker compose --profile all up -d
+
+db-down:
+	@echo "Stopping all databases..."
+	docker compose --profile all down
+
+db-status:
+	@echo "Database container status:"
+	@docker compose --profile all ps
+
+test-with-db:
+	@echo "Starting test database..."
+	docker compose --profile test up -d postgres-test
+	@echo "Waiting for test database to be ready..."
+	@sleep 3
+	@echo "Running tests..."
+	uv run pytest
+	@echo ""
+	@echo "Stopping test database..."
+	docker compose --profile test down

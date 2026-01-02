@@ -1,14 +1,14 @@
 import asyncio
-import os
 from logging.config import fileConfig
 
-from dotenv import load_dotenv
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
-from edcraft_backend.database import Base
+
+# Import settings for configuration
+from edcraft_backend.config import settings
 
 # Import all models for autogenerate support
 from edcraft_backend.models import (  # noqa: F401
@@ -21,18 +21,14 @@ from edcraft_backend.models import (  # noqa: F401
     QuestionTemplate,
     User,
 )
-
-# Load environment variables
-load_dotenv()
+from edcraft_backend.models.base import Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
 
-# Set the database URL from environment variable
-database_url = os.getenv("DATABASE_URL")
-if database_url:
-    config.set_main_option("sqlalchemy.url", database_url)
+# Set the database URL from settings
+config.set_main_option("sqlalchemy.url", str(settings.database_url))
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
