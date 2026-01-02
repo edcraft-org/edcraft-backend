@@ -1,13 +1,11 @@
 """User model."""
 
-from datetime import datetime
 from typing import TYPE_CHECKING
-from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, String, func
+from sqlalchemy import String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from edcraft_backend.database import Base
+from edcraft_backend.models.base import EntityBase
 
 if TYPE_CHECKING:
     from edcraft_backend.models.assessment import Assessment
@@ -17,31 +15,14 @@ if TYPE_CHECKING:
     from edcraft_backend.models.question_template import QuestionTemplate
 
 
-class User(Base):
+class User(EntityBase):
     """User model."""
 
     __tablename__ = "users"
 
-    # Primary Key
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-
     # Basic Fields
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
-
-    # Timestamps
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
-    )
-
-    # Soft Delete
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     folders: Mapped[list["Folder"]] = relationship(

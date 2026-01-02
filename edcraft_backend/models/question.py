@@ -1,14 +1,13 @@
 """Question model - individual question instance."""
 
-from datetime import datetime
 from typing import TYPE_CHECKING
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from edcraft_backend.database import Base
+from edcraft_backend.models.base import EntityBase
 
 if TYPE_CHECKING:
     from edcraft_backend.models.assessment_question import AssessmentQuestion
@@ -16,16 +15,13 @@ if TYPE_CHECKING:
     from edcraft_backend.models.user import User
 
 
-class Question(Base):
+class Question(EntityBase):
     """
     Question model - individual question instance created from a template.
     Stores the actual question data as a mixture of JSON and structured fields (flexible schema).
     """
 
     __tablename__ = "questions"
-
-    # Primary Key
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
 
     # Foreign Keys
     owner_id: Mapped[UUID] = mapped_column(
@@ -46,21 +42,7 @@ class Question(Base):
     # Additional data (flexible JSON structure)
     # For multiple_choice: {"options": ["A", "B", "C"], "correct_indices": [0]}
     # For short_answer: {"correct_answer": "42"}
-    additional_data: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-
-    # Timestamps
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
-    )
-
-    # Soft Delete
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    additional_data: Mapped[dict[str, str]] = mapped_column(JSON, nullable=False, default=dict)
 
     # Relationships
     owner: Mapped["User"] = relationship(back_populates="questions")

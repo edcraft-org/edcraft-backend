@@ -6,6 +6,7 @@ from edcraft_backend.models.assessment_template import AssessmentTemplate
 from edcraft_backend.models.assessment_template_question_template import (
     AssessmentTemplateQuestionTemplate,
 )
+from edcraft_backend.models.base import AssociationBase, Base, EntityBase
 from edcraft_backend.models.folder import Folder
 from edcraft_backend.models.question import Question
 from edcraft_backend.models.question_template import QuestionTemplate
@@ -20,4 +21,7 @@ __all__ = [
     "AssessmentTemplate",
     "AssessmentTemplateQuestionTemplate",
     "QuestionTemplate",
+    "Base",
+    "AssociationBase",
+    "EntityBase",
 ]

@@ -1,13 +1,12 @@
 """Folder model with tree structure."""
 
-from datetime import datetime
 from typing import TYPE_CHECKING
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy import ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from edcraft_backend.database import Base
+from edcraft_backend.models.base import EntityBase
 
 if TYPE_CHECKING:
     from edcraft_backend.models.assessment import Assessment
@@ -15,16 +14,13 @@ if TYPE_CHECKING:
     from edcraft_backend.models.user import User
 
 
-class Folder(Base):
+class Folder(EntityBase):
     """
     Folder model with tree structure.
     Can contain: sub-folders, assessments, assessment_templates
     """
 
     __tablename__ = "folders"
-
-    # Primary Key
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
 
     # Foreign Keys
     owner_id: Mapped[UUID] = mapped_column(
@@ -38,26 +34,12 @@ class Folder(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Timestamps
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
-    )
-
-    # Soft Delete
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-
     # Relationships
     owner: Mapped["User"] = relationship(back_populates="folders")
 
     # Self-referential relationship for tree structure
     parent: Mapped["Folder | None"] = relationship(
-        "Folder", remote_side=[id], back_populates="children", lazy="joined"
+        "Folder", remote_side="[Folder.id]", back_populates="children", lazy="joined"
     )
     children: Mapped[list["Folder"]] = relationship(
         "Folder", back_populates="parent", cascade="all, delete-orphan", lazy="selectin"

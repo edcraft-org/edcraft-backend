@@ -1,14 +1,13 @@
 """Question template model - blueprint for creating questions."""
 
-from datetime import datetime
 from typing import TYPE_CHECKING
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from edcraft_backend.database import Base
+from edcraft_backend.models.base import EntityBase
 
 if TYPE_CHECKING:
     from edcraft_backend.models.assessment_template_question_template import (
@@ -18,16 +17,13 @@ if TYPE_CHECKING:
     from edcraft_backend.models.user import User
 
 
-class QuestionTemplate(Base):
+class QuestionTemplate(EntityBase):
     """
     Question Template model - blueprint for creating question instances.
     Stores template configuration as JSON and structured fields (flexible schema).
     """
 
     __tablename__ = "question_templates"
-
-    # Primary Key
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
 
     # Foreign Keys
     owner_id: Mapped[UUID] = mapped_column(
@@ -39,24 +35,11 @@ class QuestionTemplate(Base):
         String(50), nullable=False, index=True
     )  # e.g., 'mcq', 'mrq', 'short_answer'
     question_text: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # TODO
     # Template-specific data (flexible JSON structure)
-    template_config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-
-    # Timestamps
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
-    )
-
-    # Soft Delete
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Contains: code, question_spec, generation_options
+    template_config: Mapped[dict[str, str]] = mapped_column(JSON, nullable=False, default=dict)
 
     # Relationships
     owner: Mapped["User"] = relationship(back_populates="question_templates")

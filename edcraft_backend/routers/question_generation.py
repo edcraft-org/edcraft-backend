@@ -1,6 +1,6 @@
 import codecs
 
-from edcraft_engine.question_generator.models import Question
+from edcraft_engine.question_generator.models import Question as EngineQuestion
 from fastapi import APIRouter, Depends, status
 
 from edcraft_backend.exceptions import (
@@ -17,7 +17,7 @@ from edcraft_backend.services.code_analysis import CodeAnalysisService
 from edcraft_backend.services.form_builder import FormBuilderService
 from edcraft_backend.services.question_generation import QuestionGenerationService
 
-router = APIRouter(prefix="/question-generation")
+router = APIRouter(prefix="/question-generation", tags=["question-generation"])
 
 
 @router.post(
@@ -55,12 +55,12 @@ async def analyse_code(
 
 
 @router.post(
-    "/generate-question", response_model=Question, status_code=status.HTTP_200_OK
+    "/generate-question", response_model=EngineQuestion, status_code=status.HTTP_200_OK
 )
 async def generate_question(
     request: QuestionGenerationRequest,
     svc: QuestionGenerationService = Depends(QuestionGenerationService),
-) -> Question:
+) -> EngineQuestion:
     """
     Generate a question based on the provided form selections.
 

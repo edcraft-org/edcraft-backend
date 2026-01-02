@@ -1,13 +1,12 @@
 """Assessment model - collection of questions and a question bank."""
 
-from datetime import datetime
 from typing import TYPE_CHECKING
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from edcraft_backend.database import Base
+from edcraft_backend.models.base import EntityBase
 
 if TYPE_CHECKING:
     from edcraft_backend.models.assessment_question import AssessmentQuestion
@@ -15,16 +14,13 @@ if TYPE_CHECKING:
     from edcraft_backend.models.user import User
 
 
-class Assessment(Base):
+class Assessment(EntityBase):
     """
     Assessment model - serves as both a collection of questions and a question bank.
     Questions are linked via many-to-many relationship.
     """
 
     __tablename__ = "assessments"
-
-    # Primary Key
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
 
     # Foreign Keys
     owner_id: Mapped[UUID] = mapped_column(
@@ -36,29 +32,18 @@ class Assessment(Base):
 
     # Basic Fields
     title: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-    # Timestamps
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
-    )
-
-    # Soft Delete
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
     # Relationships
     owner: Mapped["User"] = relationship(back_populates="assessments")
     folder: Mapped["Folder | None"] = relationship(back_populates="assessments")
 
-    # Many-to-many relationship with questions
+    # Many-to-many relationship with questions, ordered by order field
     question_associations: Mapped[list["AssessmentQuestion"]] = relationship(
-        back_populates="assessment", cascade="all, delete-orphan", lazy="selectin"
+        back_populates="assessment",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="AssessmentQuestion.order",
     )
 
     def __repr__(self) -> str:

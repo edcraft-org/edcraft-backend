@@ -3,30 +3,26 @@ Association table for many-to-many relationship between assessment
 templates and question templates.
 """
 
-from datetime import datetime
 from typing import TYPE_CHECKING
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Integer, UniqueConstraint, func
+from sqlalchemy import ForeignKey, Integer, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from edcraft_backend.database import Base
+from edcraft_backend.models.base import AssociationBase
 
 if TYPE_CHECKING:
     from edcraft_backend.models.assessment_template import AssessmentTemplate
     from edcraft_backend.models.question_template import QuestionTemplate
 
 
-class AssessmentTemplateQuestionTemplate(Base):
+class AssessmentTemplateQuestionTemplate(AssociationBase):
     """
     Association table for many-to-many relationship between
     assessment templates and question templates.
     """
 
     __tablename__ = "assessment_template_question_templates"
-
-    # Primary Key
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
 
     # Foreign Keys
     assessment_template_id: Mapped[UUID] = mapped_column(
@@ -43,11 +39,6 @@ class AssessmentTemplateQuestionTemplate(Base):
     # Additional Fields
     order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
-    # Timestamps
-    added_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-
     # Relationships
     assessment_template: Mapped["AssessmentTemplate"] = relationship(
         back_populates="template_associations"
@@ -62,6 +53,11 @@ class AssessmentTemplateQuestionTemplate(Base):
             "assessment_template_id",
             "question_template_id",
             name="uq_assessment_template_question_template",
+        ),
+        UniqueConstraint(
+            "assessment_template_id",
+            "order",
+            name="uq_assessment_template_question_template_order"
         ),
     )
 

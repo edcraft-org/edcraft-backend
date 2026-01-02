@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from edcraft_engine.question_generator.models import (
     ExecutionSpec,
     GenerationOptions,
@@ -36,4 +38,31 @@ class QuestionGenerationRequest(BaseModel):
     )
     generation_options: GenerationOptions = Field(
         ..., description="Options for question generation"
+    )
+
+
+class GenerateIntoAssessmentRequest(BaseModel):
+    """Request to generate a question and add it to an assessment."""
+
+    assessment_id: UUID = Field(..., description="Assessment ID to add the question to")
+    owner_id: UUID = Field(..., description="Owner ID for the new question")
+    code: str = Field(..., description="Original algorithm source code")
+    question_spec: QuestionSpec = Field(
+        ..., description="Specifications for the question to be generated"
+    )
+    execution_spec: ExecutionSpec = Field(
+        ..., description="Specifications for code execution"
+    )
+    generation_options: GenerationOptions = Field(
+        ..., description="Options for question generation"
+    )
+
+
+class GenerateFromTemplateRequest(BaseModel):
+    """Request to generate a question from a template."""
+
+    owner_id: UUID = Field(..., description="Owner ID for the new question")
+    code: str = Field(..., description="Original algorithm source code")
+    assessment_id: UUID = Field(
+        ..., description="Assessment ID to add the question to"
     )

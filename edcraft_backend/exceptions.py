@@ -33,3 +33,43 @@ class QuestionGenerationError(EdCraftBaseException):
 
     def __init__(self, message: str = "Failed to generate question") -> None:
         super().__init__(message, status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+
+# Domain-specific exceptions
+
+class ResourceNotFoundError(EdCraftBaseException):
+    """Raised when a requested resource is not found."""
+
+    def __init__(self, resource_type: str, resource_id: str) -> None:
+        message = f"{resource_type} with ID {resource_id} not found"
+        super().__init__(message, status.HTTP_404_NOT_FOUND)
+
+
+class DuplicateResourceError(EdCraftBaseException):
+    """Raised when attempting to create a duplicate resource."""
+
+    def __init__(self, resource_type: str, field: str, value: str) -> None:
+        message = f"{resource_type} with {field} '{value}' already exists"
+        super().__init__(message, status.HTTP_409_CONFLICT)
+
+
+class UnauthorizedAccessError(EdCraftBaseException):
+    """Raised when a user attempts to access a resource they don't own."""
+
+    def __init__(self, resource_type: str, resource_id: str) -> None:
+        message = f"Unauthorized access to {resource_type} with ID {resource_id}"
+        super().__init__(message, status.HTTP_403_FORBIDDEN)
+
+
+class ValidationError(EdCraftBaseException):
+    """Raised when validation fails."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, status.HTTP_400_BAD_REQUEST)
+
+
+class CircularReferenceError(EdCraftBaseException):
+    """Raised when a circular reference is detected in folder hierarchy."""
+
+    def __init__(self, message: str = "Circular reference detected in folder hierarchy") -> None:
+        super().__init__(message, status.HTTP_400_BAD_REQUEST)
