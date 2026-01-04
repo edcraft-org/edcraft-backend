@@ -20,9 +20,7 @@ from edcraft_backend.config import settings  # noqa: E402
 from edcraft_backend.database import get_db  # noqa: E402
 from edcraft_backend.main import app  # noqa: E402
 from edcraft_backend.models.base import Base  # noqa: E402
-from tests.mocks.mock_form_builder import MockFormBuilderService  # noqa: E402
-from tests.mocks.mock_question_generator import MockQuestionGenerationService  # noqa: E402
-from tests.mocks.mock_static_analyser import MockCodeAnalysisService  # noqa: E402
+from tests.mocks import MockQuestionGenerator, MockStaticAnalyser  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -91,27 +89,54 @@ async def test_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, N
     async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
         yield db_session
 
-    # Override external service dependencies with mocks
-    def override_question_generation_service() -> MockQuestionGenerationService:
-        return MockQuestionGenerationService()
+    # Override external service dependencies with mocked engines
+    from fastapi import Depends
 
-    def override_code_analysis_service() -> MockCodeAnalysisService:
-        return MockCodeAnalysisService()
+    from edcraft_backend.dependencies import (
+        get_assessment_service,
+        get_assessment_template_service,
+        get_question_generation_service,
+        get_question_template_service,
+    )
+    from edcraft_backend.services.assessment_service import AssessmentService
+    from edcraft_backend.services.assessment_template_service import (
+        AssessmentTemplateService,
+    )
+    from edcraft_backend.services.code_analysis_service import CodeAnalysisService
+    from edcraft_backend.services.question_generation_service import QuestionGenerationService
+    from edcraft_backend.services.question_template_service import QuestionTemplateService
 
-    def override_form_builder_service() -> MockFormBuilderService:
-        return MockFormBuilderService()
+    def override_question_generation_service(
+        question_template_svc: QuestionTemplateService = Depends(
+            get_question_template_service
+        ),
+        assessment_template_svc: AssessmentTemplateService = Depends(
+            get_assessment_template_service
+        ),
+        assessment_svc: AssessmentService = Depends(get_assessment_service),
+    ) -> QuestionGenerationService:
+        """Override with real service but mocked engine."""
+        service = QuestionGenerationService(
+            question_template_svc,
+            assessment_template_svc,
+            assessment_svc,
+        )
+        # Replace only the external engine with mock
+        service.question_generator = MockQuestionGenerator()
+        return service
+
+    def override_code_analysis_service() -> CodeAnalysisService:
+        """Override with real service but mocked engine."""
+        service = CodeAnalysisService()
+        service.static_analyser = MockStaticAnalyser()
+        return service
 
     # Apply dependency overrides
     app.dependency_overrides[get_db] = override_get_db
-
-    # Import services for override
-    from edcraft_backend.services.code_analysis import CodeAnalysisService
-    from edcraft_backend.services.form_builder import FormBuilderService
-    from edcraft_backend.services.question_generation import QuestionGenerationService
-
-    app.dependency_overrides[QuestionGenerationService] = override_question_generation_service
+    app.dependency_overrides[get_question_generation_service] = (
+        override_question_generation_service
+    )
     app.dependency_overrides[CodeAnalysisService] = override_code_analysis_service
-    app.dependency_overrides[FormBuilderService] = override_form_builder_service
 
     # Create async test client
     # Using raise_app_exceptions=False to prevent worker thread issues

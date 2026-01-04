@@ -1,21 +1,25 @@
 import codecs
+from uuid import UUID
 
 from edcraft_engine.question_generator.models import Question as EngineQuestion
 from fastapi import APIRouter, Depends, status
 
+from edcraft_backend.dependencies import QuestionGenerationServiceDep
 from edcraft_backend.exceptions import (
     CodeAnalysisError,
     CodeDecodingError,
     QuestionGenerationError,
 )
+from edcraft_backend.schemas.assessment import AssessmentWithQuestions
 from edcraft_backend.schemas.question_generation import (
     CodeAnalysisRequest,
     CodeAnalysisResponse,
+    GenerateAssessmentFromTemplateRequest,
+    GenerateQuestionFromTemplateRequest,
     QuestionGenerationRequest,
 )
-from edcraft_backend.services.code_analysis import CodeAnalysisService
-from edcraft_backend.services.form_builder import FormBuilderService
-from edcraft_backend.services.question_generation import QuestionGenerationService
+from edcraft_backend.services.code_analysis_service import CodeAnalysisService
+from edcraft_backend.services.form_builder_service import FormBuilderService
 
 router = APIRouter(prefix="/question-generation", tags=["question-generation"])
 
@@ -59,7 +63,7 @@ async def analyse_code(
 )
 async def generate_question(
     request: QuestionGenerationRequest,
-    svc: QuestionGenerationService = Depends(QuestionGenerationService),
+    service: QuestionGenerationServiceDep,
 ) -> EngineQuestion:
     """
     Generate a question based on the provided form selections.
@@ -77,7 +81,7 @@ async def generate_question(
         raise CodeDecodingError(f"Invalid code format: {str(e)}") from e
 
     try:
-        return svc.generate_question(
+        return await service.generate_question(
             code=decoded_code,
             question_spec=request.question_spec,
             execution_spec=request.execution_spec,
@@ -85,3 +89,38 @@ async def generate_question(
         )
     except Exception as e:
         raise QuestionGenerationError(f"Question generation failed: {str(e)}") from e
+
+
+@router.post(
+    "/from-template/{template_id}",
+    response_model=EngineQuestion,
+    status_code=status.HTTP_200_OK,
+)
+async def generate_question_from_template(
+    template_id: UUID,
+    request: GenerateQuestionFromTemplateRequest,
+    service: QuestionGenerationServiceDep,
+) -> EngineQuestion:
+    """Generate a question from a question template."""
+    return await service.generate_question_from_template(
+        template_id=template_id,
+        input_data=request.input_data,
+    )
+
+
+@router.post(
+    "/assessment-from-template/{template_id}",
+    response_model=AssessmentWithQuestions,
+    status_code=status.HTTP_201_CREATED,
+)
+async def generate_assessment_from_template(
+    template_id: UUID,
+    request: GenerateAssessmentFromTemplateRequest,
+    service: QuestionGenerationServiceDep,
+) -> AssessmentWithQuestions:
+    """Generate and persist an assessment from an assessment template."""
+    return await service.generate_assessment_from_template(
+        template_id=template_id,
+        assessment_metadata=request.assessment_metadata,
+        question_inputs=request.question_inputs,
+    )

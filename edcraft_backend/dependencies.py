@@ -27,6 +27,7 @@ from edcraft_backend.services.assessment_template_service import (
     AssessmentTemplateService,
 )
 from edcraft_backend.services.folder_service import FolderService
+from edcraft_backend.services.question_generation_service import QuestionGenerationService
 from edcraft_backend.services.question_service import QuestionService
 from edcraft_backend.services.question_template_service import QuestionTemplateService
 from edcraft_backend.services.user_service import UserService
@@ -152,6 +153,22 @@ def get_assessment_template_service(
         assoc_repo,
     )
 
+def get_question_generation_service(
+    question_template_svc: QuestionTemplateService = Depends(
+        get_question_template_service
+    ),
+    assessment_template_svc: AssessmentTemplateService = Depends(
+        get_assessment_template_service
+    ),
+    assessment_svc: AssessmentService = Depends(get_assessment_service),
+) -> QuestionGenerationService:
+    """Get QuestionGenerationService instance."""
+    return QuestionGenerationService(
+        question_template_svc,
+        assessment_template_svc,
+        assessment_svc,
+    )
+
 
 # Type aliases for cleaner router signatures
 UserServiceDep = Annotated[UserService, Depends(get_user_service)]
@@ -165,6 +182,10 @@ AssessmentServiceDep = Annotated[AssessmentService, Depends(get_assessment_servi
 AssessmentTemplateServiceDep = Annotated[
     AssessmentTemplateService,
     Depends(get_assessment_template_service),
+]
+QuestionGenerationServiceDep = Annotated[
+    QuestionGenerationService,
+    Depends(get_question_generation_service),
 ]
 
 # Repository type aliases

@@ -197,9 +197,15 @@ edcraft-backend/
 │   │   ├── form_builder.py
 │   │   └── question_generation.py
 │   └── services/                # Business logic
-│       ├── code_analysis.py
-│       ├── form_builder.py
-│       └── question_generation.py
+│       ├── user_service.py
+│       ├── folder_service.py
+│       ├── assessment_service.py
+│       ├── question_service.py
+│       ├── assessment_template_service.py
+│       ├── question_template_service.py
+│       ├── code_analysis_service.py
+│       ├── form_builder_service.py
+│       └── question_generation_service.py
 ├── alembic/                     # Database migrations
 │   └── versions/
 ├── tests/                       # Test suite
@@ -779,6 +785,40 @@ Question generation endpoints.
   - Uses template configuration to generate question
   - Adds generated question to the specified assessment
   - Returns: Created question record linked to template
+
+- `POST /question-generation/from-template/{template_id}` - Generate question from template
+  - Path param: `template_id` (UUID of QuestionTemplate)
+  - Body: `{input_data: object}`
+  - Returns: Generated question
+  - Example request:
+    ```json
+    {
+      "input_data": {"n": 5, "arr": [1, 2, 3, 4, 5]}
+    }
+    ```
+
+- `POST /question-generation/assessment-from-template/{template_id}` - Generate assessment from template
+  - Path param: `template_id` (UUID of AssessmentTemplate)
+  - Body: `{assessment_metadata: object, question_inputs: array}`
+  - Creates new assessment with all questions generated from templates
+  - Returns: Created assessment with all questions
+  - Example request:
+    ```json
+    {
+      "assessment_metadata": {
+        "owner_id": "uuid",
+        "folder_id": "uuid",
+        "title": "Custom Assessment Title",
+        "description": "Custom description"
+      },
+      "question_inputs": [
+        {"n": 5, "arr": [1, 2, 3, 4, 5]},
+        {"n": 10, "arr": [5, 4, 3, 2, 1]}
+      ]
+    }
+    ```
+  - Note: `question_inputs` array length must match number of question templates in the assessment template
+  - Note: `title` and `description` are optional; defaults to assessment template values if not provided
 
 ### Orphaned Resource Cleanup
 

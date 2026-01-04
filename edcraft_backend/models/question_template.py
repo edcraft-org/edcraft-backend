@@ -1,6 +1,6 @@
 """Question template model - blueprint for creating questions."""
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from sqlalchemy import ForeignKey, String, Text
@@ -39,7 +39,7 @@ class QuestionTemplate(EntityBase):
 
     # Template-specific data (flexible JSON structure)
     # Contains: code, question_spec, generation_options
-    template_config: Mapped[dict[str, str]] = mapped_column(JSON, nullable=False, default=dict)
+    template_config: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
 
     # Relationships
     owner: Mapped["User"] = relationship(back_populates="question_templates")
