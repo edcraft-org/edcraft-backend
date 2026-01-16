@@ -64,6 +64,28 @@ class MockQuestionGenerator:
 
         return self._get_default_question(question_type)
 
+    def generate_template_preview(
+        self,
+        question_spec: QuestionSpec,
+        generation_options: GenerationOptions,
+    ) -> Question:
+        """
+        Generate a template preview with placeholders.
+
+        Args:
+            question_spec: Specification for the question type and target
+            generation_options: Generation options (for num_distractors)
+
+        Returns:
+            Question: A mock question with template placeholders
+        """
+        question_type = question_spec.question_type
+
+        if question_type in self._custom_questions:
+            return self._custom_questions[question_type]
+
+        return self._get_template_preview(question_type, generation_options.num_distractors)
+
     def _get_default_question(self, question_type: str) -> Question:
         """
         Get default mock question for a given question type.
@@ -113,6 +135,64 @@ class MockQuestionGenerator:
             text="What is the purpose of this code?",
             question_type="short_answer",
             answer="To sort an array using bubble sort.",
+            options=None,
+            correct_indices=None,
+        )
+
+    def _get_template_preview(self, question_type: str, num_distractors: int) -> Question:
+        """
+        Get template preview with placeholders for a given question type.
+
+        Args:
+            question_type: The type of question (mcq, mrq, short_answer)
+            num_distractors: Number of distractor options
+
+        Returns:
+            Question: A template preview with placeholder values
+        """
+        if question_type == "mcq":
+            return self._get_mock_template_mcq(num_distractors)
+        elif question_type == "mrq":
+            return self._get_mock_template_mrq(num_distractors)
+        elif question_type == "short_answer":
+            return self._get_mock_template_short_answer()
+        else:
+            # Default to MCQ for unknown types
+            return self._get_mock_template_mcq(num_distractors)
+
+    def _get_mock_template_mcq(self, num_distractors: int) -> Question:
+        """Get MCQ template preview with placeholders."""
+        num_options = num_distractors + 1
+        options = [f"<option_{i+1}>" for i in range(num_options)]
+        return Question(
+            text="During execution, what is the return value of the first function `example()` " \
+            "call? Choose the correct option.",
+            answer="<placeholder_answer>",
+            options=options,
+            correct_indices=[0],
+            question_type="mcq",
+        )
+
+    def _get_mock_template_mrq(self, num_distractors: int) -> Question:
+        """Get MRQ template preview with placeholders."""
+        num_options = num_distractors + 1
+        options = [f"<option_{i+1}>" for i in range(num_options)]
+        return Question(
+            text="During execution, what are the return values of function `example()` calls? " \
+            "Select all that apply.",
+            answer="<placeholder_answer>",
+            options=options,
+            correct_indices=[0],
+            question_type="mrq",
+        )
+
+    def _get_mock_template_short_answer(self) -> Question:
+        """Get short answer template preview with placeholders."""
+        return Question(
+            text="During execution, what is the return value of the first function `example()` " \
+            "call? Provide the answer.",
+            question_type="short_answer",
+            answer="<placeholder_answer>",
             options=None,
             correct_indices=None,
         )

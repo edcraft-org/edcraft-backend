@@ -16,7 +16,9 @@ from edcraft_backend.schemas.question_generation import (
     CodeAnalysisResponse,
     GenerateAssessmentFromTemplateRequest,
     GenerateQuestionFromTemplateRequest,
+    GenerateTemplateRequest,
     QuestionGenerationRequest,
+    TemplatePreviewResponse,
 )
 from edcraft_backend.services.code_analysis_service import CodeAnalysisService
 from edcraft_backend.services.form_builder_service import FormBuilderService
@@ -89,6 +91,52 @@ async def generate_question(
         )
     except Exception as e:
         raise QuestionGenerationError(f"Question generation failed: {str(e)}") from e
+
+
+@router.post(
+    "/generate-template",
+    response_model=TemplatePreviewResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def generate_template_preview(
+    request: GenerateTemplateRequest,
+    service: QuestionGenerationServiceDep,
+) -> TemplatePreviewResponse:
+    """
+    Create a question template preview without database persistence.
+
+    Args:
+        request: Template generation request
+        service: Question generation service
+
+    Returns:
+        TemplatePreviewResponse with question text and config
+
+    Raises:
+        CodeDecodingError: If code cannot be decoded
+        QuestionGenerationError: If template preview generation fails
+    """
+    try:
+        decoded_code = codecs.decode(request.code, "unicode_escape")
+    except (UnicodeDecodeError, ValueError) as e:
+        raise CodeDecodingError(f"Invalid code format: {str(e)}") from e
+
+    try:
+        preview_question, template_config = await service.create_template_preview(
+            code=decoded_code,
+            entry_function=request.entry_function,
+            question_spec=request.question_spec,
+            generation_options=request.generation_options,
+        )
+    except Exception as e:
+        raise QuestionGenerationError(f"Template preview generation failed: {str(e)}") from e
+
+    return TemplatePreviewResponse(
+        question_text=preview_question.text,
+        question_type=preview_question.question_type,
+        template_config=template_config,
+        preview_question=preview_question,
+    )
 
 
 @router.post(

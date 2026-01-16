@@ -425,3 +425,141 @@ class TestGenerateAssessmentFromTemplate:
         for i in range(5):
             assert data["questions"][i]["order"] == i
             assert data["questions"][i]["template_id"] == str(question_templates[i].id)
+
+@pytest.mark.integration
+@pytest.mark.question_generation
+class TestGenerateTemplatePreview:
+    """Tests for POST /question-generation/generate-template endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_generate_template_preview_success(
+        self, test_client: AsyncClient
+    ) -> None:
+        """Test generating template preview with MCQ question type."""
+        request_data: dict[str, Any] = {
+            "code": "def example(n):\\n    return n * 2",
+            "entry_function": "example",
+            "question_spec": {
+                "target": [
+                    {
+                        "type": "function",
+                        "id": [0],
+                        "name": "example",
+                        "line_number": 1,
+                        "modifier": "return_value",
+                    }
+                ],
+                "output_type": "first",
+                "question_type": "mcq",
+            },
+            "generation_options": {"num_distractors": 4},
+        }
+
+        response = await test_client.post(
+            "/question-generation/generate-template", json=request_data
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify response structure
+        assert "question_text" in data
+        assert "question_type" in data
+        assert "template_config" in data
+        assert "preview_question" in data
+
+        # Verify question_type
+        assert data["question_type"] == "mcq"
+
+        # Verify question_text does NOT contain "Given input:"
+        assert "Given input:" not in data["question_text"]
+
+        # Verify template_config structure
+        config = data["template_config"]
+        assert config["code"] == "def example(n):\n    return n * 2"
+        assert config["entry_function"] == "example"
+        assert "question_spec" in config
+        assert "generation_options" in config
+        assert config["generation_options"]["num_distractors"] == 4
+
+        # Verify preview_question structure
+        preview = data["preview_question"]
+        assert preview["text"] == data["question_text"]
+        assert preview["question_type"] == "mcq"
+        assert preview["answer"] == "<placeholder_answer>"
+        assert preview["options"] is not None
+        assert len(preview["options"]) == 5  # 4 distractors + 1 correct
+        assert preview["correct_indices"] == [0]
+
+        # Verify placeholder options format
+        for i, option in enumerate(preview["options"]):
+            assert option == f"<option_{i+1}>"
+
+    @pytest.mark.asyncio
+    async def test_generate_template_preview_invalid_code_encoding(
+        self, test_client: AsyncClient
+    ) -> None:
+        """Test that invalid code encoding raises CodeDecodingError."""
+        request_data: dict[str, Any] = {
+            "code": "\\x",  # Invalid escape sequence
+            "entry_function": "example",
+            "question_spec": {
+                "target": [
+                    {
+                        "type": "function",
+                        "id": [0],
+                        "name": "example",
+                        "modifier": "return_value",
+                    }
+                ],
+                "output_type": "first",
+                "question_type": "mcq",
+            },
+            "generation_options": {"num_distractors": 4},
+        }
+
+        response = await test_client.post(
+            "/question-generation/generate-template", json=request_data
+        )
+
+        assert response.status_code == 400
+        assert "Invalid code format" in response.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_generate_template_preview_preserves_all_config(
+        self, test_client: AsyncClient
+    ) -> None:
+        """Test that template_config preserves all input configuration."""
+        request_data: dict[str, Any] = {
+            "code": "def example(x, y):\\n    return x + y",
+            "entry_function": "example",
+            "question_spec": {
+                "target": [
+                    {
+                        "type": "function",
+                        "id": [0],
+                        "name": "example",
+                        "line_number": 1,
+                        "modifier": "arguments",
+                    }
+                ],
+                "output_type": "list",
+                "question_type": "mrq",
+            },
+            "generation_options": {"num_distractors": 3},
+        }
+
+        response = await test_client.post(
+            "/question-generation/generate-template", json=request_data
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify all config is preserved
+        config = data["template_config"]
+        assert config["entry_function"] == "example"
+        assert config["question_spec"]["output_type"] == "list"
+        assert config["question_spec"]["question_type"] == "mrq"
+        assert config["question_spec"]["target"][0]["modifier"] == "arguments"
+        assert config["generation_options"]["num_distractors"] == 3

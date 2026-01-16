@@ -783,6 +783,13 @@ Question generation endpoints.
   - Body: `{code: string, question_spec: object, execution_spec: object, generation_options: object}`
   - Returns: Generated question (not persisted to database)
 
+- `POST /question-generation/generate-template` - Generate a template preview
+  - Body: `{code: string, entry_function: string, question_spec: object, generation_options: object}`
+  - Creates a question template preview without database persistence
+  - Returns: `{question_text: string, question_type: string, template_config: object, preview_question: object}`
+  - The `template_config` contains all configuration needed for future template creation
+  - The `preview_question` contains placeholder values (e.g., `<option_1>`, `<placeholder_answer>`)
+
 - `POST /question-generation/generate-into-assessment` - Generate and persist to assessment
   - Body: `{assessment_id: UUID, owner_id: UUID, code: string, question_spec: object, execution_spec: object, generation_options: object}`
   - Generates question using engine, creates Question record, links to Assessment

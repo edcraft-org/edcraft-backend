@@ -4,6 +4,7 @@ from uuid import UUID
 from edcraft_engine.question_generator.models import (
     ExecutionSpec,
     GenerationOptions,
+    Question,
     QuestionSpec,
 )
 from pydantic import BaseModel, Field
@@ -99,4 +100,30 @@ class GenerateAssessmentFromTemplateRequest(BaseModel):
     question_inputs: list[dict[str, Any]] = Field(
         ...,
         description="Array of input_data dicts, in question template order",
+    )
+
+
+class GenerateTemplateRequest(BaseModel):
+    """Request to generate a question template (no DB persistence)."""
+
+    code: str = Field(..., description="Algorithm code")
+    entry_function: str = Field(..., description="Name of the entry function")
+    question_spec: QuestionSpec = Field(
+        ..., description="Specifications for the question to be generated"
+    )
+    generation_options: GenerationOptions = Field(
+        ..., description="Options for question generation"
+    )
+
+
+class TemplatePreviewResponse(BaseModel):
+    """Response for template preview."""
+
+    question_text: str = Field(..., description="Generated template question text")
+    question_type: str = Field(..., description="Type of question")
+    template_config: dict[str, Any] = Field(
+        ..., description="Template configuration for future use"
+    )
+    preview_question: Question = Field(
+        ..., description="Preview with placeholders"
     )

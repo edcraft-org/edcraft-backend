@@ -106,6 +106,38 @@ class QuestionGenerationService:
             generation_options=generation_options,
         )
 
+    async def create_template_preview(
+        self,
+        code: str,
+        entry_function: str,
+        question_spec: QuestionSpec,
+        generation_options: GenerationOptions,
+    ) -> tuple[Question, dict[str, Any]]:
+        """Create template preview without database persistence.
+
+        Args:
+            code: Python source code
+            entry_function: Name of the entry function
+            question_spec: Question specifications
+            generation_options: Generation options
+
+        Returns:
+            Tuple of (preview_question, template_config)
+        """
+        preview_question = self.question_generator.generate_template_preview(
+            question_spec=question_spec,
+            generation_options=generation_options,
+        )
+
+        template_config: dict[str, Any] = {
+            "code": code,
+            "entry_function": entry_function,
+            "question_spec": question_spec.model_dump(),
+            "generation_options": generation_options.model_dump(),
+        }
+
+        return preview_question, template_config
+
     async def generate_assessment_from_template(
         self,
         template_id: UUID,
