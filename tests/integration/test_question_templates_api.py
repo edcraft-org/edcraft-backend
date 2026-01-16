@@ -6,7 +6,17 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.factories import create_test_question_template, create_test_user
+from edcraft_backend.models.assessment_template_question_template import (
+    AssessmentTemplateQuestionTemplate,
+)
+from edcraft_backend.repositories.assessment_template_question_template_repository import (
+    AssessmentTemplateQuestionTemplateRepository,
+)
+from tests.factories import (
+    create_test_assessment_template,
+    create_test_question_template,
+    create_test_user,
+)
 
 
 @pytest.mark.integration
@@ -338,5 +348,91 @@ class TestSoftDeleteQuestionTemplate:
 
         non_existent_id = uuid.uuid4()
         response = await test_client.delete(f"/question-templates/{non_existent_id}")
+
+        assert response.status_code == 404
+
+
+@pytest.mark.integration
+@pytest.mark.question_templates
+class TestGetAssessmentTemplatesForQuestionTemplate:
+    """Tests for GET /question-templates/{id}/assessment-templates endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_get_assessment_templates_for_question_template_success(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test getting assessment templates that include a question template."""
+        user = await create_test_user(db_session)
+        question_template = await create_test_question_template(db_session, user)
+        assessment_template1 = await create_test_assessment_template(
+            db_session, user, title="Assessment Template 1"
+        )
+        assessment_template2 = await create_test_assessment_template(
+            db_session, user, title="Assessment Template 2"
+        )
+        await db_session.commit()
+
+        # Link question template to both assessment templates
+        assoc_repo = AssessmentTemplateQuestionTemplateRepository(db_session)
+        assoc1 = AssessmentTemplateQuestionTemplate(
+            assessment_template_id=assessment_template1.id,
+            question_template_id=question_template.id,
+            order=0,
+        )
+        assoc2 = AssessmentTemplateQuestionTemplate(
+            assessment_template_id=assessment_template2.id,
+            question_template_id=question_template.id,
+            order=0,
+        )
+        await assoc_repo.create(assoc1)
+        await assoc_repo.create(assoc2)
+        await db_session.commit()
+
+        # Get assessment templates for question template
+        response = await test_client.get(
+            f"/question-templates/{question_template.id}/assessment-templates",
+            params={"owner_id": str(user.id)},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2
+        template_ids = [t["id"] for t in data]
+        assert str(assessment_template1.id) in template_ids
+        assert str(assessment_template2.id) in template_ids
+        assert "title" in data[0]
+
+    @pytest.mark.asyncio
+    async def test_get_assessment_templates_for_question_template_unauthorized(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test accessing assessment templates for question template not owned by user."""
+        user1 = await create_test_user(db_session, email="user1@test.com")
+        user2 = await create_test_user(db_session, email="user2@test.com")
+        question_template = await create_test_question_template(db_session, user1)
+        await db_session.commit()
+
+        response = await test_client.get(
+            f"/question-templates/{question_template.id}/assessment-templates",
+            params={"owner_id": str(user2.id)},
+        )
+
+        assert response.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_get_assessment_templates_for_question_template_not_found(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test getting assessment templates for non-existent question template."""
+        import uuid
+
+        user = await create_test_user(db_session)
+        await db_session.commit()
+
+        non_existent_id = uuid.uuid4()
+        response = await test_client.get(
+            f"/question-templates/{non_existent_id}/assessment-templates",
+            params={"owner_id": str(user.id)},
+        )
 
         assert response.status_code == 404

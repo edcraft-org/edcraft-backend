@@ -41,10 +41,8 @@ class UserService:
         Returns:
             List of users ordered by creation date (newest first)
         """
-        from edcraft_backend.models.user import User as UserModel
-
         return await self.user_repo.list(
-            order_by=UserModel.created_at.desc(),
+            order_by=User.created_at.desc(),
         )
 
     async def get_user(self, user_id: UUID) -> User:

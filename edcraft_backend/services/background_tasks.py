@@ -5,6 +5,10 @@ import logging
 from uuid import UUID
 
 from edcraft_backend.database import AsyncSessionLocal
+from edcraft_backend.repositories.assessment_question_repository import AssessmentQuestionRepository
+from edcraft_backend.repositories.assessment_template_question_template_repository import (
+    AssessmentTemplateQuestionTemplateRepository,
+)
 from edcraft_backend.repositories.question_repository import QuestionRepository
 from edcraft_backend.repositories.question_template_repository import (
     QuestionTemplateRepository,
@@ -54,9 +58,10 @@ async def _cleanup_orphaned_questions_task(owner_id: UUID) -> None:
         async with AsyncSessionLocal() as session:
             # Create repository instance
             question_repo = QuestionRepository(session)
+            assessment_question_repo = AssessmentQuestionRepository(session)
 
             # Create service instance
-            question_svc = QuestionService(question_repo)
+            question_svc = QuestionService(question_repo, assessment_question_repo)
 
             # Call service cleanup method
             questions_deleted = await question_svc.cleanup_orphaned_questions(owner_id)
@@ -82,9 +87,12 @@ async def _cleanup_orphaned_question_templates_task(owner_id: UUID) -> None:
         async with AsyncSessionLocal() as session:
             # Create repository instance
             question_template_repo = QuestionTemplateRepository(session)
+            assessment_tp_question_tp_repo = AssessmentTemplateQuestionTemplateRepository(session)
 
             # Create service instance
-            template_svc = QuestionTemplateService(question_template_repo)
+            template_svc = QuestionTemplateService(
+                question_template_repo, assessment_tp_question_tp_repo
+            )
 
             # Call service cleanup method
             templates_deleted = await template_svc.cleanup_orphaned_templates(owner_id)

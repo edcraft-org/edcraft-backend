@@ -3,6 +3,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from edcraft_backend.models.assessment_template import AssessmentTemplate
 from edcraft_backend.models.assessment_template_question_template import (
     AssessmentTemplateQuestionTemplate,
 )
@@ -130,3 +131,27 @@ class AssessmentTemplateQuestionTemplateRepository(
                 await self.update(assoc)
 
         await self.db.flush()
+
+    async def get_assessment_templates_by_question_template_id(
+        self,
+        question_template_id: UUID,
+    ) -> list[AssessmentTemplate]:
+        """Get all assessment templates that contain a specific question template.
+
+        Args:
+            question_template_id: QuestionTemplate UUID
+
+        Returns:
+            List of AssessmentTemplate objects that include this question template
+        """
+        stmt = (
+            select(AssessmentTemplate)
+            .join(
+                AssessmentTemplateQuestionTemplate,
+                AssessmentTemplate.id == AssessmentTemplateQuestionTemplate.assessment_template_id
+            )
+            .where(AssessmentTemplateQuestionTemplate.question_template_id == question_template_id)
+            .order_by(AssessmentTemplate.updated_at.desc())
+        )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())

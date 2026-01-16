@@ -4,7 +4,12 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from edcraft_backend.models.assessment_question import AssessmentQuestion
+from edcraft_backend.repositories.assessment_question_repository import (
+    AssessmentQuestionRepository,
+)
 from tests.factories import (
+    create_test_assessment,
     create_test_question,
     create_test_question_template,
     create_test_user,
@@ -289,5 +294,87 @@ class TestSoftDeleteQuestion:
 
         non_existent_id = uuid.uuid4()
         response = await test_client.delete(f"/questions/{non_existent_id}")
+
+        assert response.status_code == 404
+
+
+@pytest.mark.integration
+@pytest.mark.questions
+class TestGetAssessmentsForQuestion:
+    """Tests for GET /questions/{question_id}/assessments endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_get_assessments_for_question_success(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test getting assessments that include a question."""
+        user = await create_test_user(db_session)
+        question = await create_test_question(db_session, user)
+        assessment1 = await create_test_assessment(
+            db_session, user, title="Assessment 1"
+        )
+        assessment2 = await create_test_assessment(
+            db_session, user, title="Assessment 2"
+        )
+        await db_session.commit()
+
+        # Link question to both assessments
+        assoc_repo = AssessmentQuestionRepository(db_session)
+        assoc1 = AssessmentQuestion(
+            assessment_id=assessment1.id, question_id=question.id, order=0
+        )
+        assoc2 = AssessmentQuestion(
+            assessment_id=assessment2.id, question_id=question.id, order=0
+        )
+        await assoc_repo.create(assoc1)
+        await assoc_repo.create(assoc2)
+        await db_session.commit()
+
+        # Get assessments for question
+        response = await test_client.get(
+            f"/questions/{question.id}/assessments",
+            params={"owner_id": str(user.id)},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2
+        assessment_ids = [a["id"] for a in data]
+        assert str(assessment1.id) in assessment_ids
+        assert str(assessment2.id) in assessment_ids
+        assert "title" in data[0]
+
+    @pytest.mark.asyncio
+    async def test_get_assessments_for_question_unauthorized(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test accessing assessments for question not owned by user."""
+        user1 = await create_test_user(db_session, email="user1@test.com")
+        user2 = await create_test_user(db_session, email="user2@test.com")
+        question = await create_test_question(db_session, user1)
+        await db_session.commit()
+
+        response = await test_client.get(
+            f"/questions/{question.id}/assessments",
+            params={"owner_id": str(user2.id)},
+        )
+
+        assert response.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_get_assessments_for_question_not_found(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test getting assessments for non-existent question."""
+        import uuid
+
+        user = await create_test_user(db_session)
+        await db_session.commit()
+
+        non_existent_id = uuid.uuid4()
+        response = await test_client.get(
+            f"/questions/{non_existent_id}/assessments",
+            params={"owner_id": str(user.id)},
+        )
 
         assert response.status_code == 404

@@ -1,7 +1,11 @@
 from uuid import UUID
 
-from edcraft_backend.exceptions import ResourceNotFoundError
+from edcraft_backend.exceptions import ResourceNotFoundError, UnauthorizedAccessError
+from edcraft_backend.models.assessment_template import AssessmentTemplate
 from edcraft_backend.models.question_template import QuestionTemplate
+from edcraft_backend.repositories.assessment_template_question_template_repository import (
+    AssessmentTemplateQuestionTemplateRepository,
+)
 from edcraft_backend.repositories.question_template_repository import QuestionTemplateRepository
 from edcraft_backend.schemas.question_template import QuestionTemplateCreate, QuestionTemplateUpdate
 
@@ -9,8 +13,13 @@ from edcraft_backend.schemas.question_template import QuestionTemplateCreate, Qu
 class QuestionTemplateService:
     """Service layer for QuestionTemplate business logic."""
 
-    def __init__(self, question_template_repository: QuestionTemplateRepository):
+    def __init__(
+        self,
+        question_template_repository: QuestionTemplateRepository,
+        assessment_template_ques_template_repository: AssessmentTemplateQuestionTemplateRepository,
+    ):
         self.template_repo = question_template_repository
+        self.assoc_repo = assessment_template_ques_template_repository
 
     async def create_template(
         self,
@@ -44,13 +53,9 @@ class QuestionTemplateService:
         if owner_id:
             filters["owner_id"] = owner_id
 
-        from edcraft_backend.models.question_template import (
-            QuestionTemplate as QuestionTemplateModel,
-        )
-
         return await self.template_repo.list(
             filters=filters if filters else None,
-            order_by=QuestionTemplateModel.created_at.desc(),
+            order_by=QuestionTemplate.created_at.desc(),
         )
 
     async def get_template(self, template_id: UUID) -> QuestionTemplate:
@@ -127,3 +132,29 @@ class QuestionTemplateService:
             count += 1
 
         return count
+
+    async def get_assessment_templates_for_question_template(
+        self,
+        question_template_id: UUID,
+        requesting_user_id: UUID,
+    ) -> list[AssessmentTemplate]:
+        """Get all assessment templates that include this question template.
+
+        Args:
+            question_template_id: QuestionTemplate UUID
+            requesting_user_id: User UUID making the request
+
+        Returns:
+            List of assessment templates that include this question template
+
+        Raises:
+            ResourceNotFoundError: If question template not found
+            UnauthorizedAccessError: If user doesn't own the question template
+        """
+        template = await self.get_template(question_template_id)
+        if template.owner_id != requesting_user_id:
+            raise UnauthorizedAccessError("QuestionTemplate", str(question_template_id))
+
+        return await self.assoc_repo.get_assessment_templates_by_question_template_id(
+            question_template_id
+        )

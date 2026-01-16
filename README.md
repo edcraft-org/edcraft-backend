@@ -637,6 +637,10 @@ Manage individual question instances.
 - `DELETE /questions/{question_id}` - Soft delete question
   - Removes question from all assessments
 
+- `GET /questions/{question_id}/assessments?owner_id={uuid}` - Get assessments that include this question
+  - Query params: `owner_id` (required, must match question owner)
+  - Returns: Array of assessments using this question
+
 #### Assessments (`/assessments`)
 
 Manage assessments (collections of questions).
@@ -714,6 +718,10 @@ Manage question template blueprints.
 
 - `DELETE /question-templates/{template_id}` - Soft delete template
   - Questions created from this template are preserved
+
+- `GET /question-templates/{question_template_id}/assessment-templates?owner_id={uuid}` - Get assessment templates that include this question template
+  - Query params: `owner_id` (required, must match question template owner)
+  - Returns: Array of assessment templates using this question template
 
 #### Assessment Templates (`/assessment-templates`)
 

@@ -1,7 +1,11 @@
 from uuid import UUID
 
-from edcraft_backend.exceptions import ResourceNotFoundError
+from edcraft_backend.exceptions import ResourceNotFoundError, UnauthorizedAccessError
+from edcraft_backend.models.assessment import Assessment
 from edcraft_backend.models.question import Question
+from edcraft_backend.repositories.assessment_question_repository import (
+    AssessmentQuestionRepository,
+)
 from edcraft_backend.repositories.question_repository import QuestionRepository
 from edcraft_backend.schemas.question import QuestionCreate, QuestionUpdate
 
@@ -12,8 +16,10 @@ class QuestionService:
     def __init__(
         self,
         question_repository: QuestionRepository,
+        assessment_question_repository: AssessmentQuestionRepository,
     ):
         self.question_repo = question_repository
+        self.assoc_repo = assessment_question_repository
 
     async def create_question(self, question_data: QuestionCreate) -> Question:
         """Create a new question.
@@ -43,11 +49,9 @@ class QuestionService:
         if owner_id:
             filters["owner_id"] = owner_id
 
-        from edcraft_backend.models.question import Question as QuestionModel
-
         return await self.question_repo.list(
             filters=filters if filters else None,
-            order_by=QuestionModel.created_at.desc(),
+            order_by=Question.created_at.desc(),
         )
 
     async def get_question(self, question_id: UUID) -> Question:
@@ -124,3 +128,27 @@ class QuestionService:
             count += 1
 
         return count
+
+    async def get_assessments_for_question(
+        self,
+        question_id: UUID,
+        requesting_user_id: UUID,
+    ) -> list[Assessment]:
+        """Get all assessments that include this question.
+
+        Args:
+            question_id: Question UUID
+            requesting_user_id: User UUID making the request
+
+        Returns:
+            List of assessments that include this question
+
+        Raises:
+            ResourceNotFoundError: If question not found
+            UnauthorizedAccessError: If user doesn't own the question
+        """
+        question = await self.get_question(question_id)
+        if question.owner_id != requesting_user_id:
+            raise UnauthorizedAccessError("Question", str(question_id))
+
+        return await self.assoc_repo.get_assessments_by_question_id(question_id)

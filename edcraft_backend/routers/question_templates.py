@@ -6,7 +6,11 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from edcraft_backend.dependencies import QuestionTemplateServiceDep
 from edcraft_backend.exceptions import EdCraftBaseException
+from edcraft_backend.models.assessment_template import AssessmentTemplate
 from edcraft_backend.models.question_template import QuestionTemplate
+from edcraft_backend.schemas.assessment_template import (
+    AssessmentTemplateResponse,
+)
 from edcraft_backend.schemas.question_template import (
     QuestionTemplateList,
     QuestionTemplateResponse,
@@ -59,5 +63,23 @@ async def soft_delete_question_template(
     """Soft delete a question template."""
     try:
         await service.soft_delete_template(template_id)
+    except EdCraftBaseException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+
+@router.get(
+    "/{question_template_id}/assessment-templates",
+    response_model=list[AssessmentTemplateResponse],
+)
+async def get_assessment_templates_for_question_template(
+    question_template_id: UUID,
+    service: QuestionTemplateServiceDep,
+    owner_id: UUID = Query(..., description="Owner ID to verify ownership"),
+) -> list[AssessmentTemplate]:
+    """Get all assessment templates that include this question template."""
+    try:
+        return await service.get_assessment_templates_for_question_template(
+            question_template_id, owner_id
+        )
     except EdCraftBaseException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e

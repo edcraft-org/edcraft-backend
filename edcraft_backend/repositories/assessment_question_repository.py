@@ -3,6 +3,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from edcraft_backend.models.assessment import Assessment
 from edcraft_backend.models.assessment_question import AssessmentQuestion
 from edcraft_backend.repositories.base import AssociationRepository
 
@@ -113,3 +114,24 @@ class AssessmentQuestionRepository(AssociationRepository[AssessmentQuestion]):
                 await self.update(assoc)
 
         await self.db.flush()
+
+    async def get_assessments_by_question_id(
+        self,
+        question_id: UUID,
+    ) -> list[Assessment]:
+        """Get all assessments that contain a specific question.
+
+        Args:
+            question_id: Question UUID
+
+        Returns:
+            List of Assessment objects that include this question
+        """
+        stmt = (
+            select(Assessment)
+            .join(AssessmentQuestion, Assessment.id == AssessmentQuestion.assessment_id)
+            .where(AssessmentQuestion.question_id == question_id)
+            .order_by(Assessment.updated_at.desc())
+        )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())

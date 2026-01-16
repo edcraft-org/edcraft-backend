@@ -105,18 +105,24 @@ def get_folder_service(
 
 def get_question_service(
     question_repo: QuestionRepository = Depends(get_question_repository),
+    assessment_question_repo: AssessmentQuestionRepository = Depends(
+        get_assessment_question_repository
+    ),
 ) -> QuestionService:
     """Get QuestionService instance."""
-    return QuestionService(question_repo)
+    return QuestionService(question_repo, assessment_question_repo)
 
 
 def get_question_template_service(
     template_repo: QuestionTemplateRepository = Depends(
         get_question_template_repository
     ),
+    assessment_template_ques_template_repo: AssessmentTemplateQuestionTemplateRepository = Depends(
+        get_assessment_template_question_template_repository
+    ),
 ) -> QuestionTemplateService:
     """Get QuestionTemplateService instance."""
-    return QuestionTemplateService(template_repo)
+    return QuestionTemplateService(template_repo, assessment_template_ques_template_repo)
 
 
 def get_assessment_service(
