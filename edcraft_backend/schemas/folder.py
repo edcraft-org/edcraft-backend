@@ -1,14 +1,12 @@
 """Folder schemas for request/response validation."""
 
 from datetime import datetime
-from typing import TYPE_CHECKING
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-if TYPE_CHECKING:
-    from edcraft_backend.schemas.assessment import AssessmentResponse
-    from edcraft_backend.schemas.assessment_template import AssessmentTemplateResponse
+from edcraft_backend.schemas.assessment import AssessmentResponse
+from edcraft_backend.schemas.assessment_template import AssessmentTemplateResponse
 
 
 class FolderCreate(BaseModel):
