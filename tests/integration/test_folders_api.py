@@ -674,6 +674,12 @@ class TestGetFolderContents:
         folder = await create_test_folder(
             db_session, user, name="Test Folder", description="Test desc"
         )
+        child1 = await create_test_folder(
+            db_session, user, parent=folder, name="Child 1"
+        )
+        child2 = await create_test_folder(
+            db_session, user, parent=folder, name="Child 2"
+        )
         assessment1 = await create_test_assessment(
             db_session, user, folder=folder, title="Assessment 1"
         )
@@ -713,6 +719,13 @@ class TestGetFolderContents:
         assert str(template1.id) in template_ids
         assert str(template2.id) in template_ids
 
+        # Verify child folders are included
+        assert "folders" in data
+        assert len(data["folders"]) == 2
+        folder_ids = [f["id"] for f in data["folders"]]
+        assert str(child1.id) in folder_ids
+        assert str(child2.id) in folder_ids
+
     @pytest.mark.asyncio
     async def test_get_folder_contents_empty_folder(
         self, test_client: AsyncClient, db_session: AsyncSession
@@ -727,6 +740,7 @@ class TestGetFolderContents:
         assert response.status_code == 200
         data = response.json()
         assert data["id"] == str(folder.id)
+        assert data["folders"] == []
         assert data["assessments"] == []
         assert data["assessment_templates"] == []
 
@@ -809,7 +823,34 @@ class TestGetFolderContents:
         assert str(deleted_template.id) not in template_ids
 
     @pytest.mark.asyncio
-    async def test_get_folder_contents_returns_complete_objects(
+    async def test_get_folder_contents_excludes_soft_deleted_child_folders(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test soft-deleted child folders are not included in contents."""
+        user = await create_test_user(db_session)
+        folder = await create_test_folder(db_session, user, name="Parent")
+        active_child = await create_test_folder(
+            db_session, user, parent=folder, name="Active Child"
+        )
+        deleted_child = await create_test_folder(
+            db_session, user, parent=folder, name="Deleted Child"
+        )
+        await db_session.commit()
+
+        # Soft delete one child folder
+        await test_client.delete(f"/folders/{deleted_child.id}")
+
+        response = await test_client.get(f"/folders/{folder.id}/contents")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        folder_ids = [f["id"] for f in data["folders"]]
+        assert str(active_child.id) in folder_ids
+        assert str(deleted_child.id) not in folder_ids
+
+    @pytest.mark.asyncio
+    async def test_get_folder_contents_returns_complete_assessment_objects(
         self, test_client: AsyncClient, db_session: AsyncSession
     ) -> None:
         """Test assessments and templates have complete fields."""
@@ -821,13 +862,6 @@ class TestGetFolderContents:
             folder=folder,
             title="Test Assessment",
             description="Test description",
-        )
-        template = await create_test_assessment_template(
-            db_session,
-            user,
-            folder=folder,
-            title="Test Template",
-            description="Template desc",
         )
         await db_session.commit()
 
@@ -846,6 +880,27 @@ class TestGetFolderContents:
         assert "created_at" in assessment_data
         assert "updated_at" in assessment_data
 
+    @pytest.mark.asyncio
+    async def test_get_folder_contents_returns_complete_assessment_template_objects(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test assessments and templates have complete fields."""
+        user = await create_test_user(db_session)
+        folder = await create_test_folder(db_session, user)
+        template = await create_test_assessment_template(
+            db_session,
+            user,
+            folder=folder,
+            title="Test Template",
+            description="Template desc",
+        )
+        await db_session.commit()
+
+        response = await test_client.get(f"/folders/{folder.id}/contents")
+
+        assert response.status_code == 200
+        data = response.json()
+
         # Verify template has all required fields
         template_data = data["assessment_templates"][0]
         assert template_data["id"] == str(template.id)
@@ -855,3 +910,61 @@ class TestGetFolderContents:
         assert template_data["folder_id"] == str(folder.id)
         assert "created_at" in template_data
         assert "updated_at" in template_data
+
+    @pytest.mark.asyncio
+    async def test_get_folder_contents_child_folders_have_correct_fields(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test child folders have all FolderResponse fields."""
+        user = await create_test_user(db_session)
+        folder = await create_test_folder(db_session, user, name="Parent")
+        child = await create_test_folder(
+            db_session,
+            user,
+            parent=folder,
+            name="Child",
+            description="Child description",
+        )
+        await db_session.commit()
+
+        response = await test_client.get(f"/folders/{folder.id}/contents")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        child_data = data["folders"][0]
+        assert child_data["id"] == str(child.id)
+        assert child_data["owner_id"] == str(user.id)
+        assert child_data["parent_id"] == str(folder.id)
+        assert child_data["name"] == "Child"
+        assert child_data["description"] == "Child description"
+        assert "created_at" in child_data
+        assert "updated_at" in child_data
+
+    @pytest.mark.asyncio
+    async def test_get_folder_contents_child_folders_dont_include_nested_contents(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test child folders don't include their own contents (non-recursive)."""
+        user = await create_test_user(db_session)
+        parent = await create_test_folder(db_session, user, name="Parent")
+        child = await create_test_folder(db_session, user, parent=parent, name="Child")
+
+        # Add content to child folder
+        await create_test_assessment(db_session, user, folder=child)
+        await create_test_folder(db_session, user, parent=child, name="Grandchild")
+        await db_session.commit()
+
+        response = await test_client.get(f"/folders/{parent.id}/contents")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Parent should have child folder
+        assert len(data["folders"]) == 1
+        child_data = data["folders"][0]
+
+        # Child folder should only have FolderResponse fields (no nested contents)
+        assert "assessments" not in child_data
+        assert "assessment_templates" not in child_data
+        assert "folders" not in child_data

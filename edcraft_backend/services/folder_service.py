@@ -15,6 +15,7 @@ from edcraft_backend.repositories.folder_repository import FolderRepository
 from edcraft_backend.schemas.folder import (
     FolderCreate,
     FolderMove,
+    FolderResponse,
     FolderTree,
     FolderUpdate,
     FolderWithContents,
@@ -121,13 +122,13 @@ class FolderService:
         return folder
 
     async def get_folder_with_contents(self, folder_id: UUID) -> FolderWithContents:
-        """Get a folder with its complete contents (assessments and templates).
+        """Get a folder with its complete contents (assessments, templates, and child folders).
 
         Args:
             folder_id: Folder UUID
 
         Returns:
-            Folder with complete Assessment and AssessmentTemplate objects
+            Folder with complete Assessment, AssessmentTemplate, and child Folder objects
 
         Raises:
             ResourceNotFoundError: If folder not found
@@ -149,6 +150,9 @@ class FolderService:
             if template.deleted_at is None
         ]
 
+        children = await self.folder_repo.get_children(folder_id)
+        folder_responses = [FolderResponse.model_validate(child) for child in children]
+
         return FolderWithContents(
             id=folder.id,
             owner_id=folder.owner_id,
@@ -159,6 +163,7 @@ class FolderService:
             updated_at=folder.updated_at,
             assessments=assessment_responses,
             assessment_templates=template_responses,
+            folders=folder_responses,
         )
 
     async def get_folder_tree(self, folder_id: UUID) -> FolderTree:

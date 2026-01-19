@@ -31,19 +31,6 @@ class FolderMove(BaseModel):
     parent_id: UUID | None
 
 
-class FolderList(BaseModel):
-    """Lightweight schema for listing folders."""
-
-    id: UUID
-    owner_id: UUID
-    parent_id: UUID | None
-    name: str
-    description: str | None
-    created_at: datetime
-
-    model_config = ConfigDict(from_attributes=True)
-
-
 class FolderResponse(BaseModel):
     """Complete schema for folder responses."""
 
@@ -75,13 +62,13 @@ class FolderTree(BaseModel):
 class FolderPath(BaseModel):
     """Schema for folder path from root to current folder."""
 
-    path: list[FolderList]
+    path: list[FolderResponse]
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class FolderWithContents(BaseModel):
-    """Schema for folder with its contents (assessments and templates)."""
+    """Schema for folder with its contents (assessments, templates, and child folders)."""
 
     id: UUID
     owner_id: UUID
@@ -92,5 +79,6 @@ class FolderWithContents(BaseModel):
     updated_at: datetime
     assessments: list["AssessmentResponse"] = []
     assessment_templates: list["AssessmentTemplateResponse"] = []
+    folders: list["FolderResponse"] = []
 
     model_config = ConfigDict(from_attributes=True)

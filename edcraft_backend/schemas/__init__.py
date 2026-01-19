@@ -28,7 +28,6 @@ from edcraft_backend.schemas.assessment_template import (
 # Folder schemas
 from edcraft_backend.schemas.folder import (
     FolderCreate,
-    FolderList,
     FolderMove,
     FolderPath,
     FolderResponse,
@@ -75,7 +74,6 @@ __all__ = [
     "UserUpdate",
     # Folder
     "FolderCreate",
-    "FolderList",
     "FolderMove",
     "FolderPath",
     "FolderResponse",

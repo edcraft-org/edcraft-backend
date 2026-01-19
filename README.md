@@ -618,8 +618,8 @@ Hierarchical folder management.
   - Returns: Array of folders from root to current folder
 
 - `GET /folders/{folder_id}/contents` - Get folder with contents
-  - Returns: Folder details plus complete Assessment and AssessmentTemplate objects
-  - Response includes: assessments array and assessment_templates array
+  - Returns: Folder details plus complete Assessment, AssessmentTemplate, and child Folder objects
+  - Response includes: assessments array, assessment_templates array, and folders array
 
 - `PATCH /folders/{folder_id}` - Update folder
   - Body: `{name?: string, description?: string}`

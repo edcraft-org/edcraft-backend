@@ -9,7 +9,6 @@ from edcraft_backend.exceptions import EdCraftBaseException
 from edcraft_backend.models.folder import Folder
 from edcraft_backend.schemas.folder import (
     FolderCreate,
-    FolderList,
     FolderMove,
     FolderPath,
     FolderResponse,
@@ -30,7 +29,7 @@ async def create_folder(folder_data: FolderCreate, service: FolderServiceDep) ->
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
 
-@router.get("", response_model=list[FolderList])
+@router.get("", response_model=list[FolderResponse])
 async def list_folders(
     service: FolderServiceDep,
     owner_id: UUID = Query(..., description="Owner ID to filter folders"),
