@@ -73,32 +73,6 @@ class AssessmentRepository(EntityRepository[Assessment]):
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_root_assessments(
-        self,
-        owner_id: UUID,
-        include_deleted: bool = False,
-    ) -> list[Assessment]:
-        """Get all root assessments (no folder) for a user.
-
-        Args:
-            owner_id: User UUID
-            include_deleted: Whether to include soft-deleted assessments
-
-        Returns:
-            List of root assessments ordered by last updated descending
-        """
-        stmt = (
-            select(Assessment)
-            .where(Assessment.owner_id == owner_id, Assessment.folder_id.is_(None))
-            .order_by(Assessment.updated_at.desc())
-        )
-
-        if not include_deleted:
-            stmt = stmt.where(Assessment.deleted_at.is_(None))
-
-        result = await self.db.execute(stmt)
-        return list(result.scalars().all())
-
     async def bulk_soft_delete_by_folder_ids(self, folder_ids: list[UUID]) -> None:
         """Bulk soft-delete assessments by folder IDs.
 

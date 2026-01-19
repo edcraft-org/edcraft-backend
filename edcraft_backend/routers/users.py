@@ -4,9 +4,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 
-from edcraft_backend.dependencies import UserServiceDep
+from edcraft_backend.dependencies import FolderServiceDep, UserServiceDep
 from edcraft_backend.exceptions import EdCraftBaseException
+from edcraft_backend.models.folder import Folder
 from edcraft_backend.models.user import User
+from edcraft_backend.schemas.folder import FolderResponse
 from edcraft_backend.schemas.user import UserCreate, UserList, UserResponse, UserUpdate
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -64,5 +66,19 @@ async def hard_delete_user(user_id: UUID, service: UserServiceDep) -> None:
     """Hard delete a user (cascade deletes all content)."""
     try:
         await service.hard_delete_user(user_id)
+    except EdCraftBaseException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+
+@router.get("/{user_id}/root-folder", response_model=FolderResponse)
+async def get_user_root_folder(
+    user_id: UUID,
+    user_service: UserServiceDep,
+    folder_service: FolderServiceDep,
+) -> Folder:
+    """Get the root folder for a user."""
+    try:
+        await user_service.get_user(user_id)
+        return await folder_service.get_root_folder(user_id)
     except EdCraftBaseException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e

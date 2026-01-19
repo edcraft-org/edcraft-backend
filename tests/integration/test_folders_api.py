@@ -10,6 +10,7 @@ from tests.factories import (
     create_test_folder,
     create_test_folder_tree,
     create_test_user,
+    get_user_root_folder,
 )
 
 
@@ -134,18 +135,24 @@ class TestListFolders:
     ) -> None:
         """Test listing all folders for a user."""
         user = await create_test_user(db_session)
+        root_folder = await get_user_root_folder(db_session, user)
         folder1 = await create_test_folder(db_session, user, name="Folder1")
         folder2 = await create_test_folder(db_session, user, name="Folder2")
+        nested_child = await create_test_folder(
+            db_session, user, parent=folder1, name="NestedChild"
+        )
         await db_session.commit()
 
         response = await test_client.get("/folders", params={"owner_id": str(user.id)})
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data) >= 2
+        assert len(data) == 4
         folder_ids = [f["id"] for f in data]
+        assert str(root_folder.id) in folder_ids
         assert str(folder1.id) in folder_ids
         assert str(folder2.id) in folder_ids
+        assert str(nested_child.id) in folder_ids
 
     @pytest.mark.asyncio
     async def test_list_folders_filter_by_parent(
@@ -174,30 +181,6 @@ class TestListFolders:
         assert str(child1.id) in folder_ids
         assert str(child2.id) in folder_ids
         assert all(f["parent_id"] == str(parent.id) for f in data)
-
-    @pytest.mark.asyncio
-    async def test_list_folders_root_only(
-        self, test_client: AsyncClient, db_session: AsyncSession
-    ) -> None:
-        """Test filtering with parent_id=None for root folders."""
-        user = await create_test_user(db_session)
-        root1 = await create_test_folder(db_session, user, name="Root1")
-        root2 = await create_test_folder(db_session, user, name="Root2")
-        parent = await create_test_folder(db_session, user, name="Parent")
-        await create_test_folder(db_session, user, parent=parent, name="Child")
-        await db_session.commit()
-
-        response = await test_client.get(
-            "/folders",
-            params={"owner_id": str(user.id)},
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        folder_ids = [f["id"] for f in data]
-        assert str(root1.id) in folder_ids
-        assert str(root2.id) in folder_ids
-        assert all(f["parent_id"] is None for f in data)
 
     @pytest.mark.asyncio
     async def test_list_folders_excludes_soft_deleted(
@@ -357,7 +340,7 @@ class TestGetFolderPath:
         assert response.status_code == 200
         data = response.json()
         assert "path" in data
-        assert len(data["path"]) == 3  # Root -> Child -> Grandchild
+        assert len(data["path"]) == 4
 
     @pytest.mark.asyncio
     async def test_get_folder_path_correct_order(
@@ -365,9 +348,10 @@ class TestGetFolderPath:
     ) -> None:
         """Test path is in correct order (root to leaf)."""
         user = await create_test_user(db_session)
-        root = await create_test_folder(db_session, user, name="Root")
+        root_folder = await get_user_root_folder(db_session, user)
+
         child = await create_test_folder(
-            db_session, user, parent=root, name="Child"
+            db_session, user, parent=root_folder, name="Child"
         )
         grandchild = await create_test_folder(
             db_session, user, parent=child, name="Grandchild"
@@ -379,7 +363,8 @@ class TestGetFolderPath:
         assert response.status_code == 200
         data = response.json()
         path = data["path"]
-        assert path[0]["name"] == "Root"
+        assert len(path) == 3
+        assert path[0]["name"] == "My Projects"
         assert path[1]["name"] == "Child"
         assert path[2]["name"] == "Grandchild"
 
@@ -389,15 +374,16 @@ class TestGetFolderPath:
     ) -> None:
         """Test root folder returns path with only itself."""
         user = await create_test_user(db_session)
-        root = await create_test_folder(db_session, user, name="Root")
+        root_folder = await get_user_root_folder(db_session, user)
         await db_session.commit()
 
-        response = await test_client.get(f"/folders/{root.id}/path")
+        response = await test_client.get(f"/folders/{root_folder.id}/path")
 
         assert response.status_code == 200
         data = response.json()
         assert len(data["path"]) == 1
-        assert data["path"][0]["id"] == str(root.id)
+        assert data["path"][0]["id"] == str(root_folder.id)
+        assert data["path"][0]["name"] == "My Projects"
 
 
 @pytest.mark.integration
@@ -660,6 +646,18 @@ class TestSoftDeleteFolder:
         response = await test_client.delete(f"/folders/{uuid.uuid4()}")
 
         assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_cannot_delete_root_folder(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test that deleting root folder returns 403 Forbidden."""
+        user = await create_test_user(db_session)
+        root_folder = await get_user_root_folder(db_session, user)
+        await db_session.commit()
+
+        response = await test_client.delete(f"/folders/{root_folder.id}")
+        assert response.status_code == 403
 
 
 @pytest.mark.integration

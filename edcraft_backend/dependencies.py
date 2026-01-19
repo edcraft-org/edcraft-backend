@@ -85,13 +85,6 @@ def get_assessment_template_question_template_repository(
 
 
 # Service dependencies
-def get_user_service(
-    user_repo: UserRepository = Depends(get_user_repository),
-) -> UserService:
-    """Get UserService instance."""
-    return UserService(user_repo)
-
-
 def get_folder_service(
     folder_repo: FolderRepository = Depends(get_folder_repository),
     assessment_repo: AssessmentRepository = Depends(get_assessment_repository),
@@ -101,6 +94,14 @@ def get_folder_service(
 ) -> FolderService:
     """Get FolderService instance."""
     return FolderService(folder_repo, assessment_repo, assessment_template_repo)
+
+
+def get_user_service(
+    user_repo: UserRepository = Depends(get_user_repository),
+    folder_svc: FolderService = Depends(get_folder_service),
+) -> UserService:
+    """Get UserService instance."""
+    return UserService(user_repo, folder_svc)
 
 
 def get_question_service(

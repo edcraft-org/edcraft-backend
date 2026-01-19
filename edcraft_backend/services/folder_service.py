@@ -3,6 +3,7 @@ from uuid import UUID
 from edcraft_backend.exceptions import (
     CircularReferenceError,
     DuplicateResourceError,
+    ForbiddenOperationError,
     ResourceNotFoundError,
 )
 from edcraft_backend.models.folder import Folder
@@ -78,15 +79,29 @@ class FolderService:
 
         Args:
             owner_id: User UUID
-            parent_id: Parent folder UUID (None for root folders)
+            parent_id: Parent folder UUID (None for ALL folders owned by user)
 
         Returns:
             List of folders ordered by name
         """
         if parent_id is None:
-            return await self.folder_repo.get_root_folders(owner_id)
+            return await self.folder_repo.list(
+                filters={"owner_id": owner_id},
+                order_by=Folder.name.asc()
+            )
         else:
             return await self.folder_repo.get_children(parent_id)
+
+    async def get_root_folder(self, owner_id: UUID) -> Folder:
+        """Get the root folder for a user.
+
+        Args:
+            owner_id: User UUID
+
+        Returns:
+            Root folder
+        """
+        return await self.folder_repo.get_root_folder(owner_id)
 
     async def get_folder(self, folder_id: UUID) -> Folder:
         """Get a folder by ID.
@@ -328,10 +343,13 @@ class FolderService:
 
         Raises:
             ResourceNotFoundError: If folder not found
+            ForbiddenOperationError: If attempting to delete root folder
         """
         folder = await self.folder_repo.get_by_id(folder_id)
         if not folder:
             raise ResourceNotFoundError("Folder", str(folder_id))
+        if folder.parent_id is None:
+            raise ForbiddenOperationError("Cannot delete root folder")
 
         descendant_ids = await self.folder_repo.get_all_descendant_ids(folder_id)
         all_folder_ids = [folder_id] + descendant_ids

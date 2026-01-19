@@ -176,7 +176,7 @@ class QuestionGenerationService:
         # Create assessment
         assessment_create = AssessmentCreate(
             owner_id=assessment_metadata.owner_id,
-            folder_id=assessment_metadata.folder_id,
+            folder_id=assessment_metadata.folder_id or assessment_template.folder_id,
             title=assessment_metadata.title or assessment_template.title,
             description=assessment_metadata.description
             or assessment_template.description,

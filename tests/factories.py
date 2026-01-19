@@ -19,7 +19,9 @@ from edcraft_backend.models.user import User
 # Core Factories
 
 
-async def create_test_user(db: AsyncSession, **overrides: Any) -> User:
+async def create_test_user(
+    db: AsyncSession, **overrides: Any
+) -> User:
     """
     Create a test user with sensible defaults.
 
@@ -40,7 +42,41 @@ async def create_test_user(db: AsyncSession, **overrides: Any) -> User:
     user = User(**defaults)
     db.add(user)
     await db.flush()
+
+    root_folder = Folder(owner_id=user.id, parent_id=None, name="My Projects")
+    db.add(root_folder)
+    await db.flush()
+
     return user
+
+
+async def get_user_root_folder(db: AsyncSession, owner: User) -> Folder:
+    """
+    Get the root folder for a user.
+
+    Args:
+        db: Database session
+        owner: User who owns the folder
+
+    Returns:
+        Root Folder instance
+
+    Raises:
+        ValueError: If user has no root folder
+    """
+    from sqlalchemy import select
+
+    result = await db.execute(
+        select(Folder).where(
+            Folder.owner_id == owner.id,
+            Folder.parent_id.is_(None),
+            Folder.deleted_at.is_(None),
+        )
+    )
+    root_folder = result.scalar_one_or_none()
+    if not root_folder:
+        raise ValueError(f"User {owner.id} has no root folder")
+    return root_folder
 
 
 async def create_test_folder(
@@ -49,19 +85,25 @@ async def create_test_folder(
     """
     Create a test folder with sensible defaults.
 
+    If no parent is provided, the folder will be created under the user's root folder.
+
     Args:
         db: Database session
         owner: User who owns the folder
-        parent: Parent folder (optional, None for root folder)
+        parent: Parent folder (optional, defaults to user's root folder)
         **overrides: Field overrides (name, description, etc.)
 
     Returns:
         Created Folder instance
     """
     unique_id = str(uuid4())[:8]
+
+    if parent is None:
+        parent = await get_user_root_folder(db, owner)
+
     defaults = {
         "owner_id": owner.id,
-        "parent_id": parent.id if parent else None,
+        "parent_id": parent.id,
         "name": f"Test Folder {unique_id}",
         "description": "Test folder description",
     }
@@ -119,16 +161,19 @@ async def create_test_assessment(
     Args:
         db: Database session
         owner: User who owns the assessment
-        folder: Folder containing the assessment (optional)
+        folder: Folder containing the assessment (if None, uses owner's root folder)
         **overrides: Field overrides (title, description, etc.)
 
     Returns:
         Created Assessment instance
     """
+    if folder is None:
+        folder = await get_user_root_folder(db, owner)
+
     unique_id = str(uuid4())[:8]
     defaults = {
         "owner_id": owner.id,
-        "folder_id": folder.id if folder else None,
+        "folder_id": folder.id,
         "title": f"Test Assessment {unique_id}",
         "description": "Test assessment description",
     }
@@ -196,16 +241,19 @@ async def create_test_assessment_template(
     Args:
         db: Database session
         owner: User who owns the template
-        folder: Folder containing the template (optional)
+        folder: Folder containing the template (if None, uses owner's root folder)
         **overrides: Field overrides (title, description, etc.)
 
     Returns:
         Created AssessmentTemplate instance
     """
+    if folder is None:
+        folder = await get_user_root_folder(db, owner)
+
     unique_id = str(uuid4())[:8]
     defaults = {
         "owner_id": owner.id,
-        "folder_id": folder.id if folder else None,
+        "folder_id": folder.id,
         "title": f"Test Assessment Template {unique_id}",
         "description": "Test assessment template description",
     }

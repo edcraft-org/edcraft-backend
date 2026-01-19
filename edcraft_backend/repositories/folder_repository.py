@@ -87,31 +87,33 @@ class FolderRepository(EntityRepository[Folder]):
         await self.db.execute(stmt)
         await self.db.flush()
 
-    async def get_root_folders(
+    async def get_root_folder(
         self,
         owner_id: UUID,
         include_deleted: bool = False,
-    ) -> list[Folder]:
-        """Get all root folders (no parent) for a user.
+    ) -> Folder:
+        """Get the root folder for a user.
 
         Args:
             owner_id: User UUID
             include_deleted: Whether to include soft-deleted folders
 
         Returns:
-            List of root folders
+            Root folder
+
+        Note:
+            Root folders are created during user registration and protected from deletion.
+            This should never return None for valid users.
         """
-        stmt = (
-            select(Folder)
-            .where(Folder.owner_id == owner_id, Folder.parent_id.is_(None))
-            .order_by(Folder.name)
+        stmt = select(Folder).where(
+            Folder.owner_id == owner_id, Folder.parent_id.is_(None)
         )
 
         if not include_deleted:
             stmt = stmt.where(Folder.deleted_at.is_(None))
 
         result = await self.db.execute(stmt)
-        return list(result.scalars().all())
+        return result.scalar_one()
 
     async def get_children(
         self,

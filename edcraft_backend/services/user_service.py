@@ -1,16 +1,28 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from edcraft_backend.exceptions import DuplicateResourceError, ResourceNotFoundError
 from edcraft_backend.models.user import User
 from edcraft_backend.repositories.user_repository import UserRepository
+from edcraft_backend.schemas.folder import FolderCreate
 from edcraft_backend.schemas.user import UserCreate, UserUpdate
+
+if TYPE_CHECKING:
+    from edcraft_backend.services.folder_service import FolderService
 
 
 class UserService:
     """Service layer for User business logic."""
 
-    def __init__(self, user_repository: UserRepository):
+    def __init__(
+        self,
+        user_repository: UserRepository,
+        folder_service: FolderService,
+    ):
         self.user_repo = user_repository
+        self.folder_svc = folder_service
 
     async def create_user(self, user_data: UserCreate) -> User:
         """Create a new user.
@@ -33,7 +45,17 @@ class UserService:
 
         # Create user
         user = User(**user_data.model_dump())
-        return await self.user_repo.create(user)
+        user = await self.user_repo.create(user)
+
+        # Create root folder for user
+        root_folder_data = FolderCreate(
+            owner_id=user.id,
+            parent_id=None,
+            name="My Projects",
+        )
+        await self.folder_svc.create_folder(root_folder_data)
+
+        return user
 
     async def list_users(self) -> list[User]:
         """List all non-deleted users.

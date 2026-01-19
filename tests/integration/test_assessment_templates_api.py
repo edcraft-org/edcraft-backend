@@ -20,29 +20,6 @@ class TestCreateAssessmentTemplate:
     """Tests for POST /assessment-templates endpoint."""
 
     @pytest.mark.asyncio
-    async def test_create_assessment_template_without_folder(
-        self, test_client: AsyncClient, db_session: AsyncSession
-    ) -> None:
-        """Test creating assessment template without folder reference."""
-        user = await create_test_user(db_session)
-        await db_session.commit()
-
-        template_data = {
-            "owner_id": str(user.id),
-            "title": "My First Assessment Template",
-            "description": "A test assessment template",
-        }
-        response = await test_client.post("/assessment-templates", json=template_data)
-
-        assert response.status_code == 201
-        data = response.json()
-        assert data["owner_id"] == str(user.id)
-        assert data["title"] == "My First Assessment Template"
-        assert data["description"] == "A test assessment template"
-        assert data["folder_id"] is None
-        assert "id" in data
-
-    @pytest.mark.asyncio
     async def test_create_assessment_template_with_folder(
         self, test_client: AsyncClient, db_session: AsyncSession
     ) -> None:

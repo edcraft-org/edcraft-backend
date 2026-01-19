@@ -75,35 +75,6 @@ class AssessmentTemplateRepository(EntityRepository[AssessmentTemplate]):
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_root_templates(
-        self,
-        owner_id: UUID,
-        include_deleted: bool = False,
-    ) -> list[AssessmentTemplate]:
-        """Get all root assessment templates (no folder) for a user.
-
-        Args:
-            owner_id: User UUID
-            include_deleted: Whether to include soft-deleted templates
-
-        Returns:
-            List of root assessment templates order by last updated descending
-        """
-        stmt = (
-            select(AssessmentTemplate)
-            .where(
-                AssessmentTemplate.owner_id == owner_id,
-                AssessmentTemplate.folder_id.is_(None),
-            )
-            .order_by(AssessmentTemplate.updated_at.desc())
-        )
-
-        if not include_deleted:
-            stmt = stmt.where(AssessmentTemplate.deleted_at.is_(None))
-
-        result = await self.db.execute(stmt)
-        return list(result.scalars().all())
-
     async def bulk_soft_delete_by_folder_ids(self, folder_ids: list[UUID]) -> None:
         """Bulk soft-delete assessment templates by folder IDs.
 

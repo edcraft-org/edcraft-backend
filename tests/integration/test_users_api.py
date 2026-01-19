@@ -78,6 +78,31 @@ class TestCreateUser:
 
         assert response.status_code == 422
 
+    @pytest.mark.asyncio
+    async def test_user_creation_creates_root_folder(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test that creating a user automatically creates their root folder."""
+        from sqlalchemy import select
+
+        from edcraft_backend.models.folder import Folder
+
+        user_data = {"email": "newuserauto@example.com", "username": "newuserauto"}
+        response = await test_client.post("/users", json=user_data)
+        assert response.status_code == 201
+        user_id = response.json()["id"]
+
+        # Verify root folder exists in database
+        result = await db_session.execute(
+            select(Folder).where(
+                Folder.owner_id == user_id,
+                Folder.parent_id.is_(None)
+            )
+        )
+        root_folder = result.scalar_one_or_none()
+        assert root_folder is not None
+        assert root_folder.name == "My Projects"
+
 
 @pytest.mark.integration
 @pytest.mark.users
@@ -356,4 +381,36 @@ class TestHardDeleteUser:
         non_existent_id = uuid.uuid4()
         response = await test_client.delete(f"/users/{non_existent_id}/hard")
 
+        assert response.status_code == 404
+
+
+@pytest.mark.integration
+@pytest.mark.users
+class TestGetUserRootFolder:
+    """Tests for GET /users/{user_id}/root-folder endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_get_root_folder_success(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test getting root folder for existing user."""
+        user = await create_test_user(db_session, email="roottest@example.com", username="roottest")
+        await db_session.commit()
+
+        response = await test_client.get(f"/users/{user.id}/root-folder")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["owner_id"] == str(user.id)
+        assert data["parent_id"] is None
+        assert data["name"] == "My Projects"
+
+    @pytest.mark.asyncio
+    async def test_get_root_folder_user_not_found(
+        self, test_client: AsyncClient
+    ) -> None:
+        """Test getting root folder for non-existent user returns 404."""
+        import uuid
+
+        response = await test_client.get(f"/users/{uuid.uuid4()}/root-folder")
         assert response.status_code == 404

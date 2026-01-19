@@ -15,7 +15,7 @@ class AssessmentTemplateCreate(BaseModel):
     """Schema for creating a new assessment template."""
 
     owner_id: UUID
-    folder_id: UUID | None = None
+    folder_id: UUID
     title: str
     description: str | None = None
 
@@ -33,7 +33,7 @@ class AssessmentTemplateResponse(BaseModel):
 
     id: UUID
     owner_id: UUID
-    folder_id: UUID | None
+    folder_id: UUID
     title: str
     description: str | None
     created_at: datetime
@@ -54,7 +54,7 @@ class AssessmentTemplateWithQuestionTemplates(BaseModel):
 
     id: UUID
     owner_id: UUID
-    folder_id: UUID | None
+    folder_id: UUID
     title: str
     description: str | None
     created_at: datetime

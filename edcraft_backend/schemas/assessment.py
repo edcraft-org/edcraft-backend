@@ -12,7 +12,7 @@ class AssessmentCreate(BaseModel):
     """Schema for creating a new assessment."""
 
     owner_id: UUID
-    folder_id: UUID | None = None
+    folder_id: UUID
     title: str
     description: str | None = None
 
@@ -30,7 +30,7 @@ class AssessmentResponse(BaseModel):
 
     id: UUID
     owner_id: UUID
-    folder_id: UUID | None
+    folder_id: UUID
     title: str
     description: str
     created_at: datetime
@@ -51,7 +51,7 @@ class AssessmentWithQuestions(BaseModel):
 
     id: UUID
     owner_id: UUID
-    folder_id: UUID | None
+    folder_id: UUID
     title: str
     description: str | None
     created_at: datetime

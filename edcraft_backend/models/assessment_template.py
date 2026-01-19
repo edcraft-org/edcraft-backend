@@ -28,8 +28,8 @@ class AssessmentTemplate(EntityBase):
     owner_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    folder_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("folders.id", ondelete="CASCADE"), nullable=True, index=True
+    folder_id: Mapped[UUID] = mapped_column(
+        ForeignKey("folders.id", ondelete="CASCADE"), nullable=False, index=True
     )
 
     # Basic Fields
@@ -38,7 +38,7 @@ class AssessmentTemplate(EntityBase):
 
     # Relationships
     owner: Mapped["User"] = relationship(back_populates="assessment_templates")
-    folder: Mapped["Folder | None"] = relationship(back_populates="assessment_templates")
+    folder: Mapped["Folder"] = relationship(back_populates="assessment_templates")
 
     # Many-to-many relationship with question templates
     template_associations: Mapped[list["AssessmentTemplateQuestionTemplate"]] = relationship(

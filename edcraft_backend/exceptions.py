@@ -73,3 +73,10 @@ class CircularReferenceError(EdCraftBaseException):
 
     def __init__(self, message: str = "Circular reference detected in folder hierarchy") -> None:
         super().__init__(message, status.HTTP_400_BAD_REQUEST)
+
+
+class ForbiddenOperationError(EdCraftBaseException):
+    """Raised when an operation is not allowed."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, status.HTTP_403_FORBIDDEN)

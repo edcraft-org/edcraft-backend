@@ -371,10 +371,13 @@ class TestGenerateAssessmentFromTemplate:
     ) -> None:
         """Test assessment template with no question templates creates empty assessment."""
         from edcraft_backend.models.assessment_template import AssessmentTemplate
+        from tests.factories import get_user_root_folder
 
         user = await create_test_user(db_session)
+        root_folder = await get_user_root_folder(db_session, user)
         template = AssessmentTemplate(
             owner_id=user.id,
+            folder_id=root_folder.id,
             title="Empty Template",
             description="No questions",
         )

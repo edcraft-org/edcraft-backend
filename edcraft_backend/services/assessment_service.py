@@ -55,10 +55,9 @@ class AssessmentService:
         Raises:
             ResourceNotFoundError: If folder not found
         """
-        if assessment_data.folder_id:
-            folder = await self.folder_repo.get_by_id(assessment_data.folder_id)
-            if not folder:
-                raise ResourceNotFoundError("Folder", str(assessment_data.folder_id))
+        folder = await self.folder_repo.get_by_id(assessment_data.folder_id)
+        if not folder:
+            raise ResourceNotFoundError("Folder", str(assessment_data.folder_id))
 
         assessment = Assessment(**assessment_data.model_dump())
         return await self.assessment_repo.create(assessment)
@@ -68,11 +67,11 @@ class AssessmentService:
         owner_id: UUID,
         folder_id: UUID | None = None,
     ) -> list[Assessment]:
-        """List assessments within folder or root.
+        """List assessments within folder or all user assessments.
 
         Args:
             owner_id: Owner UUID
-            folder_id: Folder UUID or None
+            folder_id: Folder UUID (None for ALL assessments owned by user)
 
         Returns:
             List of assessments ordered by updated_at descending
@@ -80,7 +79,10 @@ class AssessmentService:
         if folder_id:
             assessments = await self.assessment_repo.get_by_folder(folder_id)
         else:
-            assessments = await self.assessment_repo.get_root_assessments(owner_id)
+            assessments = await self.assessment_repo.list(
+                filters={"owner_id": owner_id},
+                order_by=Assessment.updated_at.desc()
+            )
 
         return assessments
 

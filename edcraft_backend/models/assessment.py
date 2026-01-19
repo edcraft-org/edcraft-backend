@@ -26,8 +26,8 @@ class Assessment(EntityBase):
     owner_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    folder_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("folders.id", ondelete="CASCADE"), nullable=True, index=True
+    folder_id: Mapped[UUID] = mapped_column(
+        ForeignKey("folders.id", ondelete="CASCADE"), nullable=False, index=True
     )
 
     # Basic Fields
@@ -36,7 +36,7 @@ class Assessment(EntityBase):
 
     # Relationships
     owner: Mapped["User"] = relationship(back_populates="assessments")
-    folder: Mapped["Folder | None"] = relationship(back_populates="assessments")
+    folder: Mapped["Folder"] = relationship(back_populates="assessments")
 
     # Many-to-many relationship with questions, ordered by order field
     question_associations: Mapped[list["AssessmentQuestion"]] = relationship(

@@ -34,9 +34,7 @@ async def create_folder(folder_data: FolderCreate, service: FolderServiceDep) ->
 async def list_folders(
     service: FolderServiceDep,
     owner_id: UUID = Query(..., description="Owner ID to filter folders"),
-    parent_id: UUID | None = Query(
-        None, description="Parent ID to filter by (None for root folders)"
-    ),
+    parent_id: UUID | None = Query(None, description="Parent ID to filter by"),
 ) -> list[Folder]:
     """List folders for a user, filtered by parent."""
     try:

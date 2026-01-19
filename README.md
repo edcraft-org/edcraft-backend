@@ -424,8 +424,16 @@ The application uses a comprehensive database schema for managing assessments, q
   - Self-referential parent-child relationship
   - Contains sub-folders, assessments and assessment templates
   - Unique constraint: folder names must be unique per parent and user
-  - CASCADE delete: 
+  - Unique constraint: users can only have one root folder (parent_id=NULL)
+  - CASCADE delete:
     - deleting a folder removes all contents, but shared questions/templates are preserved if referenced elsewhere
+
+- **Root Folder Behavior**:
+  - Every user automatically gets a "My Projects" folder created when their account is created
+  - The root folder has `parent_id=None` and serves as the top-level container for all user content
+  - Root folders cannot be deleted (attempting to delete returns 403 Forbidden)
+  - Root folders can be renamed by the user
+  - The root folder is accessible via `GET /users/{user_id}/root-folder`
 
 - **Assessment** ([assessment.py](edcraft_backend/models/assessment.py)) - Collection of questions, also serves as question bank
   - Many-to-many relationship with questions
@@ -581,16 +589,22 @@ Manage user accounts.
 - `DELETE /users/{user_id}/hard` - Hard delete user
   - Permanently deletes user and cascades to all owned content
 
+- `GET /users/{user_id}/root-folder` - Get user's root folder
+  - Returns: User's root folder (auto-created during user registration)
+  - Used as the top-level container for organizing all user content
+
 #### Folders (`/folders`)
 
 Hierarchical folder management.
 
 - `POST /folders` - Create a folder
-  - Body: `{owner_id: UUID, parent_id?: UUID, name: string, description?: string}`
+  - Body: `{owner_id: UUID, parent_id: UUID, name: string, description?: string}`
   - Returns: Created folder
 
 - `GET /folders?owner_id={uuid}&parent_id={uuid}` - List folders
-  - Query params: `owner_id` (required), `parent_id` (optional, null for root folders)
+  - Query params: `owner_id` (required), `parent_id` (optional)
+  - If `parent_id` is omitted, returns ALL folders owned by the user (including nested folders)
+  - If `parent_id` is provided, returns only direct children of that folder
   - Returns: Array of folders
 
 - `GET /folders/{folder_id}` - Get folder by ID
@@ -618,6 +632,7 @@ Hierarchical folder management.
 
 - `DELETE /folders/{folder_id}` - Soft delete folder
   - Cascades to all children and contained assessments/templates
+  - **Note**: Root folders (with `parent_id=null`) cannot be deleted and will return 403 Forbidden
 
 #### Questions (`/questions`)
 
@@ -646,11 +661,13 @@ Manage individual question instances.
 Manage assessments (collections of questions).
 
 - `POST /assessments` - Create an assessment
-  - Body: `{owner_id: UUID, folder_id?: UUID, title: string, description?: string}`
+  - Body: `{owner_id: UUID, folder_id: UUID, title: string, description?: string}`
   - Returns: Created assessment
 
 - `GET /assessments?owner_id={uuid}&folder_id={uuid}` - List assessments
   - Query params: `owner_id` (required), `folder_id` (optional)
+  - If `folder_id` is omitted, returns ALL assessments owned by the user
+  - If `folder_id` is provided, returns only assessments in that specific folder
   - Returns: Array of assessments
 
 - `GET /assessments/{assessment_id}` - Get assessment with questions
@@ -728,11 +745,13 @@ Manage question template blueprints.
 Manage assessment template collections.
 
 - `POST /assessment-templates` - Create an assessment template
-  - Body: `{owner_id: UUID, folder_id?: UUID, title: string, description?: string}`
+  - Body: `{owner_id: UUID, folder_id: UUID, title: string, description?: string}`
   - Returns: Created template
 
 - `GET /assessment-templates?owner_id={uuid}&folder_id={uuid}` - List templates
   - Query params: `owner_id` (required), `folder_id` (optional)
+  - If `folder_id` is omitted, returns ALL assessment templates owned by the user
+  - If `folder_id` is provided, returns only templates in that specific folder
   - Returns: Array of assessment templates
 
 - `GET /assessment-templates/{template_id}` - Get template with question templates

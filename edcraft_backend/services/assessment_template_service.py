@@ -64,10 +64,9 @@ class AssessmentTemplateService:
         Raises:
             ResourceNotFoundError: If folder not found
         """
-        if template_data.folder_id:
-            folder = await self.folder_repo.get_by_id(template_data.folder_id)
-            if not folder:
-                raise ResourceNotFoundError("Folder", str(template_data.folder_id))
+        folder = await self.folder_repo.get_by_id(template_data.folder_id)
+        if not folder:
+            raise ResourceNotFoundError("Folder", str(template_data.folder_id))
 
         template = AssessmentTemplate(**template_data.model_dump())
         return await self.template_repo.create(template)
@@ -77,19 +76,22 @@ class AssessmentTemplateService:
         owner_id: UUID,
         folder_id: UUID | None = None,
     ) -> list[AssessmentTemplate]:
-        """List assessment templates within folder or root.
+        """List assessment templates within folder or all user templates.
 
         Args:
             owner_id: Owner UUID
-            folder_id: Folder UUID or None
+            folder_id: Folder UUID (None for ALL templates owned by user)
 
         Returns:
-            List of templates ordered by title
+            List of templates ordered by updated_at descending
         """
         if folder_id:
             templates = await self.template_repo.get_by_folder(folder_id)
         else:
-            templates = await self.template_repo.get_root_templates(owner_id)
+            templates = await self.template_repo.list(
+                filters={"owner_id": owner_id},
+                order_by=AssessmentTemplate.updated_at.desc()
+            )
 
         return templates
 
