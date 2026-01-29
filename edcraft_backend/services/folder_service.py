@@ -13,12 +13,12 @@ from edcraft_backend.repositories.assessment_template_repository import (
 )
 from edcraft_backend.repositories.folder_repository import FolderRepository
 from edcraft_backend.schemas.folder import (
-    FolderCreate,
-    FolderMove,
+    CreateFolderRequest,
     FolderResponse,
-    FolderTree,
-    FolderUpdate,
-    FolderWithContents,
+    FolderTreeResponse,
+    FolderWithContentsResponse,
+    MoveFolderRequest,
+    UpdateFolderRequest,
 )
 from edcraft_backend.services.background_tasks import schedule_cleanup_orphaned_resources
 from edcraft_backend.services.enums import ResourceType
@@ -37,7 +37,7 @@ class FolderService:
         self.assessment_repo = assessment_repository
         self.assessment_template_repo = assessment_template_repository
 
-    async def create_folder(self, folder_data: FolderCreate) -> Folder:
+    async def create_folder(self, folder_data: CreateFolderRequest) -> Folder:
         """Create a new folder.
 
         Args:
@@ -121,7 +121,7 @@ class FolderService:
             raise ResourceNotFoundError("Folder", str(folder_id))
         return folder
 
-    async def get_folder_with_contents(self, folder_id: UUID) -> FolderWithContents:
+    async def get_folder_with_contents(self, folder_id: UUID) -> FolderWithContentsResponse:
         """Get a folder with its complete contents (assessments, templates, and child folders).
 
         Args:
@@ -153,7 +153,7 @@ class FolderService:
         children = await self.folder_repo.get_children(folder_id)
         folder_responses = [FolderResponse.model_validate(child) for child in children]
 
-        return FolderWithContents(
+        return FolderWithContentsResponse(
             id=folder.id,
             owner_id=folder.owner_id,
             parent_id=folder.parent_id,
@@ -166,7 +166,7 @@ class FolderService:
             folders=folder_responses,
         )
 
-    async def get_folder_tree(self, folder_id: UUID) -> FolderTree:
+    async def get_folder_tree(self, folder_id: UUID) -> FolderTreeResponse:
         """Get folder with full subtree.
 
         Args:
@@ -184,16 +184,16 @@ class FolderService:
 
         return await self._build_folder_tree(folder)
 
-    async def _build_folder_tree(self, folder: Folder) -> FolderTree:
+    async def _build_folder_tree(self, folder: Folder) -> FolderTreeResponse:
         """Recursively build folder tree structure."""
         children = await self.folder_repo.get_children(folder.id)
 
-        children_trees: list[FolderTree] = []
+        children_trees: list[FolderTreeResponse] = []
         for child in children:
             child_tree = await self._build_folder_tree(child)
             children_trees.append(child_tree)
 
-        return FolderTree(
+        return FolderTreeResponse(
             id=folder.id,
             owner_id=folder.owner_id,
             parent_id=folder.parent_id,
@@ -231,7 +231,7 @@ class FolderService:
 
         return path
 
-    async def update_folder(self, folder_id: UUID, folder_data: FolderUpdate) -> Folder:
+    async def update_folder(self, folder_id: UUID, folder_data: UpdateFolderRequest) -> Folder:
         """Update folder name or description.
 
         Args:
@@ -268,7 +268,7 @@ class FolderService:
 
         return await self.folder_repo.update(folder)
 
-    async def move_folder(self, folder_id: UUID, move_data: FolderMove) -> Folder:
+    async def move_folder(self, folder_id: UUID, move_data: MoveFolderRequest) -> Folder:
         """Move folder to a different parent.
 
         Args:

@@ -6,12 +6,12 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from edcraft_backend.schemas.question_template import (
-    QuestionTemplateCreate,
+    CreateQuestionTemplateRequest,
     QuestionTemplateResponse,
 )
 
 
-class AssessmentTemplateCreate(BaseModel):
+class CreateAssessmentTemplateRequest(BaseModel):
     """Schema for creating a new assessment template."""
 
     owner_id: UUID
@@ -20,7 +20,7 @@ class AssessmentTemplateCreate(BaseModel):
     description: str | None = None
 
 
-class AssessmentTemplateUpdate(BaseModel):
+class UpdateAssessmentTemplateRequest(BaseModel):
     """Schema for updating an assessment template."""
 
     title: str | None = None
@@ -49,7 +49,7 @@ class AssessmentTemplateQuestionTemplateResponse(QuestionTemplateResponse):
     added_at: datetime
 
 
-class AssessmentTemplateWithQuestionTemplates(BaseModel):
+class AssessmentTemplateWithQuestionTemplatesResponse(BaseModel):
     """Schema for assessment template with its question templates."""
 
     id: UUID
@@ -64,10 +64,10 @@ class AssessmentTemplateWithQuestionTemplates(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class AssessmentTemplateInsertQuestionTemplate(BaseModel):
+class InsertQuestionTemplateIntoAssessmentTemplateRequest(BaseModel):
     """Schema for adding a question template to an assessment template."""
 
-    question_template: QuestionTemplateCreate
+    question_template: CreateQuestionTemplateRequest
     order: int | None = None
 
     @field_validator("order")
@@ -79,7 +79,7 @@ class AssessmentTemplateInsertQuestionTemplate(BaseModel):
         return v
 
 
-class AssessmentTemplateLinkQuestionTemplate(BaseModel):
+class LinkQuestionTemplateToAssessmentTemplateRequest(BaseModel):
     """Schema for linking an existing question template to an assessment template."""
 
     question_template_id: UUID
@@ -109,7 +109,7 @@ class QuestionTemplateOrder(BaseModel):
         return v
 
 
-class AssessmentTemplateReorderQuestionTemplates(BaseModel):
+class ReorderQuestionTemplatesInAssessmentTemplateRequest(BaseModel):
     """Schema for reordering question templates in an assessment template."""
 
     question_template_orders: list[QuestionTemplateOrder]

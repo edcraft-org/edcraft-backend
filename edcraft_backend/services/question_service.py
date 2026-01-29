@@ -7,7 +7,7 @@ from edcraft_backend.repositories.assessment_question_repository import (
     AssessmentQuestionRepository,
 )
 from edcraft_backend.repositories.question_repository import QuestionRepository
-from edcraft_backend.schemas.question import QuestionCreate, QuestionUpdate
+from edcraft_backend.schemas.question import CreateQuestionRequest, UpdateQuestionRequest
 
 
 class QuestionService:
@@ -21,7 +21,7 @@ class QuestionService:
         self.question_repo = question_repository
         self.assoc_repo = assessment_question_repository
 
-    async def create_question(self, question_data: QuestionCreate) -> Question:
+    async def create_question(self, question_data: CreateQuestionRequest) -> Question:
         """Create a new question.
 
         Args:
@@ -74,7 +74,7 @@ class QuestionService:
     async def update_question(
         self,
         question_id: UUID,
-        question_data: QuestionUpdate,
+        question_data: UpdateQuestionRequest,
     ) -> Question:
         """Update a question.
 

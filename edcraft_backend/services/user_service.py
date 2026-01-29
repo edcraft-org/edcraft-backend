@@ -6,8 +6,8 @@ from uuid import UUID
 from edcraft_backend.exceptions import DuplicateResourceError, ResourceNotFoundError
 from edcraft_backend.models.user import User
 from edcraft_backend.repositories.user_repository import UserRepository
-from edcraft_backend.schemas.folder import FolderCreate
-from edcraft_backend.schemas.user import UserCreate, UserUpdate
+from edcraft_backend.schemas.folder import CreateFolderRequest
+from edcraft_backend.schemas.user import CreateUserRequest, UpdateUserRequest
 
 if TYPE_CHECKING:
     from edcraft_backend.services.folder_service import FolderService
@@ -24,7 +24,7 @@ class UserService:
         self.user_repo = user_repository
         self.folder_svc = folder_service
 
-    async def create_user(self, user_data: UserCreate) -> User:
+    async def create_user(self, user_data: CreateUserRequest) -> User:
         """Create a new user.
 
         Args:
@@ -48,7 +48,7 @@ class UserService:
         user = await self.user_repo.create(user)
 
         # Create root folder for user
-        root_folder_data = FolderCreate(
+        root_folder_data = CreateFolderRequest(
             owner_id=user.id,
             parent_id=None,
             name="My Projects",
@@ -84,7 +84,7 @@ class UserService:
             raise ResourceNotFoundError("User", str(user_id))
         return user
 
-    async def update_user(self, user_id: UUID, user_data: UserUpdate) -> User:
+    async def update_user(self, user_id: UUID, user_data: UpdateUserRequest) -> User:
         """Update a user.
 
         Args:

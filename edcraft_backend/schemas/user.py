@@ -6,21 +6,21 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, EmailStr
 
 
-class UserCreate(BaseModel):
+class CreateUserRequest(BaseModel):
     """Schema for creating a new user."""
 
     email: EmailStr
     username: str
 
 
-class UserUpdate(BaseModel):
+class UpdateUserRequest(BaseModel):
     """Schema for updating a user."""
 
     email: EmailStr | None = None
     username: str | None = None
 
 
-class UserList(BaseModel):
+class UserSummaryResponse(BaseModel):
     """Lightweight schema for listing users."""
 
     id: UUID

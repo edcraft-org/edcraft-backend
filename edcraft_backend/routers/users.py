@@ -9,13 +9,18 @@ from edcraft_backend.exceptions import EdCraftBaseException
 from edcraft_backend.models.folder import Folder
 from edcraft_backend.models.user import User
 from edcraft_backend.schemas.folder import FolderResponse
-from edcraft_backend.schemas.user import UserCreate, UserList, UserResponse, UserUpdate
+from edcraft_backend.schemas.user import (
+    CreateUserRequest,
+    UpdateUserRequest,
+    UserResponse,
+    UserSummaryResponse,
+)
 
 router = APIRouter(prefix="/users", tags=["users"])
 
 
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def create_user(user_data: UserCreate, service: UserServiceDep) -> User:
+async def create_user(user_data: CreateUserRequest, service: UserServiceDep) -> User:
     """Create a new user."""
     try:
         return await service.create_user(user_data)
@@ -23,7 +28,7 @@ async def create_user(user_data: UserCreate, service: UserServiceDep) -> User:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
 
-@router.get("", response_model=list[UserList])
+@router.get("", response_model=list[UserSummaryResponse])
 async def list_users(service: UserServiceDep) -> list[User]:
     """List all users (excluding soft-deleted)."""
     try:
@@ -43,7 +48,7 @@ async def get_user(user_id: UUID, service: UserServiceDep) -> User:
 
 @router.patch("/{user_id}", response_model=UserResponse)
 async def update_user(
-    user_id: UUID, user_data: UserUpdate, service: UserServiceDep
+    user_id: UUID, user_data: UpdateUserRequest, service: UserServiceDep
 ) -> User:
     """Update a user."""
     try:

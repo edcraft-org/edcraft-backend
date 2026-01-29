@@ -8,13 +8,13 @@ from edcraft_backend.dependencies import AssessmentTemplateServiceDep
 from edcraft_backend.exceptions import EdCraftBaseException
 from edcraft_backend.models.assessment_template import AssessmentTemplate
 from edcraft_backend.schemas.assessment_template import (
-    AssessmentTemplateCreate,
-    AssessmentTemplateInsertQuestionTemplate,
-    AssessmentTemplateLinkQuestionTemplate,
-    AssessmentTemplateReorderQuestionTemplates,
     AssessmentTemplateResponse,
-    AssessmentTemplateUpdate,
-    AssessmentTemplateWithQuestionTemplates,
+    AssessmentTemplateWithQuestionTemplatesResponse,
+    CreateAssessmentTemplateRequest,
+    InsertQuestionTemplateIntoAssessmentTemplateRequest,
+    LinkQuestionTemplateToAssessmentTemplateRequest,
+    ReorderQuestionTemplatesInAssessmentTemplateRequest,
+    UpdateAssessmentTemplateRequest,
 )
 
 router = APIRouter(prefix="/assessment-templates", tags=["assessment-templates"])
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/assessment-templates", tags=["assessment-templates"]
     "", response_model=AssessmentTemplateResponse, status_code=status.HTTP_201_CREATED
 )
 async def create_assessment_template(
-    template_data: AssessmentTemplateCreate, service: AssessmentTemplateServiceDep
+    template_data: CreateAssessmentTemplateRequest, service: AssessmentTemplateServiceDep
 ) -> AssessmentTemplate:
     """Create a new assessment template."""
     try:
@@ -46,10 +46,10 @@ async def list_assessment_templates(
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
 
-@router.get("/{template_id}", response_model=AssessmentTemplateWithQuestionTemplates)
+@router.get("/{template_id}", response_model=AssessmentTemplateWithQuestionTemplatesResponse)
 async def get_assessment_template(
     template_id: UUID, service: AssessmentTemplateServiceDep
-) -> AssessmentTemplateWithQuestionTemplates:
+) -> AssessmentTemplateWithQuestionTemplatesResponse:
     """Get assessment template with question templates in order."""
     try:
         return await service.get_template_with_question_templates(template_id)
@@ -60,7 +60,7 @@ async def get_assessment_template(
 @router.patch("/{template_id}", response_model=AssessmentTemplateResponse)
 async def update_assessment_template(
     template_id: UUID,
-    template_data: AssessmentTemplateUpdate,
+    template_data: UpdateAssessmentTemplateRequest,
     service: AssessmentTemplateServiceDep,
 ) -> AssessmentTemplate:
     """Update assessment template metadata."""
@@ -83,14 +83,14 @@ async def soft_delete_assessment_template(
 
 @router.post(
     "/{template_id}/question-templates",
-    response_model=AssessmentTemplateWithQuestionTemplates,
+    response_model=AssessmentTemplateWithQuestionTemplatesResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def insert_question_template_to_assessment_template(
     template_id: UUID,
-    question_template_data: AssessmentTemplateInsertQuestionTemplate,
+    question_template_data: InsertQuestionTemplateIntoAssessmentTemplateRequest,
     service: AssessmentTemplateServiceDep,
-) -> AssessmentTemplateWithQuestionTemplates:
+) -> AssessmentTemplateWithQuestionTemplatesResponse:
     """Add a question template to an assessment template.
 
     Question templates are ordered using 0-indexed consecutive integers (0, 1, 2, 3...).
@@ -111,14 +111,14 @@ async def insert_question_template_to_assessment_template(
 
 @router.post(
     "/{template_id}/question-templates/link",
-    response_model=AssessmentTemplateWithQuestionTemplates,
+    response_model=AssessmentTemplateWithQuestionTemplatesResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def link_question_template_to_assessment_template(
     template_id: UUID,
-    link_data: AssessmentTemplateLinkQuestionTemplate,
+    link_data: LinkQuestionTemplateToAssessmentTemplateRequest,
     service: AssessmentTemplateServiceDep,
-) -> AssessmentTemplateWithQuestionTemplates:
+) -> AssessmentTemplateWithQuestionTemplatesResponse:
     """Link an existing question template to an assessment template.
 
     Question templates are ordered using 0-indexed consecutive integers (0, 1, 2, 3...).
@@ -155,13 +155,13 @@ async def remove_question_template_from_assessment_template(
 
 @router.patch(
     "/{template_id}/question-templates/reorder",
-    response_model=AssessmentTemplateWithQuestionTemplates,
+    response_model=AssessmentTemplateWithQuestionTemplatesResponse,
 )
 async def reorder_question_templates(
     template_id: UUID,
-    reorder_data: AssessmentTemplateReorderQuestionTemplates,
+    reorder_data: ReorderQuestionTemplatesInAssessmentTemplateRequest,
     service: AssessmentTemplateServiceDep,
-) -> AssessmentTemplateWithQuestionTemplates:
+) -> AssessmentTemplateWithQuestionTemplatesResponse:
     """Reorder question templates in an assessment template."""
     try:
         return await service.reorder_question_templates(

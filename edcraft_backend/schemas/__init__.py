@@ -3,44 +3,44 @@
 # User schemas
 # Assessment schemas
 from edcraft_backend.schemas.assessment import (
-    AssessmentCreate,
-    AssessmentInsertQuestion,
-    AssessmentLinkQuestion,
     AssessmentQuestionResponse,
-    AssessmentReorderQuestions,
     AssessmentResponse,
-    AssessmentUpdate,
-    AssessmentWithQuestions,
+    AssessmentWithQuestionsResponse,
+    CreateAssessmentRequest,
+    InsertQuestionIntoAssessmentRequest,
+    LinkQuestionToAssessmentRequest,
+    ReorderQuestionsInAssessmentRequest,
+    UpdateAssessmentRequest,
 )
 
 # Assessment Template schemas
 from edcraft_backend.schemas.assessment_template import (
-    AssessmentTemplateCreate,
-    AssessmentTemplateInsertQuestionTemplate,
-    AssessmentTemplateLinkQuestionTemplate,
     AssessmentTemplateQuestionTemplateResponse,
-    AssessmentTemplateReorderQuestionTemplates,
     AssessmentTemplateResponse,
-    AssessmentTemplateUpdate,
-    AssessmentTemplateWithQuestionTemplates,
+    AssessmentTemplateWithQuestionTemplatesResponse,
+    CreateAssessmentTemplateRequest,
+    InsertQuestionTemplateIntoAssessmentTemplateRequest,
+    LinkQuestionTemplateToAssessmentTemplateRequest,
+    ReorderQuestionTemplatesInAssessmentTemplateRequest,
+    UpdateAssessmentTemplateRequest,
 )
 
 # Folder schemas
 from edcraft_backend.schemas.folder import (
-    FolderCreate,
-    FolderMove,
-    FolderPath,
+    CreateFolderRequest,
+    FolderPathResponse,
     FolderResponse,
-    FolderTree,
-    FolderUpdate,
-    FolderWithContents,
+    FolderTreeResponse,
+    FolderWithContentsResponse,
+    MoveFolderRequest,
+    UpdateFolderRequest,
 )
 
 # Question schemas
 from edcraft_backend.schemas.question import (
-    QuestionCreate,
+    CreateQuestionRequest,
     QuestionResponse,
-    QuestionUpdate,
+    UpdateQuestionRequest,
 )
 
 # Question Generation schemas
@@ -54,59 +54,59 @@ from edcraft_backend.schemas.question_generation import (
 
 # Question Template schemas
 from edcraft_backend.schemas.question_template import (
-    QuestionTemplateCreate,
-    QuestionTemplateList,
+    CreateQuestionTemplateRequest,
     QuestionTemplateResponse,
-    QuestionTemplateUpdate,
+    QuestionTemplateSummaryResponse,
+    UpdateQuestionTemplateRequest,
 )
 from edcraft_backend.schemas.user import (
-    UserCreate,
-    UserList,
+    CreateUserRequest,
+    UpdateUserRequest,
     UserResponse,
-    UserUpdate,
+    UserSummaryResponse,
 )
 
 __all__ = [
     # User
-    "UserCreate",
-    "UserList",
+    "CreateUserRequest",
+    "UserSummaryResponse",
     "UserResponse",
-    "UserUpdate",
+    "UpdateUserRequest",
     # Folder
-    "FolderCreate",
-    "FolderMove",
-    "FolderPath",
+    "CreateFolderRequest",
+    "MoveFolderRequest",
+    "FolderPathResponse",
     "FolderResponse",
-    "FolderTree",
-    "FolderUpdate",
-    "FolderWithContents",
+    "FolderTreeResponse",
+    "UpdateFolderRequest",
+    "FolderWithContentsResponse",
     # Question
-    "QuestionCreate",
+    "CreateQuestionRequest",
     "QuestionResponse",
-    "QuestionUpdate",
+    "UpdateQuestionRequest",
     # Assessment
-    "AssessmentInsertQuestion",
-    "AssessmentCreate",
-    "AssessmentLinkQuestion",
-    "AssessmentReorderQuestions",
+    "InsertQuestionIntoAssessmentRequest",
+    "CreateAssessmentRequest",
+    "LinkQuestionToAssessmentRequest",
+    "ReorderQuestionsInAssessmentRequest",
     "AssessmentResponse",
     "AssessmentQuestionResponse",
-    "AssessmentUpdate",
-    "AssessmentWithQuestions",
+    "UpdateAssessmentRequest",
+    "AssessmentWithQuestionsResponse",
     # Question Template
-    "QuestionTemplateCreate",
-    "QuestionTemplateList",
+    "CreateQuestionTemplateRequest",
+    "QuestionTemplateSummaryResponse",
     "QuestionTemplateResponse",
-    "QuestionTemplateUpdate",
+    "UpdateQuestionTemplateRequest",
     # Assessment Template
-    "AssessmentTemplateCreate",
-    "AssessmentTemplateInsertQuestionTemplate",
-    "AssessmentTemplateLinkQuestionTemplate",
+    "CreateAssessmentTemplateRequest",
+    "InsertQuestionTemplateIntoAssessmentTemplateRequest",
+    "LinkQuestionTemplateToAssessmentTemplateRequest",
     "AssessmentTemplateQuestionTemplateResponse",
-    "AssessmentTemplateReorderQuestionTemplates",
+    "ReorderQuestionTemplatesInAssessmentTemplateRequest",
     "AssessmentTemplateResponse",
-    "AssessmentTemplateUpdate",
-    "AssessmentTemplateWithQuestionTemplates",
+    "UpdateAssessmentTemplateRequest",
+    "AssessmentTemplateWithQuestionTemplatesResponse",
     # Question Generation
     "CodeAnalysisRequest",
     "CodeAnalysisResponse",

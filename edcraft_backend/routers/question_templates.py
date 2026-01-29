@@ -12,15 +12,15 @@ from edcraft_backend.schemas.assessment_template import (
     AssessmentTemplateResponse,
 )
 from edcraft_backend.schemas.question_template import (
-    QuestionTemplateList,
     QuestionTemplateResponse,
-    QuestionTemplateUpdate,
+    QuestionTemplateSummaryResponse,
+    UpdateQuestionTemplateRequest,
 )
 
 router = APIRouter(prefix="/question-templates", tags=["question-templates"])
 
 
-@router.get("", response_model=list[QuestionTemplateList])
+@router.get("", response_model=list[QuestionTemplateSummaryResponse])
 async def list_question_templates(
     service: QuestionTemplateServiceDep,
     owner_id: UUID = Query(..., description="Owner ID to filter question templates"),
@@ -46,7 +46,7 @@ async def get_question_template(
 @router.patch("/{template_id}", response_model=QuestionTemplateResponse)
 async def update_question_template(
     template_id: UUID,
-    template_data: QuestionTemplateUpdate,
+    template_data: UpdateQuestionTemplateRequest,
     service: QuestionTemplateServiceDep,
 ) -> QuestionTemplate:
     """Update a question template."""

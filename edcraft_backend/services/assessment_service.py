@@ -14,13 +14,13 @@ from edcraft_backend.repositories.assessment_question_repository import (
 from edcraft_backend.repositories.assessment_repository import AssessmentRepository
 from edcraft_backend.repositories.folder_repository import FolderRepository
 from edcraft_backend.schemas.assessment import (
-    AssessmentCreate,
     AssessmentQuestionResponse,
-    AssessmentUpdate,
-    AssessmentWithQuestions,
+    AssessmentWithQuestionsResponse,
+    CreateAssessmentRequest,
     QuestionOrder,
+    UpdateAssessmentRequest,
 )
-from edcraft_backend.schemas.question import QuestionCreate
+from edcraft_backend.schemas.question import CreateQuestionRequest
 from edcraft_backend.services.background_tasks import (
     schedule_cleanup_orphaned_resources,
 )
@@ -43,7 +43,7 @@ class AssessmentService:
         self.assoc_repo = assessment_question_repository
         self.question_svc = question_service
 
-    async def create_assessment(self, assessment_data: AssessmentCreate) -> Assessment:
+    async def create_assessment(self, assessment_data: CreateAssessmentRequest) -> Assessment:
         """Create a new assessment.
 
         Args:
@@ -106,7 +106,7 @@ class AssessmentService:
     async def update_assessment(
         self,
         assessment_id: UUID,
-        assessment_data: AssessmentUpdate,
+        assessment_data: UpdateAssessmentRequest,
     ) -> Assessment:
         """Update an assessment.
 
@@ -158,7 +158,7 @@ class AssessmentService:
 
     async def get_assessment_with_questions(
         self, assessment_id: UUID
-    ) -> AssessmentWithQuestions:
+    ) -> AssessmentWithQuestionsResponse:
         """Get assessment with all questions loaded.
 
         Args:
@@ -193,7 +193,7 @@ class AssessmentService:
                     )
                 )
 
-        return AssessmentWithQuestions(
+        return AssessmentWithQuestionsResponse(
             id=assessment.id,
             owner_id=assessment.owner_id,
             folder_id=assessment.folder_id,
@@ -207,9 +207,9 @@ class AssessmentService:
     async def add_question_to_assessment(
         self,
         assessment_id: UUID,
-        question: QuestionCreate,
+        question: CreateQuestionRequest,
         order: int | None = None,
-    ) -> AssessmentWithQuestions:
+    ) -> AssessmentWithQuestionsResponse:
         """Add a question to an assessment.
 
         Args:
@@ -264,7 +264,7 @@ class AssessmentService:
         assessment_id: UUID,
         question_id: UUID,
         order: int | None = None,
-    ) -> AssessmentWithQuestions:
+    ) -> AssessmentWithQuestionsResponse:
         """Link an existing question to an assessment.
 
         Args:
@@ -354,7 +354,7 @@ class AssessmentService:
         self,
         assessment_id: UUID,
         question_orders: list[QuestionOrder],
-    ) -> AssessmentWithQuestions:
+    ) -> AssessmentWithQuestionsResponse:
         """Reorder questions in an assessment.
 
         Args:

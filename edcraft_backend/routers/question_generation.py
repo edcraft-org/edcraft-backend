@@ -10,7 +10,7 @@ from edcraft_backend.exceptions import (
     CodeDecodingError,
     QuestionGenerationError,
 )
-from edcraft_backend.schemas.assessment import AssessmentWithQuestions
+from edcraft_backend.schemas.assessment import AssessmentWithQuestionsResponse
 from edcraft_backend.schemas.question_generation import (
     CodeAnalysisRequest,
     CodeAnalysisResponse,
@@ -158,14 +158,14 @@ async def generate_question_from_template(
 
 @router.post(
     "/assessment-from-template/{template_id}",
-    response_model=AssessmentWithQuestions,
+    response_model=AssessmentWithQuestionsResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def generate_assessment_from_template(
     template_id: UUID,
     request: GenerateAssessmentFromTemplateRequest,
     service: QuestionGenerationServiceDep,
-) -> AssessmentWithQuestions:
+) -> AssessmentWithQuestionsResponse:
     """Generate and persist an assessment from an assessment template."""
     return await service.generate_assessment_from_template(
         template_id=template_id,

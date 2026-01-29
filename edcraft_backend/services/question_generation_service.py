@@ -10,15 +10,15 @@ from edcraft_engine.question_generator.models import (
 from edcraft_engine.question_generator.question_generator import QuestionGenerator
 
 from edcraft_backend.exceptions import QuestionGenerationError, ValidationError
-from edcraft_backend.schemas.assessment import AssessmentCreate
-from edcraft_backend.schemas.question import QuestionCreate
+from edcraft_backend.schemas.assessment import CreateAssessmentRequest
+from edcraft_backend.schemas.question import CreateQuestionRequest
 from edcraft_backend.schemas.question_generation import AssessmentMetadata
 from edcraft_backend.services.assessment_template_service import (
     AssessmentTemplateService,
 )
 
 if TYPE_CHECKING:
-    from edcraft_backend.schemas.assessment import AssessmentWithQuestions
+    from edcraft_backend.schemas.assessment import AssessmentWithQuestionsResponse
     from edcraft_backend.services.assessment_service import AssessmentService
     from edcraft_backend.services.question_template_service import (
         QuestionTemplateService,
@@ -143,7 +143,7 @@ class QuestionGenerationService:
         template_id: UUID,
         assessment_metadata: AssessmentMetadata,
         question_inputs: list[dict[str, Any]],
-    ) -> "AssessmentWithQuestions":
+    ) -> "AssessmentWithQuestionsResponse":
         """Generate and persist assessment from assessment template.
 
         Args:
@@ -174,7 +174,7 @@ class QuestionGenerationService:
             )
 
         # Create assessment
-        assessment_create = AssessmentCreate(
+        assessment_create = CreateAssessmentRequest(
             owner_id=assessment_metadata.owner_id,
             folder_id=assessment_metadata.folder_id or assessment_template.folder_id,
             title=assessment_metadata.title or assessment_template.title,
@@ -199,7 +199,7 @@ class QuestionGenerationService:
                 del additional_data["text"]
                 del additional_data["question_type"]
 
-                question_create = QuestionCreate(
+                question_create = CreateQuestionRequest(
                     owner_id=assessment_metadata.owner_id,
                     template_id=question_template.id,
                     question_type=question_template.question_type,

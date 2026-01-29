@@ -9,7 +9,7 @@ from edcraft_backend.schemas.assessment import AssessmentResponse
 from edcraft_backend.schemas.assessment_template import AssessmentTemplateResponse
 
 
-class FolderCreate(BaseModel):
+class CreateFolderRequest(BaseModel):
     """Schema for creating a new folder."""
 
     owner_id: UUID
@@ -18,14 +18,14 @@ class FolderCreate(BaseModel):
     description: str | None = None
 
 
-class FolderUpdate(BaseModel):
+class UpdateFolderRequest(BaseModel):
     """Schema for updating a folder."""
 
     name: str | None = None
     description: str | None = None
 
 
-class FolderMove(BaseModel):
+class MoveFolderRequest(BaseModel):
     """Schema for moving a folder to a different parent."""
 
     parent_id: UUID | None
@@ -45,7 +45,7 @@ class FolderResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class FolderTree(BaseModel):
+class FolderTreeResponse(BaseModel):
     """Schema for folder tree structure with nested children."""
 
     id: UUID
@@ -54,12 +54,12 @@ class FolderTree(BaseModel):
     name: str
     description: str | None
     created_at: datetime
-    children: list["FolderTree"] = []
+    children: list["FolderTreeResponse"] = []
 
     model_config = ConfigDict(from_attributes=True)
 
 
-class FolderPath(BaseModel):
+class FolderPathResponse(BaseModel):
     """Schema for folder path from root to current folder."""
 
     path: list[FolderResponse]
@@ -67,7 +67,7 @@ class FolderPath(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class FolderWithContents(BaseModel):
+class FolderWithContentsResponse(BaseModel):
     """Schema for folder with its contents (assessments, templates, and child folders)."""
 
     id: UUID

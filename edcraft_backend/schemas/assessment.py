@@ -5,10 +5,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from edcraft_backend.schemas.question import QuestionCreate, QuestionResponse
+from edcraft_backend.schemas.question import CreateQuestionRequest, QuestionResponse
 
 
-class AssessmentCreate(BaseModel):
+class CreateAssessmentRequest(BaseModel):
     """Schema for creating a new assessment."""
 
     owner_id: UUID
@@ -17,7 +17,7 @@ class AssessmentCreate(BaseModel):
     description: str | None = None
 
 
-class AssessmentUpdate(BaseModel):
+class UpdateAssessmentRequest(BaseModel):
     """Schema for updating an assessment."""
 
     title: str | None = None
@@ -46,7 +46,7 @@ class AssessmentQuestionResponse(QuestionResponse):
     added_at: datetime
 
 
-class AssessmentWithQuestions(BaseModel):
+class AssessmentWithQuestionsResponse(BaseModel):
     """Schema for assessment with its questions."""
 
     id: UUID
@@ -61,10 +61,10 @@ class AssessmentWithQuestions(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class AssessmentInsertQuestion(BaseModel):
+class InsertQuestionIntoAssessmentRequest(BaseModel):
     """Schema for adding a question to an assessment."""
 
-    question: QuestionCreate
+    question: CreateQuestionRequest
     order: int | None = None
 
     @field_validator("order")
@@ -76,7 +76,7 @@ class AssessmentInsertQuestion(BaseModel):
         return v
 
 
-class AssessmentLinkQuestion(BaseModel):
+class LinkQuestionToAssessmentRequest(BaseModel):
     """Schema for linking an existing question to an assessment."""
 
     question_id: UUID
@@ -106,7 +106,7 @@ class QuestionOrder(BaseModel):
         return v
 
 
-class AssessmentReorderQuestions(BaseModel):
+class ReorderQuestionsInAssessmentRequest(BaseModel):
     """Schema for reordering questions in an assessment."""
 
     question_orders: list[QuestionOrder]

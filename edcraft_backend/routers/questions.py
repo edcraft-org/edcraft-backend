@@ -13,7 +13,7 @@ from edcraft_backend.schemas.assessment import (
 )
 from edcraft_backend.schemas.question import (
     QuestionResponse,
-    QuestionUpdate,
+    UpdateQuestionRequest,
 )
 
 router = APIRouter(prefix="/questions", tags=["questions"])
@@ -42,7 +42,7 @@ async def get_question(question_id: UUID, service: QuestionServiceDep) -> Questi
 
 @router.patch("/{question_id}", response_model=QuestionResponse)
 async def update_question(
-    question_id: UUID, question_data: QuestionUpdate, service: QuestionServiceDep
+    question_id: UUID, question_data: UpdateQuestionRequest, service: QuestionServiceDep
 ) -> Question:
     """Update a question."""
     try:

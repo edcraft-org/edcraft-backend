@@ -20,7 +20,7 @@ class QuestionTemplateConfig(BaseModel):
     entry_function: str
 
 
-class QuestionTemplateCreate(BaseModel):
+class CreateQuestionTemplateRequest(BaseModel):
     """Schema for creating a new question template."""
 
     owner_id: UUID
@@ -30,7 +30,7 @@ class QuestionTemplateCreate(BaseModel):
     template_config: QuestionTemplateConfig
 
 
-class QuestionTemplateUpdate(BaseModel):
+class UpdateQuestionTemplateRequest(BaseModel):
     """Schema for updating a question template."""
 
     question_type: str | None = None
@@ -39,7 +39,7 @@ class QuestionTemplateUpdate(BaseModel):
     template_config: QuestionTemplateConfig | None = None
 
 
-class QuestionTemplateList(BaseModel):
+class QuestionTemplateSummaryResponse(BaseModel):
     """Lightweight schema for listing question templates."""
 
     id: UUID

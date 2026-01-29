@@ -7,7 +7,10 @@ from edcraft_backend.repositories.assessment_template_question_template_reposito
     AssessmentTemplateQuestionTemplateRepository,
 )
 from edcraft_backend.repositories.question_template_repository import QuestionTemplateRepository
-from edcraft_backend.schemas.question_template import QuestionTemplateCreate, QuestionTemplateUpdate
+from edcraft_backend.schemas.question_template import (
+    CreateQuestionTemplateRequest,
+    UpdateQuestionTemplateRequest,
+)
 
 
 class QuestionTemplateService:
@@ -23,7 +26,7 @@ class QuestionTemplateService:
 
     async def create_template(
         self,
-        template_data: QuestionTemplateCreate,
+        template_data: CreateQuestionTemplateRequest,
     ) -> QuestionTemplate:
         """Create a new question template.
 
@@ -78,7 +81,7 @@ class QuestionTemplateService:
     async def update_template(
         self,
         template_id: UUID,
-        template_data: QuestionTemplateUpdate,
+        template_data: UpdateQuestionTemplateRequest,
     ) -> QuestionTemplate:
         """Update a question template.
 

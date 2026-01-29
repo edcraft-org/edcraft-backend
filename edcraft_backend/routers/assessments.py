@@ -8,13 +8,13 @@ from edcraft_backend.dependencies import AssessmentServiceDep
 from edcraft_backend.exceptions import EdCraftBaseException
 from edcraft_backend.models.assessment import Assessment
 from edcraft_backend.schemas.assessment import (
-    AssessmentCreate,
-    AssessmentInsertQuestion,
-    AssessmentLinkQuestion,
-    AssessmentReorderQuestions,
     AssessmentResponse,
-    AssessmentUpdate,
-    AssessmentWithQuestions,
+    AssessmentWithQuestionsResponse,
+    CreateAssessmentRequest,
+    InsertQuestionIntoAssessmentRequest,
+    LinkQuestionToAssessmentRequest,
+    ReorderQuestionsInAssessmentRequest,
+    UpdateAssessmentRequest,
 )
 
 router = APIRouter(prefix="/assessments", tags=["assessments"])
@@ -22,7 +22,7 @@ router = APIRouter(prefix="/assessments", tags=["assessments"])
 
 @router.post("", response_model=AssessmentResponse, status_code=status.HTTP_201_CREATED)
 async def create_assessment(
-    assessment_data: AssessmentCreate, service: AssessmentServiceDep
+    assessment_data: CreateAssessmentRequest, service: AssessmentServiceDep
 ) -> Assessment:
     """Create a new assessment."""
     try:
@@ -44,10 +44,10 @@ async def list_assessments(
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
 
-@router.get("/{assessment_id}", response_model=AssessmentWithQuestions)
+@router.get("/{assessment_id}", response_model=AssessmentWithQuestionsResponse)
 async def get_assessment(
     assessment_id: UUID, service: AssessmentServiceDep
-) -> AssessmentWithQuestions:
+) -> AssessmentWithQuestionsResponse:
     """Get assessment with questions in order."""
     try:
         return await service.get_assessment_with_questions(assessment_id)
@@ -58,7 +58,7 @@ async def get_assessment(
 @router.patch("/{assessment_id}", response_model=AssessmentResponse)
 async def update_assessment(
     assessment_id: UUID,
-    assessment_data: AssessmentUpdate,
+    assessment_data: UpdateAssessmentRequest,
     service: AssessmentServiceDep,
 ) -> Assessment:
     """Update assessment metadata."""
@@ -81,14 +81,14 @@ async def soft_delete_assessment(
 
 @router.post(
     "/{assessment_id}/questions",
-    response_model=AssessmentWithQuestions,
+    response_model=AssessmentWithQuestionsResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def insert_question_into_assessment(
     assessment_id: UUID,
-    question_data: AssessmentInsertQuestion,
+    question_data: InsertQuestionIntoAssessmentRequest,
     service: AssessmentServiceDep,
-) -> AssessmentWithQuestions:
+) -> AssessmentWithQuestionsResponse:
     """Add a question to an assessment.
 
     Questions are ordered using 0-indexed consecutive integers (0, 1, 2, 3...).
@@ -107,14 +107,14 @@ async def insert_question_into_assessment(
 
 @router.post(
     "/{assessment_id}/questions/link",
-    response_model=AssessmentWithQuestions,
+    response_model=AssessmentWithQuestionsResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def link_question_into_assessment(
     assessment_id: UUID,
-    question_data: AssessmentLinkQuestion,
+    question_data: LinkQuestionToAssessmentRequest,
     service: AssessmentServiceDep,
-) -> AssessmentWithQuestions:
+) -> AssessmentWithQuestionsResponse:
     """Link an existing question into an assessment.
 
     Questions are ordered using 0-indexed consecutive integers (0, 1, 2, 3...).
@@ -145,13 +145,13 @@ async def remove_question_from_assessment(
 
 
 @router.patch(
-    "/{assessment_id}/questions/reorder", response_model=AssessmentWithQuestions
+    "/{assessment_id}/questions/reorder", response_model=AssessmentWithQuestionsResponse
 )
 async def reorder_questions(
     assessment_id: UUID,
-    reorder_data: AssessmentReorderQuestions,
+    reorder_data: ReorderQuestionsInAssessmentRequest,
     service: AssessmentServiceDep,
-) -> AssessmentWithQuestions:
+) -> AssessmentWithQuestionsResponse:
     """Reorder questions in an assessment."""
     try:
         return await service.reorder_questions(

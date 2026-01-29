@@ -18,13 +18,13 @@ from edcraft_backend.repositories.assessment_template_repository import (
 )
 from edcraft_backend.repositories.folder_repository import FolderRepository
 from edcraft_backend.schemas.assessment_template import (
-    AssessmentTemplateCreate,
     AssessmentTemplateQuestionTemplateResponse,
-    AssessmentTemplateUpdate,
-    AssessmentTemplateWithQuestionTemplates,
+    AssessmentTemplateWithQuestionTemplatesResponse,
+    CreateAssessmentTemplateRequest,
     QuestionTemplateOrder,
+    UpdateAssessmentTemplateRequest,
 )
-from edcraft_backend.schemas.question_template import QuestionTemplateCreate
+from edcraft_backend.schemas.question_template import CreateQuestionTemplateRequest
 from edcraft_backend.services.background_tasks import (
     schedule_cleanup_orphaned_resources,
 )
@@ -51,7 +51,7 @@ class AssessmentTemplateService:
 
     async def create_template(
         self,
-        template_data: AssessmentTemplateCreate,
+        template_data: CreateAssessmentTemplateRequest,
     ) -> AssessmentTemplate:
         """Create a new assessment template.
 
@@ -115,7 +115,7 @@ class AssessmentTemplateService:
     async def update_template(
         self,
         template_id: UUID,
-        template_data: AssessmentTemplateUpdate,
+        template_data: UpdateAssessmentTemplateRequest,
     ) -> AssessmentTemplate:
         """Update an assessment template.
 
@@ -170,7 +170,7 @@ class AssessmentTemplateService:
     async def get_template_with_question_templates(
         self,
         template_id: UUID,
-    ) -> AssessmentTemplateWithQuestionTemplates:
+    ) -> AssessmentTemplateWithQuestionTemplatesResponse:
         """Get an assessment template with all question templates loaded.
 
         Args:
@@ -205,7 +205,7 @@ class AssessmentTemplateService:
                     )
                 )
 
-        return AssessmentTemplateWithQuestionTemplates(
+        return AssessmentTemplateWithQuestionTemplatesResponse(
             id=template.id,
             owner_id=template.owner_id,
             folder_id=template.folder_id,
@@ -219,9 +219,9 @@ class AssessmentTemplateService:
     async def add_question_template_to_template(
         self,
         template_id: UUID,
-        question_template: QuestionTemplateCreate,
+        question_template: CreateQuestionTemplateRequest,
         order: int | None = None,
-    ) -> AssessmentTemplateWithQuestionTemplates:
+    ) -> AssessmentTemplateWithQuestionTemplatesResponse:
         """Add a question template to an assessment template.
 
         Args:
@@ -278,7 +278,7 @@ class AssessmentTemplateService:
         template_id: UUID,
         question_template_id: UUID,
         order: int | None = None,
-    ) -> AssessmentTemplateWithQuestionTemplates:
+    ) -> AssessmentTemplateWithQuestionTemplatesResponse:
         """Link an existing question template to an assessment template.
 
         Args:
@@ -370,7 +370,7 @@ class AssessmentTemplateService:
         self,
         template_id: UUID,
         question_template_orders: list[QuestionTemplateOrder],
-    ) -> AssessmentTemplateWithQuestionTemplates:
+    ) -> AssessmentTemplateWithQuestionTemplatesResponse:
         """Reorder question templates in an assessment template.
 
         Args:

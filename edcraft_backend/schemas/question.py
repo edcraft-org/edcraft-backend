@@ -7,7 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
 
-class QuestionCreate(BaseModel):
+class CreateQuestionRequest(BaseModel):
     """Schema for creating a new question."""
 
     owner_id: UUID
@@ -17,7 +17,7 @@ class QuestionCreate(BaseModel):
     additional_data: dict[str, Any] = {}
 
 
-class QuestionUpdate(BaseModel):
+class UpdateQuestionRequest(BaseModel):
     """Schema for updating a question."""
 
     question_type: str | None = None

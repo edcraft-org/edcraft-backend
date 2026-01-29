@@ -8,20 +8,20 @@ from edcraft_backend.dependencies import FolderServiceDep
 from edcraft_backend.exceptions import EdCraftBaseException
 from edcraft_backend.models.folder import Folder
 from edcraft_backend.schemas.folder import (
-    FolderCreate,
-    FolderMove,
-    FolderPath,
+    CreateFolderRequest,
+    FolderPathResponse,
     FolderResponse,
-    FolderTree,
-    FolderUpdate,
-    FolderWithContents,
+    FolderTreeResponse,
+    FolderWithContentsResponse,
+    MoveFolderRequest,
+    UpdateFolderRequest,
 )
 
 router = APIRouter(prefix="/folders", tags=["folders"])
 
 
 @router.post("", response_model=FolderResponse, status_code=status.HTTP_201_CREATED)
-async def create_folder(folder_data: FolderCreate, service: FolderServiceDep) -> Folder:
+async def create_folder(folder_data: CreateFolderRequest, service: FolderServiceDep) -> Folder:
     """Create a new folder."""
     try:
         return await service.create_folder(folder_data)
@@ -51,10 +51,10 @@ async def get_folder(folder_id: UUID, service: FolderServiceDep) -> Folder:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
 
-@router.get("/{folder_id}/contents", response_model=FolderWithContents)
+@router.get("/{folder_id}/contents", response_model=FolderWithContentsResponse)
 async def get_folder_contents(
     folder_id: UUID, service: FolderServiceDep
-) -> FolderWithContents:
+) -> FolderWithContentsResponse:
     """Get folder with complete contents (assessments and templates)."""
     try:
         return await service.get_folder_with_contents(folder_id)
@@ -62,8 +62,8 @@ async def get_folder_contents(
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
 
-@router.get("/{folder_id}/tree", response_model=FolderTree)
-async def get_folder_tree(folder_id: UUID, service: FolderServiceDep) -> FolderTree:
+@router.get("/{folder_id}/tree", response_model=FolderTreeResponse)
+async def get_folder_tree(folder_id: UUID, service: FolderServiceDep) -> FolderTreeResponse:
     """Get folder with full subtree (all descendants in nested structure)."""
     try:
         return await service.get_folder_tree(folder_id)
@@ -71,7 +71,7 @@ async def get_folder_tree(folder_id: UUID, service: FolderServiceDep) -> FolderT
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
 
-@router.get("/{folder_id}/path", response_model=FolderPath)
+@router.get("/{folder_id}/path", response_model=FolderPathResponse)
 async def get_folder_path(
     folder_id: UUID, service: FolderServiceDep
 ) -> dict[str, list[Folder]]:
@@ -85,7 +85,7 @@ async def get_folder_path(
 
 @router.patch("/{folder_id}", response_model=FolderResponse)
 async def update_folder(
-    folder_id: UUID, folder_data: FolderUpdate, service: FolderServiceDep
+    folder_id: UUID, folder_data: UpdateFolderRequest, service: FolderServiceDep
 ) -> Folder:
     """Update folder (name, description)."""
     try:
@@ -96,7 +96,7 @@ async def update_folder(
 
 @router.patch("/{folder_id}/move", response_model=FolderResponse)
 async def move_folder(
-    folder_id: UUID, move_data: FolderMove, service: FolderServiceDep
+    folder_id: UUID, move_data: MoveFolderRequest, service: FolderServiceDep
 ) -> Folder:
     """Move folder to different parent."""
     try:
