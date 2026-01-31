@@ -6,7 +6,6 @@ from uuid import UUID
 from edcraft_backend.exceptions import DuplicateResourceError, ResourceNotFoundError
 from edcraft_backend.models.user import User
 from edcraft_backend.repositories.user_repository import UserRepository
-from edcraft_backend.schemas.folder import CreateFolderRequest
 from edcraft_backend.schemas.user import CreateUserRequest, UpdateUserRequest
 
 if TYPE_CHECKING:
@@ -48,12 +47,7 @@ class UserService:
         user = await self.user_repo.create(user)
 
         # Create root folder for user
-        root_folder_data = CreateFolderRequest(
-            owner_id=user.id,
-            parent_id=None,
-            name="My Projects",
-        )
-        await self.folder_svc.create_folder(root_folder_data)
+        await self.folder_svc.create_root_folder(user.id)
 
         return user
 

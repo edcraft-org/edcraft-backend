@@ -37,6 +37,22 @@ class FolderService:
         self.assessment_repo = assessment_repository
         self.assessment_template_repo = assessment_template_repository
 
+    async def create_root_folder(self, owner_id: UUID) -> Folder:
+        """Create root folder for a new user.
+
+        Args:
+            owner_id: User UUID
+
+        Returns:
+            Created root folder
+        """
+        root_folder = Folder(
+            owner_id=owner_id,
+            parent_id=None,
+            name="My Projects",
+        )
+        return await self.folder_repo.create(root_folder)
+
     async def create_folder(self, folder_data: CreateFolderRequest) -> Folder:
         """Create a new folder.
 
@@ -50,11 +66,10 @@ class FolderService:
             DuplicateResourceError: If folder name already exists in parent
             ResourceNotFoundError: If parent folder does not exist
         """
-        # Check if parent exists
-        if folder_data.parent_id is not None:
-            parent = await self.folder_repo.get_by_id(folder_data.parent_id)
-            if not parent:
-                raise ResourceNotFoundError("Folder", str(folder_data.parent_id))
+        # Verify parent exists
+        parent = await self.folder_repo.get_by_id(folder_data.parent_id)
+        if not parent:
+            raise ResourceNotFoundError("Folder", str(folder_data.parent_id))
 
         # Check for duplicate name in same parent
         if await self.folder_repo.folder_name_exists(
@@ -289,11 +304,10 @@ class FolderService:
         if await self._check_circular_reference(folder_id, move_data.parent_id):
             raise CircularReferenceError()
 
-        # Verify new parent exists if not None
-        if move_data.parent_id is not None:
-            parent = await self.folder_repo.get_by_id(move_data.parent_id)
-            if not parent:
-                raise ResourceNotFoundError("Folder", str(move_data.parent_id))
+        # Verify new parent exists
+        parent = await self.folder_repo.get_by_id(move_data.parent_id)
+        if not parent:
+            raise ResourceNotFoundError("Folder", str(move_data.parent_id))
 
         # Check for name conflict in target location
         if await self.folder_repo.folder_name_exists(
@@ -314,12 +328,9 @@ class FolderService:
     async def _check_circular_reference(
         self,
         folder_id: UUID,
-        new_parent_id: UUID | None,
+        new_parent_id: UUID,
     ) -> bool:
         """Check if moving a folder would create a circular reference."""
-        if new_parent_id is None:
-            return False
-
         # Can't move a folder into itself
         if folder_id == new_parent_id:
             return True

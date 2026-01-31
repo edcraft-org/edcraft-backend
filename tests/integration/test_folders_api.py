@@ -20,33 +20,10 @@ class TestCreateFolder:
     """Tests for POST /folders endpoint."""
 
     @pytest.mark.asyncio
-    async def test_create_root_folder(
+    async def test_create_folder(
         self, test_client: AsyncClient, db_session: AsyncSession
     ) -> None:
-        """Test creating root folder (parent_id=None)."""
-        user = await create_test_user(db_session)
-        await db_session.commit()
-
-        folder_data: dict[str, str | None] = {
-            "owner_id": str(user.id),
-            "parent_id": None,
-            "name": "Root Folder",
-            "description": "Top level folder",
-        }
-        response = await test_client.post("/folders", json=folder_data)
-
-        assert response.status_code == 201
-        data = response.json()
-        assert data["owner_id"] == str(user.id)
-        assert data["parent_id"] is None
-        assert data["name"] == "Root Folder"
-        assert "id" in data
-
-    @pytest.mark.asyncio
-    async def test_create_child_folder(
-        self, test_client: AsyncClient, db_session: AsyncSession
-    ) -> None:
-        """Test creating child folder with valid parent."""
+        """Test creating folder with valid parent."""
         user = await create_test_user(db_session)
         parent = await create_test_folder(db_session, user, name="Parent")
         await db_session.commit()
@@ -469,26 +446,6 @@ class TestMoveFolder:
 
         assert response.status_code == 200
         assert response.json()["parent_id"] == str(new_parent.id)
-
-    @pytest.mark.asyncio
-    async def test_move_folder_to_root(
-        self, test_client: AsyncClient, db_session: AsyncSession
-    ) -> None:
-        """Test moving folder to null parent (make it root)."""
-        user = await create_test_user(db_session)
-        parent = await create_test_folder(db_session, user, name="Parent")
-        folder = await create_test_folder(
-            db_session, user, parent=parent, name="Folder"
-        )
-        await db_session.commit()
-
-        move_data = {"parent_id": None}
-        response = await test_client.patch(
-            f"/folders/{folder.id}/move", json=move_data
-        )
-
-        assert response.status_code == 200
-        assert response.json()["parent_id"] is None
 
     @pytest.mark.asyncio
     async def test_move_folder_circular_reference(

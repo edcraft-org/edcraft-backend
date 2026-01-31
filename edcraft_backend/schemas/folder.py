@@ -13,7 +13,7 @@ class CreateFolderRequest(BaseModel):
     """Schema for creating a new folder."""
 
     owner_id: UUID
-    parent_id: UUID | None = None
+    parent_id: UUID
     name: str
     description: str | None = None
 
@@ -28,7 +28,7 @@ class UpdateFolderRequest(BaseModel):
 class MoveFolderRequest(BaseModel):
     """Schema for moving a folder to a different parent."""
 
-    parent_id: UUID | None
+    parent_id: UUID
 
 
 class FolderResponse(BaseModel):
