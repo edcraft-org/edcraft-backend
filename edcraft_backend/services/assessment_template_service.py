@@ -186,19 +186,20 @@ class AssessmentTemplateService:
         question_templates: list[AssessmentTemplateQuestionTemplateResponse] = []
         for assoc in template.template_associations:
             if assoc.question_template and assoc.question_template.deleted_at is None:
+                qt_data = {
+                    "id": assoc.question_template.id,
+                    "owner_id": assoc.question_template.owner_id,
+                    "question_type": assoc.question_template.question_type,
+                    "question_text": assoc.question_template.question_text,
+                    "description": assoc.question_template.description,
+                    "template_config": assoc.question_template.template_config,
+                    "created_at": assoc.question_template.created_at,
+                    "updated_at": assoc.question_template.updated_at,
+                    "order": assoc.order,
+                    "added_at": assoc.added_at,
+                }
                 question_templates.append(
-                    AssessmentTemplateQuestionTemplateResponse(
-                        id=assoc.question_template.id,
-                        owner_id=assoc.question_template.owner_id,
-                        question_type=assoc.question_template.question_type,
-                        question_text=assoc.question_template.question_text,
-                        description=assoc.question_template.description,
-                        template_config=assoc.question_template.template_config,
-                        created_at=assoc.question_template.created_at,
-                        updated_at=assoc.question_template.updated_at,
-                        order=assoc.order,
-                        added_at=assoc.added_at,
-                    )
+                    AssessmentTemplateQuestionTemplateResponse.model_validate(qt_data)
                 )
 
         return AssessmentTemplateWithQuestionTemplatesResponse(

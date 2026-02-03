@@ -105,6 +105,10 @@ class TestGetQuestionTemplate:
         assert data["question_type"] == "mcq"
         assert data["question_text"] == "Test question?"
         assert "description" in data
+        assert "entry_function_params" in data
+        assert "parameters" in data["entry_function_params"]
+        assert "has_var_args" in data["entry_function_params"]
+        assert "has_var_kwargs" in data["entry_function_params"]
 
     @pytest.mark.asyncio
     async def test_get_question_template_with_description(
@@ -126,6 +130,49 @@ class TestGetQuestionTemplate:
         assert response.status_code == 200
         data = response.json()
         assert data["description"] == "Test description for template"
+
+    @pytest.mark.asyncio
+    async def test_get_question_template_with_entry_function_params(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test that entry_function_params are correctly parsed from valid code."""
+        user = await create_test_user(db_session)
+        template = await create_test_question_template(
+            db_session,
+            user,
+            question_type="mcq",
+            question_text="What does the function return?",
+            template_config={
+                "code": "def calculate(x: int, y: int = 10, *args, z: str = 'test', **kwargs) -> int:\n    return x + y", # noqa: E501
+                "question_spec": {
+                    "target": [
+                        {
+                            "type": "function",
+                            "id": [0],
+                            "name": "calculate",
+                            "line_number": 1,
+                            "modifier": "return_value",
+                        }
+                    ],
+                    "output_type": "first",
+                    "question_type": "mcq",
+                },
+                "generation_options": {"num_distractors": 3},
+                "entry_function": "calculate",
+            },
+        )
+        await db_session.commit()
+
+        response = await test_client.get(f"/question-templates/{template.id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "entry_function_params" in data
+        params = data["entry_function_params"]
+
+        assert params["parameters"] == ["x", "y", "z"]
+        assert params["has_var_args"] is True
+        assert params["has_var_kwargs"] is True
 
     @pytest.mark.asyncio
     async def test_get_question_template_not_found(self, test_client: AsyncClient) -> None:

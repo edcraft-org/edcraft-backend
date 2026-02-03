@@ -8,7 +8,12 @@ from edcraft_engine.question_generator.models import (
     GenerationOptions,
     QuestionSpec,
 )
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
+
+from edcraft_backend.utils.code_parser import (
+    EntryFunctionParams,
+    parse_function_parameters,
+)
 
 
 class QuestionTemplateConfig(BaseModel):
@@ -62,7 +67,16 @@ class QuestionTemplateResponse(BaseModel):
     question_text: str
     description: str | None = None
     template_config: dict[str, Any]
+    entry_function_params: EntryFunctionParams = EntryFunctionParams(parameters=[])
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="after")
+    def parse_entry_function_params(self) -> "QuestionTemplateResponse":
+        """Parse and populate entry_function_params from template_config."""
+        code = self.template_config.get("code", "")
+        entry_function = self.template_config.get("entry_function", "")
+        self.entry_function_params = parse_function_parameters(code, entry_function)
+        return self
