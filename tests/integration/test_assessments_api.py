@@ -350,6 +350,65 @@ class TestSoftDeleteAssessment:
 
         assert response.status_code == 404
 
+    @pytest.mark.asyncio
+    async def test_soft_delete_assessment_cleans_up_orphaned_questions(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test that deleting assessment triggers cleanup of orphaned questions."""
+        from sqlalchemy import select
+
+        from edcraft_backend.models.question import Question
+
+        user = await create_test_user(db_session)
+        assessment = await create_test_assessment(db_session, user)
+
+        orphaned_question = await create_test_question(
+            db_session, user, question_text="Orphaned Question"
+        )
+
+        shared_question = await create_test_question(
+            db_session, user, question_text="Shared Question"
+        )
+        other_assessment = await create_test_assessment(
+            db_session, user, title="Other Assessment"
+        )
+        await db_session.commit()
+
+        await test_client.post(
+            f"/assessments/{assessment.id}/questions/link",
+            json={"question_id": str(orphaned_question.id)},
+        )
+
+        await test_client.post(
+            f"/assessments/{assessment.id}/questions/link",
+            json={"question_id": str(shared_question.id)},
+        )
+        await test_client.post(
+            f"/assessments/{other_assessment.id}/questions/link",
+            json={"question_id": str(shared_question.id)},
+        )
+
+        response = await test_client.delete(f"/assessments/{assessment.id}")
+        assert response.status_code == 204
+
+        orphaned_q_id = orphaned_question.id
+        shared_q_id = shared_question.id
+
+        db_session.expire_all()
+        orphaned_q_result = await db_session.execute(
+            select(Question).where(Question.id == orphaned_q_id)
+        )
+        orphaned_q = orphaned_q_result.scalar_one_or_none()
+        assert orphaned_q is not None
+        assert orphaned_q.deleted_at is not None, "Orphaned question should be soft deleted"
+
+        shared_q_result = await db_session.execute(
+            select(Question).where(Question.id == shared_q_id)
+        )
+        shared_q = shared_q_result.scalar_one_or_none()
+        assert shared_q is not None
+        assert shared_q.deleted_at is None, "Shared question should still be active"
+
 
 @pytest.mark.integration
 @pytest.mark.assessments
@@ -909,6 +968,77 @@ class TestRemoveQuestionFromAssessment:
         assert data["questions"][0]["order"] == 0
         assert data["questions"][1]["question_text"] == "Q3"
         assert data["questions"][1]["order"] == 1
+
+    @pytest.mark.asyncio
+    async def test_remove_question_cleans_up_orphaned_question(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test that removing a question triggers cleanup if it becomes orphaned."""
+        from sqlalchemy import select
+
+        from edcraft_backend.models.question import Question
+
+        user = await create_test_user(db_session)
+        assessment = await create_test_assessment(db_session, user)
+
+        orphaned_question = await create_test_question(
+            db_session, user, question_text="Will be orphaned"
+        )
+
+        shared_question = await create_test_question(
+            db_session, user, question_text="Shared"
+        )
+        other_assessment = await create_test_assessment(
+            db_session, user, title="Other Assessment"
+        )
+        await db_session.commit()
+
+        await test_client.post(
+            f"/assessments/{assessment.id}/questions/link",
+            json={"question_id": str(orphaned_question.id)},
+        )
+        await test_client.post(
+            f"/assessments/{assessment.id}/questions/link",
+            json={"question_id": str(shared_question.id)},
+        )
+
+        await test_client.post(
+            f"/assessments/{other_assessment.id}/questions/link",
+            json={"question_id": str(shared_question.id)},
+        )
+
+        response = await test_client.delete(
+            f"/assessments/{assessment.id}/questions/{orphaned_question.id}"
+        )
+        assert response.status_code == 204
+
+        assessment_id = assessment.id
+        orphaned_q_id = orphaned_question.id
+        shared_q_id = shared_question.id
+
+        db_session.expire_all()
+        orphaned_q_result = await db_session.execute(
+            select(Question).where(Question.id == orphaned_q_id)
+        )
+        orphaned_q = orphaned_q_result.scalar_one_or_none()
+        assert orphaned_q is not None
+        assert (
+            orphaned_q.deleted_at is not None
+        ), "Question should be soft deleted when orphaned"
+
+        await test_client.delete(
+            f"/assessments/{assessment_id}/questions/{shared_q_id}"
+        )
+
+        db_session.expire_all()
+        shared_q_result = await db_session.execute(
+            select(Question).where(Question.id == shared_q_id)
+        )
+        shared_q = shared_q_result.scalar_one_or_none()
+        assert shared_q is not None
+        assert (
+            shared_q.deleted_at is None
+        ), "Shared question should remain active while still in use"
 
 
 @pytest.mark.integration

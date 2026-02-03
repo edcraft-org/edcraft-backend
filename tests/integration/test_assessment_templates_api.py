@@ -379,6 +379,69 @@ class TestSoftDeleteAssessmentTemplate:
 
         assert response.status_code == 404
 
+    @pytest.mark.asyncio
+    async def test_soft_delete_template_cleans_up_orphaned_question_templates(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test that deleting template triggers cleanup of orphaned question templates."""
+        from sqlalchemy import select
+
+        from edcraft_backend.models.question_template import QuestionTemplate
+
+        user = await create_test_user(db_session)
+        template = await create_test_assessment_template(db_session, user)
+
+        orphaned_qt = await create_test_question_template(
+            db_session, user, question_text="Orphaned QT"
+        )
+
+        shared_qt = await create_test_question_template(
+            db_session, user, question_text="Shared QT"
+        )
+        other_template = await create_test_assessment_template(
+            db_session, user, title="Other Template"
+        )
+        await db_session.commit()
+
+        await test_client.post(
+            f"/assessment-templates/{template.id}/question-templates/link",
+            json={"question_template_id": str(orphaned_qt.id)},
+        )
+
+        await test_client.post(
+            f"/assessment-templates/{template.id}/question-templates/link",
+            json={"question_template_id": str(shared_qt.id)},
+        )
+        await test_client.post(
+            f"/assessment-templates/{other_template.id}/question-templates/link",
+            json={"question_template_id": str(shared_qt.id)},
+        )
+
+        response = await test_client.delete(f"/assessment-templates/{template.id}")
+        assert response.status_code == 204
+
+        orphaned_qt_id = orphaned_qt.id
+        shared_qt_id = shared_qt.id
+
+        db_session.expire_all()
+        orphaned_qt_result = await db_session.execute(
+            select(QuestionTemplate).where(QuestionTemplate.id == orphaned_qt_id)
+        )
+        orphaned_qt_db = orphaned_qt_result.scalar_one_or_none()
+        assert orphaned_qt_db is not None
+        assert (
+            orphaned_qt_db.deleted_at is not None
+        ), "Orphaned question template should be soft deleted"
+
+        shared_qt_result = await db_session.execute(
+            select(QuestionTemplate).where(QuestionTemplate.id == shared_qt_id)
+        )
+        shared_qt_db = shared_qt_result.scalar_one_or_none()
+        assert shared_qt_db is not None
+        assert (
+            shared_qt_db.deleted_at is None
+        ), "Shared question template should still be active"
+
 
 @pytest.mark.integration
 @pytest.mark.assessment_templates
@@ -1061,6 +1124,77 @@ class TestRemoveQuestionTemplateFromAssessmentTemplate:
         assert data["question_templates"][0]["order"] == 0
         assert data["question_templates"][1]["question_text"] == "QT3?"
         assert data["question_templates"][1]["order"] == 1
+
+    @pytest.mark.asyncio
+    async def test_remove_question_template_cleans_up_orphaned_template(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test that removing question template triggers cleanup if it becomes orphaned."""
+        from sqlalchemy import select
+
+        from edcraft_backend.models.question_template import QuestionTemplate
+
+        user = await create_test_user(db_session)
+        template = await create_test_assessment_template(db_session, user)
+
+        orphaned_qt = await create_test_question_template(
+            db_session, user, question_text="Will be orphaned"
+        )
+
+        shared_qt = await create_test_question_template(
+            db_session, user, question_text="Shared"
+        )
+        other_template = await create_test_assessment_template(
+            db_session, user, title="Other Template"
+        )
+        await db_session.commit()
+
+        await test_client.post(
+            f"/assessment-templates/{template.id}/question-templates/link",
+            json={"question_template_id": str(orphaned_qt.id)},
+        )
+        await test_client.post(
+            f"/assessment-templates/{template.id}/question-templates/link",
+            json={"question_template_id": str(shared_qt.id)},
+        )
+
+        await test_client.post(
+            f"/assessment-templates/{other_template.id}/question-templates/link",
+            json={"question_template_id": str(shared_qt.id)},
+        )
+
+        response = await test_client.delete(
+            f"/assessment-templates/{template.id}/question-templates/{orphaned_qt.id}"
+        )
+        assert response.status_code == 204
+
+        template_id = template.id
+        orphaned_qt_id = orphaned_qt.id
+        shared_qt_id = shared_qt.id
+
+        db_session.expire_all()
+        orphaned_qt_result = await db_session.execute(
+            select(QuestionTemplate).where(QuestionTemplate.id == orphaned_qt_id)
+        )
+        orphaned_qt_db = orphaned_qt_result.scalar_one_or_none()
+        assert orphaned_qt_db is not None
+        assert (
+            orphaned_qt_db.deleted_at is not None
+        ), "Question template should be soft deleted when orphaned"
+
+        await test_client.delete(
+            f"/assessment-templates/{template_id}/question-templates/{shared_qt_id}"
+        )
+
+        db_session.expire_all()
+        shared_qt_result = await db_session.execute(
+            select(QuestionTemplate).where(QuestionTemplate.id == shared_qt_id)
+        )
+        shared_qt_db = shared_qt_result.scalar_one_or_none()
+        assert shared_qt_db is not None
+        assert (
+            shared_qt_db.deleted_at is None
+        ), "Shared question template should remain active while still in use"
 
 
 @pytest.mark.integration

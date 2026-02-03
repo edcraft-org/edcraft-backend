@@ -106,8 +106,10 @@ async def move_folder(
 
 
 @router.delete("/{folder_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def soft_delete_folder(folder_id: UUID, service: FolderServiceDep) -> None:
-    """Soft delete folder (cascade to children)."""
+async def soft_delete_folder(
+    folder_id: UUID, service: FolderServiceDep
+) -> None:
+    """Soft delete folder (cascade to children) and clean up orphaned resources."""
     try:
         await service.soft_delete_folder(folder_id)
     except EdCraftBaseException as e:

@@ -72,9 +72,10 @@ async def update_assessment_template(
 
 @router.delete("/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def soft_delete_assessment_template(
-    template_id: UUID, service: AssessmentTemplateServiceDep
+    template_id: UUID,
+    service: AssessmentTemplateServiceDep,
 ) -> None:
-    """Soft delete an assessment template."""
+    """Soft delete an assessment template and clean up orphaned question templates."""
     try:
         await service.soft_delete_template(template_id)
     except EdCraftBaseException as e:
@@ -142,9 +143,11 @@ async def link_question_template_to_assessment_template(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def remove_question_template_from_assessment_template(
-    template_id: UUID, question_template_id: UUID, service: AssessmentTemplateServiceDep
+    template_id: UUID,
+    question_template_id: UUID,
+    service: AssessmentTemplateServiceDep,
 ) -> None:
-    """Remove a question template from an assessment template."""
+    """Remove a question template from an assessment template and clean up if orphaned."""
     try:
         await service.remove_question_template_from_template(
             template_id, question_template_id

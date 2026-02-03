@@ -25,10 +25,6 @@ from edcraft_backend.schemas.assessment_template import (
     UpdateAssessmentTemplateRequest,
 )
 from edcraft_backend.schemas.question_template import CreateQuestionTemplateRequest
-from edcraft_backend.services.background_tasks import (
-    schedule_cleanup_orphaned_resources,
-)
-from edcraft_backend.services.enums import ResourceType
 from edcraft_backend.services.question_template_service import QuestionTemplateService
 
 
@@ -148,8 +144,10 @@ class AssessmentTemplateService:
 
         return await self.template_repo.update(template)
 
-    async def soft_delete_template(self, template_id: UUID) -> AssessmentTemplate:
-        """Soft delete an assessment template.
+    async def soft_delete_template(
+        self, template_id: UUID
+    ) -> AssessmentTemplate:
+        """Soft delete an assessment template and clean up orphaned question templates.
 
         Args:
             template_id: Template UUID
@@ -162,9 +160,7 @@ class AssessmentTemplateService:
         """
         template = await self.get_template(template_id)
         deleted_template = await self.template_repo.soft_delete(template)
-        schedule_cleanup_orphaned_resources(
-            template.owner_id, resource_type=ResourceType.TEMPLATES
-        )
+        await self.question_template_svc.cleanup_orphaned_templates(template.owner_id)
         return deleted_template
 
     async def get_template_with_question_templates(
@@ -345,7 +341,7 @@ class AssessmentTemplateService:
         template_id: UUID,
         question_template_id: UUID,
     ) -> None:
-        """Remove a question template from an assessment template.
+        """Remove a question template from an assessment template and clean up if orphaned.
 
         Args:
             template_id: AssessmentTemplate UUID
@@ -354,6 +350,8 @@ class AssessmentTemplateService:
         Raises:
             ResourceNotFoundError: If association not found
         """
+        template = await self.get_template(template_id)
+
         assoc = await self.assoc_repo.find_association(
             template_id, question_template_id
         )
@@ -365,6 +363,7 @@ class AssessmentTemplateService:
 
         await self.assoc_repo.hard_delete(assoc)
         await self.assoc_repo.normalize_orders(template_id)
+        await self.question_template_svc.cleanup_orphaned_templates(template.owner_id)
 
     async def reorder_question_templates(
         self,

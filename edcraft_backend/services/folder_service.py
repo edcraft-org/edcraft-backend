@@ -20,8 +20,8 @@ from edcraft_backend.schemas.folder import (
     MoveFolderRequest,
     UpdateFolderRequest,
 )
-from edcraft_backend.services.background_tasks import schedule_cleanup_orphaned_resources
-from edcraft_backend.services.enums import ResourceType
+from edcraft_backend.services.question_service import QuestionService
+from edcraft_backend.services.question_template_service import QuestionTemplateService
 
 
 class FolderService:
@@ -32,10 +32,14 @@ class FolderService:
         folder_repository: FolderRepository,
         assessment_repository: AssessmentRepository,
         assessment_template_repository: AssessmentTemplateRepository,
+        question_service: QuestionService,
+        question_template_service: QuestionTemplateService,
     ):
         self.folder_repo = folder_repository
         self.assessment_repo = assessment_repository
         self.assessment_template_repo = assessment_template_repository
+        self.question_svc = question_service
+        self.question_template_svc = question_template_service
 
     async def create_root_folder(self, owner_id: UUID) -> Folder:
         """Create root folder for a new user.
@@ -348,7 +352,9 @@ class FolderService:
 
         return False
 
-    async def soft_delete_folder(self, folder_id: UUID) -> Folder:
+    async def soft_delete_folder(
+        self, folder_id: UUID
+    ) -> Folder:
         """Soft delete folder and all descendants using bulk operations.
 
         Args:
@@ -375,14 +381,8 @@ class FolderService:
         await self.assessment_template_repo.bulk_soft_delete_by_folder_ids(
             all_folder_ids
         )
-
-        # Schedule background cleanup of orphaned resources
-        schedule_cleanup_orphaned_resources(
-            folder.owner_id, resource_type=ResourceType.QUESTIONS
-        )
-        schedule_cleanup_orphaned_resources(
-            folder.owner_id, resource_type=ResourceType.TEMPLATES
-        )
+        await self.question_svc.cleanup_orphaned_questions(folder.owner_id)
+        await self.question_template_svc.cleanup_orphaned_templates(folder.owner_id)
 
         folder = await self.folder_repo.get_by_id(folder_id, include_deleted=True)
         if not folder:

@@ -21,10 +21,6 @@ from edcraft_backend.schemas.assessment import (
     UpdateAssessmentRequest,
 )
 from edcraft_backend.schemas.question import CreateQuestionRequest
-from edcraft_backend.services.background_tasks import (
-    schedule_cleanup_orphaned_resources,
-)
-from edcraft_backend.services.enums import ResourceType
 from edcraft_backend.services.question_service import QuestionService
 
 
@@ -137,8 +133,10 @@ class AssessmentService:
 
         return await self.assessment_repo.update(assessment)
 
-    async def soft_delete_assessment(self, assessment_id: UUID) -> Assessment:
-        """Soft delete an assessment.
+    async def soft_delete_assessment(
+        self, assessment_id: UUID
+    ) -> Assessment:
+        """Soft delete an assessment and clean up orphaned questions.
 
         Args:
             assessment_id: Assessment UUID
@@ -151,9 +149,7 @@ class AssessmentService:
         """
         assessment = await self.get_assessment(assessment_id)
         deleted_assessment = await self.assessment_repo.soft_delete(assessment)
-        schedule_cleanup_orphaned_resources(
-            assessment.owner_id, resource_type=ResourceType.QUESTIONS
-        )
+        await self.question_svc.cleanup_orphaned_questions(assessment.owner_id)
         return deleted_assessment
 
     async def get_assessment_with_questions(
@@ -331,7 +327,7 @@ class AssessmentService:
         assessment_id: UUID,
         question_id: UUID,
     ) -> None:
-        """Remove a question from an assessment.
+        """Remove a question from an assessment and clean up if orphaned.
 
         Args:
             assessment_id: Assessment UUID
@@ -340,6 +336,8 @@ class AssessmentService:
         Raises:
             ResourceNotFoundError: If association not found
         """
+        assessment = await self.get_assessment(assessment_id)
+
         assoc = await self.assoc_repo.find_association(assessment_id, question_id)
         if not assoc:
             raise ResourceNotFoundError(
@@ -349,6 +347,7 @@ class AssessmentService:
 
         await self.assoc_repo.hard_delete(assoc)
         await self.assoc_repo.normalize_orders(assessment_id)
+        await self.question_svc.cleanup_orphaned_questions(assessment.owner_id)
 
     async def reorder_questions(
         self,

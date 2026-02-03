@@ -70,9 +70,10 @@ async def update_assessment(
 
 @router.delete("/{assessment_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def soft_delete_assessment(
-    assessment_id: UUID, service: AssessmentServiceDep
+    assessment_id: UUID,
+    service: AssessmentServiceDep,
 ) -> None:
-    """Soft delete an assessment."""
+    """Soft delete an assessment and clean up orphaned questions."""
     try:
         await service.soft_delete_assessment(assessment_id)
     except EdCraftBaseException as e:
@@ -135,11 +136,15 @@ async def link_question_into_assessment(
     "/{assessment_id}/questions/{question_id}", status_code=status.HTTP_204_NO_CONTENT
 )
 async def remove_question_from_assessment(
-    assessment_id: UUID, question_id: UUID, service: AssessmentServiceDep
+    assessment_id: UUID,
+    question_id: UUID,
+    service: AssessmentServiceDep,
 ) -> None:
-    """Remove a question from an assessment."""
+    """Remove a question from an assessment and clean up if orphaned."""
     try:
-        await service.remove_question_from_assessment(assessment_id, question_id)
+        await service.remove_question_from_assessment(
+            assessment_id, question_id
+        )
     except EdCraftBaseException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
 

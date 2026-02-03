@@ -856,11 +856,10 @@ Question generation endpoints.
 
 ### Orphaned Resource Cleanup
 
-When assessments, assessment templates, or folders are deleted, a background cleanup process automatically removes orphaned questions and question templates that are no longer associated with any active assessments or templates.
+When assessments, assessment templates, or folders are deleted, a cleanup process automatically removes orphaned questions and question templates that are no longer associated with any active assessments or templates.
 
 **Key behaviors:**
 - **Automatic cleanup**: Triggered when deleting assessments, assessment templates, or folders
-- **Background processing**: Runs asynchronously without blocking the deletion response
 - **Preservation of shared resources**: Questions/templates used in multiple assessments/templates are only deleted when they become completely orphaned (not used anywhere)
 - **User-scoped**: Cleanup only affects resources owned by the same user
 
