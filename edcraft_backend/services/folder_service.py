@@ -338,19 +338,7 @@ class FolderService:
         # Can't move a folder into itself
         if folder_id == new_parent_id:
             return True
-
-        # Check if new_parent_id is a descendant of folder_id
-        current_id: UUID | None = new_parent_id
-        while current_id is not None:
-            if current_id == folder_id:
-                return True
-
-            folder = await self.folder_repo.get_by_id(current_id)
-            if not folder:
-                break
-            current_id = folder.parent_id
-
-        return False
+        return await self.folder_repo.is_ancestor(folder_id, new_parent_id)
 
     async def soft_delete_folder(
         self, folder_id: UUID

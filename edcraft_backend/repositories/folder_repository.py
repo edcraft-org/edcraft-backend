@@ -175,3 +175,37 @@ class FolderRepository(EntityRepository[Folder]):
 
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none() is not None
+
+    async def is_ancestor(self, potential_ancestor_id: UUID, folder_id: UUID) -> bool:
+        """Check if a folder is an ancestor of another folder.
+
+        Args:
+            potential_ancestor_id: The folder ID to check if it's an ancestor
+            folder_id: The folder ID to check ancestry for
+
+        Returns:
+            True if potential_ancestor_id is an ancestor of folder_id, False otherwise
+        """
+        query = text(
+            """
+            WITH RECURSIVE ancestors AS (
+                SELECT id, parent_id
+                FROM folders
+                WHERE id = :folder_id AND deleted_at IS NULL
+
+                UNION ALL
+
+                SELECT f.id, f.parent_id
+                FROM folders f
+                INNER JOIN ancestors a ON f.id = a.parent_id
+                WHERE f.deleted_at IS NULL
+            )
+            SELECT EXISTS(SELECT 1 FROM ancestors WHERE id = :potential_ancestor_id)
+        """
+        )
+
+        result = await self.db.execute(
+            query,
+            {"folder_id": folder_id, "potential_ancestor_id": potential_ancestor_id},
+        )
+        return bool(result.scalar_one())
