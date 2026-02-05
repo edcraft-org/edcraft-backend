@@ -17,8 +17,10 @@ from edcraft_backend.models import (  # noqa: F401
     AssessmentTemplate,
     AssessmentTemplateQuestionTemplate,
     Folder,
+    OAuthAccount,
     Question,
     QuestionTemplate,
+    RefreshToken,
     User,
 )
 from edcraft_backend.models.base import Base
