@@ -28,7 +28,7 @@ def test_engine() -> AsyncEngine:
     """Create test database engine (session scope)."""
     from sqlalchemy.pool import NullPool
 
-    test_db_url = str(settings.database_url)
+    test_db_url = str(settings.database.url)
 
     engine = create_async_engine(
         test_db_url,

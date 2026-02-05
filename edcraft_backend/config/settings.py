@@ -5,10 +5,130 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from pydantic import Field, PostgresDsn, ValidationInfo, field_validator
+from pydantic import Field, PostgresDsn, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from edcraft_backend.config.environments import Environment
+
+
+class AppSettings(BaseSettings):
+    """Application metadata. Env prefix: APP_"""
+
+    model_config = SettingsConfigDict(
+        env_file=None, env_prefix="APP_", case_sensitive=False, extra="ignore"
+    )
+
+    env: Environment = Field(
+        default=Environment.DEVELOPMENT, description="Application environment"
+    )
+    name: str = Field(default="EdCraft Backend API", description="Application name")
+    version: str = Field(default="0.1.0", description="Application version")
+
+
+class DatabaseSettings(BaseSettings):
+    """Database configuration. Env prefix: DATABASE_"""
+
+    model_config = SettingsConfigDict(
+        env_file=None, env_prefix="DATABASE_", case_sensitive=False, extra="ignore"
+    )
+
+    url: PostgresDsn | None = Field(
+        default=None, description="PostgreSQL database URL (required via environment)"
+    )
+    echo: bool | None = Field(default=None, description="Echo SQL queries to logs")
+
+    @field_validator("url", mode="after")
+    @classmethod
+    def validate_url(cls, v: PostgresDsn | None) -> PostgresDsn:
+        """Ensure database URL is provided via environment variables."""
+        if v is None:
+            raise ValueError(
+                "DATABASE_URL environment variable is required. "
+                "Set it in your .env.{APP_ENV} file or as a system environment variable."
+            )
+        return v
+
+    @field_validator("echo", mode="before")
+    @classmethod
+    def set_echo(cls, v: Any) -> bool:
+        """Auto-enable database echo in development if not explicitly set."""
+        if v is not None:
+            if isinstance(v, str):
+                return v.lower() in ("true", "1", "yes", "on")
+            return bool(v)
+        # load_env_files() runs before Settings(), so APP_ENV is already set
+        return os.getenv("APP_ENV", "development") == "development"
+
+
+class CorsSettings(BaseSettings):
+    """CORS configuration. Env prefix: CORS_"""
+
+    model_config = SettingsConfigDict(
+        env_file=None, env_prefix="CORS_", case_sensitive=False, extra="ignore"
+    )
+
+    origins: list[str] = Field(
+        default=["http://localhost:5173", "http://127.0.0.1:5173"],
+        description="Allowed CORS origins",
+    )
+    allow_credentials: bool = Field(
+        default=True, description="Allow credentials in CORS requests"
+    )
+
+
+class ServerSettings(BaseSettings):
+    """Server configuration. Env prefix: SERVER_"""
+
+    model_config = SettingsConfigDict(
+        env_file=None, env_prefix="SERVER_", case_sensitive=False, extra="ignore"
+    )
+
+    host: str = Field(default="127.0.0.1", description="Server host")
+    port: int = Field(default=5000, description="Server port")
+
+
+class JwtSettings(BaseSettings):
+    """JWT configuration. Env prefix: JWT_"""
+
+    model_config = SettingsConfigDict(
+        env_file=None, env_prefix="JWT_", case_sensitive=False, extra="ignore"
+    )
+
+    secret: str = Field(default="change-me", description="Generate with: openssl rand -hex 32")
+    algorithm: str = Field(default="HS256")
+    access_token_expire_minutes: int = Field(default=30)
+    refresh_token_expire_days: int = Field(default=14)
+    issuer: str = Field(default="edcraft")
+    audience: str = Field(default="edcraft")
+    kid: str = Field(default="1")
+
+
+class OAuthGoogleSettings(BaseSettings):
+    """Google OAuth configuration. Env prefix: OAUTH_GOOGLE_"""
+
+    model_config = SettingsConfigDict(
+        env_file=None, env_prefix="OAUTH_GOOGLE_", case_sensitive=False, extra="ignore"
+    )
+
+    client_id: str | None = Field(default=None)
+    client_secret: str | None = Field(default=None)
+    redirect_uri: str = Field(
+        default="http://localhost:5000/auth/oauth/google/callback"
+    )
+
+
+class OAuthGithubSettings(BaseSettings):
+    """GitHub OAuth configuration. Env prefix: OAUTH_GITHUB_"""
+
+    model_config = SettingsConfigDict(
+        env_file=None, env_prefix="OAUTH_GITHUB_", case_sensitive=False, extra="ignore"
+    )
+
+    client_id: str | None = Field(default=None)
+    client_secret: str | None = Field(default=None)
+    redirect_uri: str = Field(
+        default="http://localhost:5000/auth/oauth/github/callback"
+    )
 
 
 class Settings(BaseSettings):
@@ -21,84 +141,42 @@ class Settings(BaseSettings):
     3. System environment variables (highest priority)
     """
 
-    # Application settings
-    app_env: Environment = Field(
-        default=Environment.DEVELOPMENT, description="Application environment"
-    )
+    app: AppSettings = Field(default_factory=AppSettings)
+    database: DatabaseSettings = Field(default_factory=DatabaseSettings)
+    cors: CorsSettings = Field(default_factory=CorsSettings)
+    server: ServerSettings = Field(default_factory=ServerSettings)
+    jwt: JwtSettings = Field(default_factory=JwtSettings)
+    oauth_google: OAuthGoogleSettings = Field(default_factory=OAuthGoogleSettings)
+    oauth_github: OAuthGithubSettings = Field(default_factory=OAuthGithubSettings)
 
-    app_name: str = Field(default="EdCraft Backend API", description="Application name")
-
-    app_version: str = Field(default="0.1.0", description="Application version")
-
-    # Database settings
-    database_url: PostgresDsn | None = Field(
-        default=None, description="PostgreSQL database URL (required via environment)"
-    )
-
-    database_echo: bool | None = Field(default=None, description="Echo SQL queries to logs")
-
-    # CORS settings
-    cors_origins: list[str] = Field(
-        default=["http://localhost:5173", "http://127.0.0.1:5173"],
-        description="Allowed CORS origins",
-    )
-
-    cors_allow_credentials: bool = Field(
-        default=True, description="Allow credentials in CORS requests"
-    )
-
-    # Server settings
-    server_host: str = Field(default="127.0.0.1", description="Server host")
-
-    server_port: int = Field(default=5000, description="Server port")
-
+    # Standalone settings
     log_level: str = Field(default="info", description="Logging level")
+    password_min_length: int = Field(default=12)
+    frontend_url: str = Field(
+        default="http://localhost:5173", description="Frontend URL for OAuth redirects"
+    )
 
     model_config = SettingsConfigDict(
-        # Don't automatically load from .env
         env_file=None,
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
     )
 
-    @field_validator("database_url", mode="after")
-    @classmethod
-    def validate_database_url(cls, v: PostgresDsn | None) -> PostgresDsn:
-        """Ensure database_url is provided via environment variables."""
-        if v is None:
-            raise ValueError(
-                "DATABASE_URL environment variable is required. "
-                "Set it in your .env.{APP_ENV} file or as a system environment variable."
-            )
-        return v
-
-    @field_validator("database_echo", mode="before")
-    @classmethod
-    def set_database_echo(cls, v: Any, info: ValidationInfo) -> bool:
-        """Auto-enable database echo in development if not explicitly set."""
-        if v is not None:
-            if isinstance(v, str):
-                return v.lower() in ("true", "1", "yes", "on")
-            return bool(v)
-        # Default to True in development, False otherwise
-        env = info.data.get("app_env", Environment.DEVELOPMENT)
-        return bool(env == Environment.DEVELOPMENT)
-
     @property
     def is_production(self) -> bool:
         """Check if running in production environment."""
-        return self.app_env == Environment.PRODUCTION
+        return self.app.env == Environment.PRODUCTION
 
     @property
     def is_development(self) -> bool:
         """Check if running in development environment."""
-        return self.app_env == Environment.DEVELOPMENT
+        return self.app.env == Environment.DEVELOPMENT
 
     @property
     def is_test(self) -> bool:
         """Check if running in test environment."""
-        return self.app_env == Environment.TEST
+        return self.app.env == Environment.TEST
 
 
 def get_project_root() -> Path:

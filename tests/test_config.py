@@ -19,8 +19,8 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 
     settings = Settings()
 
-    assert settings.app_env == Environment.DEVELOPMENT
-    assert settings.app_name == "EdCraft Backend API"
+    assert settings.app.env == Environment.DEVELOPMENT
+    assert settings.app.name == "EdCraft Backend API"
     assert settings.is_development is True
     assert settings.is_production is False
     assert settings.is_test is False
@@ -36,7 +36,7 @@ def test_database_echo_auto_enable_in_development(
 
     settings = Settings()
 
-    assert settings.database_echo is True
+    assert settings.database.echo is True
     assert settings.is_development is True
 
 
@@ -47,7 +47,7 @@ def test_settings_production(monkeypatch: pytest.MonkeyPatch) -> None:
 
     settings = Settings()
 
-    assert settings.app_env == Environment.PRODUCTION
+    assert settings.app.env == Environment.PRODUCTION
     assert settings.is_production is True
     assert settings.is_development is False
 
@@ -60,7 +60,7 @@ def test_settings_test_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = Settings()
 
     assert settings.is_test is True
-    assert str(settings.database_url) == "postgresql+asyncpg://test:test@localhost/test_db"
+    assert str(settings.database.url) == "postgresql+asyncpg://test:test@localhost/test_db"
 
 
 def test_settings_case_insensitive(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -70,7 +70,7 @@ def test_settings_case_insensitive(monkeypatch: pytest.MonkeyPatch) -> None:
 
     settings = Settings()
 
-    assert settings.app_env == Environment.PRODUCTION
+    assert settings.app.env == Environment.PRODUCTION
 
 
 def test_cors_origins_list(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -80,9 +80,9 @@ def test_cors_origins_list(monkeypatch: pytest.MonkeyPatch) -> None:
 
     settings = Settings()
 
-    assert len(settings.cors_origins) == 2
-    assert "http://localhost:3000" in settings.cors_origins
-    assert "https://example.com" in settings.cors_origins
+    assert len(settings.cors.origins) == 2
+    assert "http://localhost:3000" in settings.cors.origins
+    assert "https://example.com" in settings.cors.origins
 
 
 def test_database_url_string_conversion(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -92,7 +92,7 @@ def test_database_url_string_conversion(monkeypatch: pytest.MonkeyPatch) -> None
 
     settings = Settings()
 
-    assert str(settings.database_url) == "postgresql+asyncpg://dev:dev@localhost/dev_db"
+    assert str(settings.database.url) == "postgresql+asyncpg://dev:dev@localhost/dev_db"
 
 
 def test_database_echo_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -103,7 +103,7 @@ def test_database_echo_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
 
     settings = Settings()
 
-    assert settings.database_echo is False
+    assert settings.database.echo is False
 
 
 def test_get_project_root() -> None:

@@ -30,7 +30,7 @@ from edcraft_backend.models.base import Base
 config = context.config
 
 # Set the database URL from settings
-config.set_main_option("sqlalchemy.url", str(settings.database_url))
+config.set_main_option("sqlalchemy.url", str(settings.database.url))
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

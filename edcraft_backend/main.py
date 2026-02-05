@@ -27,9 +27,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(
-    title=settings.app_name,
+    title=settings.app.name,
     description="API for EdCraft Backend",
-    version=settings.app_version,
+    version=settings.app.version,
     lifespan=lifespan,
 )
 
@@ -46,8 +46,8 @@ async def edcraft_exception_handler(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=settings.cors_allow_credentials,
+    allow_origins=settings.cors.origins,
+    allow_credentials=settings.cors.allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -72,8 +72,8 @@ async def health() -> dict[str, str]:
     """Health check endpoint."""
     return {
         "status": "healthy",
-        "environment": settings.app_env.value,
-        "version": settings.app_version,
+        "environment": settings.app.env.value,
+        "version": settings.app.version,
     }
 
 
@@ -82,7 +82,7 @@ if __name__ == "__main__":
 
     uvicorn.run(
         app,
-        host=settings.server_host,
-        port=settings.server_port,
+        host=settings.server.host,
+        port=settings.server.port,
         log_level=settings.log_level,
     )
