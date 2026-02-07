@@ -37,6 +37,7 @@ class QuestionGenerationError(EdCraftBaseException):
 
 # Domain-specific exceptions
 
+
 class ResourceNotFoundError(EdCraftBaseException):
     """Raised when a requested resource is not found."""
 
@@ -71,7 +72,9 @@ class ValidationError(EdCraftBaseException):
 class CircularReferenceError(EdCraftBaseException):
     """Raised when a circular reference is detected in folder hierarchy."""
 
-    def __init__(self, message: str = "Circular reference detected in folder hierarchy") -> None:
+    def __init__(
+        self, message: str = "Circular reference detected in folder hierarchy"
+    ) -> None:
         super().__init__(message, status.HTTP_400_BAD_REQUEST)
 
 
@@ -80,3 +83,33 @@ class ForbiddenOperationError(EdCraftBaseException):
 
     def __init__(self, message: str) -> None:
         super().__init__(message, status.HTTP_403_FORBIDDEN)
+
+
+# Auth exceptions
+
+
+class TokenDecodeError(Exception):
+    """Failed to decode JWT."""
+
+    pass
+
+
+class AuthenticationError(EdCraftBaseException):
+    """Invalid credentials."""
+
+    def __init__(self, message: str = "Invalid credentials") -> None:
+        super().__init__(message, status.HTTP_401_UNAUTHORIZED)
+
+
+class InvalidTokenError(EdCraftBaseException):
+    """Invalid or expired token."""
+
+    def __init__(self, message: str = "Invalid or expired token") -> None:
+        super().__init__(message, status.HTTP_401_UNAUTHORIZED)
+
+
+class AccountInactiveError(EdCraftBaseException):
+    """Account is inactive."""
+
+    def __init__(self) -> None:
+        super().__init__("Account is inactive", status.HTTP_403_FORBIDDEN)
