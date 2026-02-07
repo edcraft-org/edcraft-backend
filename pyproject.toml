@@ -50,6 +50,7 @@ python_functions = "test_*"
 asyncio_mode = "auto"
 markers = [
     "integration: Integration tests (HTTP endpoints)",
+    "auth: Authentication and authorization router tests",
     "users: User router tests",
     "folders: Folder router tests",
     "questions: Question router tests",
