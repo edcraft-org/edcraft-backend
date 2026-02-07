@@ -44,22 +44,27 @@ class AuthService:
         self.refresh_token_repo = refresh_token_repo
         self.folder_svc = folder_svc
 
-    async def signup(self, email: str, username: str, password: str) -> User:
+    async def signup(self, email: str, password: str) -> User:
         """Create a new user with hashed password and root folder."""
         if await self.user_repo.email_exists(email):
             raise DuplicateResourceError("User", "email", email)
-        if await self.user_repo.username_exists(username):
-            raise DuplicateResourceError("User", "username", username)
+
+        name = self._generate_name_from_email(email)
 
         user = User(
             email=email,
-            username=username,
+            name=name,
             password_hash=hash_password(password),
             is_active=True,
         )
         user = await self.user_repo.create(user)
         await self.folder_svc.create_root_folder(user.id)
         return user
+
+    def _generate_name_from_email(self, email: str) -> str:
+        """Generate a name from email address."""
+        local_part = email.split("@")[0]
+        return local_part.lower()
 
     async def login(
         self,

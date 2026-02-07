@@ -33,14 +33,11 @@ class UserService:
             Created user
 
         Raises:
-            DuplicateResourceError: If email or username already exists
+            DuplicateResourceError: If email already exists
         """
         # Check for duplicates
         if await self.user_repo.email_exists(user_data.email):
             raise DuplicateResourceError("User", "email", user_data.email)
-
-        if await self.user_repo.username_exists(user_data.username):
-            raise DuplicateResourceError("User", "username", user_data.username)
 
         # Create user
         user = User(**user_data.model_dump())
@@ -90,7 +87,7 @@ class UserService:
 
         Raises:
             ResourceNotFoundError: If user not found
-            DuplicateResourceError: If email or username already taken
+            DuplicateResourceError: If email already taken
         """
         user = await self.get_user(user_id)
 
@@ -100,11 +97,6 @@ class UserService:
         if "email" in update_data and update_data["email"] != user.email:
             if await self.user_repo.email_exists(update_data["email"], exclude_id=user_id):
                 raise DuplicateResourceError("User", "email", update_data["email"])
-
-        # Check for username conflict if username is being updated
-        if "username" in update_data and update_data["username"] != user.username:
-            if await self.user_repo.username_exists(update_data["username"], exclude_id=user_id):
-                raise DuplicateResourceError("User", "username", update_data["username"])
 
         # Apply updates
         for key, value in update_data.items():

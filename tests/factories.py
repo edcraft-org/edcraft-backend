@@ -27,7 +27,7 @@ async def create_test_user(
 
     Args:
         db: Database session
-        **overrides: Field overrides (email, username, etc.)
+        **overrides: Field overrides (email, name, etc.)
 
     Returns:
         Created User instance
@@ -35,7 +35,7 @@ async def create_test_user(
     unique_id = str(uuid4())[:8]
     defaults = {
         "email": f"test_{unique_id}@example.com",
-        "username": f"testuser_{unique_id}",
+        "name": f"testuser_{unique_id}",
     }
     defaults.update(overrides)
 

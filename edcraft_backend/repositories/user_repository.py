@@ -35,28 +35,6 @@ class UserRepository(EntityRepository[User]):
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_by_username(
-        self,
-        username: str,
-        include_deleted: bool = False,
-    ) -> User | None:
-        """Get user by username.
-
-        Args:
-            username: User's username
-            include_deleted: Whether to include soft-deleted users
-
-        Returns:
-            User if found, None otherwise
-        """
-        stmt = select(User).where(User.username == username)
-
-        if not include_deleted:
-            stmt = stmt.where(User.deleted_at.is_(None))
-
-        result = await self.db.execute(stmt)
-        return result.scalar_one_or_none()
-
     async def email_exists(
         self,
         email: str,
@@ -74,33 +52,6 @@ class UserRepository(EntityRepository[User]):
             True if email exists, False otherwise
         """
         stmt = select(User).where(User.email == email)
-
-        if exclude_id:
-            stmt = stmt.where(User.id != exclude_id)
-
-        if not include_deleted:
-            stmt = stmt.where(User.deleted_at.is_(None))
-
-        result = await self.db.execute(stmt)
-        return result.scalar_one_or_none() is not None
-
-    async def username_exists(
-        self,
-        username: str,
-        exclude_id: UUID | None = None,
-        include_deleted: bool = False,
-    ) -> bool:
-        """Check if username is already taken.
-
-        Args:
-            username: Username to check
-            exclude_id: Optional user ID to exclude from check (for updates)
-            include_deleted: Whether to include soft-deleted users
-
-        Returns:
-            True if username exists, False otherwise
-        """
-        stmt = select(User).where(User.username == username)
 
         if exclude_id:
             stmt = stmt.where(User.id != exclude_id)

@@ -17,7 +17,7 @@ class OAuthUserInfo(BaseModel):
 
     provider_user_id: str
     email: str
-    username: str
+    name: str
 
 
 async def fetch_github_user_info(
@@ -56,8 +56,8 @@ async def fetch_github_user_info(
     if not provider_user_id:
         raise AuthenticationError("GitHub user ID missing from response")
 
-    username = user_data.get("login", "")
-    if not username:
+    name = user_data.get("login", "")
+    if not name:
         raise AuthenticationError("GitHub username missing from response")
 
     email = _extract_verified_email(emails)
@@ -65,7 +65,7 @@ async def fetch_github_user_info(
     return OAuthUserInfo(
         provider_user_id=provider_user_id,
         email=email,
-        username=username,
+        name=name,
     )
 
 

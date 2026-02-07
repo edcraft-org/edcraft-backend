@@ -17,14 +17,14 @@ class TestCreateUser:
         """Test successful user creation with valid data."""
         user_data = {
             "email": "newuser@example.com",
-            "username": "newuser",
+            "name": "newuser",
         }
         response = await test_client.post("/users", json=user_data)
 
         assert response.status_code == 201
         data = response.json()
         assert data["email"] == user_data["email"]
-        assert data["username"] == user_data["username"]
+        assert data["name"] == user_data["name"]
         assert "id" in data
         assert "created_at" in data
         assert "updated_at" in data
@@ -41,26 +41,7 @@ class TestCreateUser:
         # Try to create user with duplicate email
         user_data = {
             "email": "existing@example.com",
-            "username": "newuser",
-        }
-        response = await test_client.post("/users", json=user_data)
-
-        assert response.status_code == 409
-        assert "already exists" in response.json()["detail"].lower()
-
-    @pytest.mark.asyncio
-    async def test_create_user_duplicate_username(
-        self, test_client: AsyncClient, db_session: AsyncSession
-    ) -> None:
-        """Test user creation with duplicate username returns 409 Conflict."""
-        # Create existing user
-        await create_test_user(db_session, username="existinguser")
-        await db_session.commit()
-
-        # Try to create user with duplicate username
-        user_data = {
-            "email": "newemail@example.com",
-            "username": "existinguser",
+            "name": "newuser",
         }
         response = await test_client.post("/users", json=user_data)
 
@@ -72,7 +53,7 @@ class TestCreateUser:
         """Test user creation with invalid email format returns 422 Validation Error."""
         user_data = {
             "email": "not-an-email",
-            "username": "testuser",
+            "name": "testuser",
         }
         response = await test_client.post("/users", json=user_data)
 
@@ -87,7 +68,7 @@ class TestCreateUser:
 
         from edcraft_backend.models.folder import Folder
 
-        user_data = {"email": "newuserauto@example.com", "username": "newuserauto"}
+        user_data = {"email": "newuserauto@example.com", "name": "newuserauto"}
         response = await test_client.post("/users", json=user_data)
         assert response.status_code == 201
         user_id = response.json()["id"]
@@ -229,19 +210,19 @@ class TestUpdateUser:
         assert data["email"] == "new@example.com"
 
     @pytest.mark.asyncio
-    async def test_update_user_username_success(
+    async def test_update_user_name_success(
         self, test_client: AsyncClient, db_session: AsyncSession
     ) -> None:
-        """Test updating user username successfully."""
-        user = await create_test_user(db_session, username="oldusername")
+        """Test updating user name successfully."""
+        user = await create_test_user(db_session, name="oldname")
         await db_session.commit()
 
-        update_data = {"username": "newusername"}
+        update_data = {"name": "newname"}
         response = await test_client.patch(f"/users/{user.id}", json=update_data)
 
         assert response.status_code == 200
         data = response.json()
-        assert data["username"] == "newusername"
+        assert data["name"] == "newname"
 
     @pytest.mark.asyncio
     async def test_update_user_duplicate_email(
@@ -394,7 +375,7 @@ class TestGetUserRootFolder:
         self, test_client: AsyncClient, db_session: AsyncSession
     ) -> None:
         """Test getting root folder for existing user."""
-        user = await create_test_user(db_session, email="roottest@example.com", username="roottest")
+        user = await create_test_user(db_session, email="roottest@example.com", name="roottest")
         await db_session.commit()
 
         response = await test_client.get(f"/users/{user.id}/root-folder")

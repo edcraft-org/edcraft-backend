@@ -10,14 +10,14 @@ class CreateUserRequest(BaseModel):
     """Schema for creating a new user."""
 
     email: EmailStr
-    username: str
+    name: str
 
 
 class UpdateUserRequest(BaseModel):
     """Schema for updating a user."""
 
     email: EmailStr | None = None
-    username: str | None = None
+    name: str | None = None
 
 
 class UserSummaryResponse(BaseModel):
@@ -25,7 +25,7 @@ class UserSummaryResponse(BaseModel):
 
     id: UUID
     email: str
-    username: str
+    name: str
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -36,7 +36,7 @@ class UserResponse(BaseModel):
 
     id: UUID
     email: str
-    username: str
+    name: str
     created_at: datetime
     updated_at: datetime
 

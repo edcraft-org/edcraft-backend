@@ -9,7 +9,6 @@ class SignupRequest(BaseModel):
     """Schema for user registration."""
 
     email: EmailStr
-    username: str = Field(..., min_length=3, max_length=50)
     password: str = Field(..., min_length=12, max_length=128)
 
     @field_validator("password")
@@ -46,6 +45,6 @@ class AuthUserResponse(BaseModel):
 
     id: UUID
     email: str
-    username: str
+    name: str
 
     model_config = ConfigDict(from_attributes=True)

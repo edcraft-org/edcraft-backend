@@ -8,7 +8,7 @@ from edcraft_backend.config import settings
 from edcraft_backend.dependencies import AuthServiceDep, CurrentUser, OAuthServiceDep
 from edcraft_backend.exceptions import EdCraftBaseException
 from edcraft_backend.models.user import User
-from edcraft_backend.oauth.config import OAuthProvider, SUPPORTED_PROVIDERS
+from edcraft_backend.oauth.config import SUPPORTED_PROVIDERS, OAuthProvider
 from edcraft_backend.oauth.providers import PROVIDER_HANDLERS
 from edcraft_backend.oauth.registry import oauth
 from edcraft_backend.schemas.auth import (
@@ -27,7 +27,7 @@ router = APIRouter(prefix="/auth", tags=["authentication"])
 async def signup(data: SignupRequest, service: AuthServiceDep) -> User:
     """Sign up a new user account."""
     try:
-        return await service.signup(data.email, data.username, data.password)
+        return await service.signup(data.email, data.password)
     except EdCraftBaseException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
@@ -152,7 +152,7 @@ async def oauth_callback(
             provider=provider,
             provider_user_id=user_info.provider_user_id,
             email=user_info.email,
-            username=user_info.username,
+            name=user_info.name,
             ip_address=_get_client_ip(request),
             user_agent=_get_user_agent(request),
         )

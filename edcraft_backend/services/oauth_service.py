@@ -35,7 +35,7 @@ class OAuthService:
         provider: str,
         provider_user_id: str,
         email: str,
-        username: str | None = None,
+        name: str | None = None,
         ip_address: str | None = None,
         user_agent: str | None = None,
     ) -> TokenPairResponse:
@@ -65,7 +65,7 @@ class OAuthService:
                 # New user - create account
                 user = await self._create_oauth_user(
                     email=email,
-                    username=username or self._generate_username_from_email(email),
+                    name=name or self._generate_name_from_email(email),
                     provider=provider,
                     provider_user_id=provider_user_id,
                 )
@@ -74,12 +74,12 @@ class OAuthService:
         return await self.auth_svc.issue_tokens(user.id, ip_address, user_agent)
 
     async def _create_oauth_user(
-        self, email: str, username: str, provider: str, provider_user_id: str
+        self, email: str, name: str, provider: str, provider_user_id: str
     ) -> User:
         # Create user
         user = User(
             email=email,
-            username=username,
+            name=name,
             password_hash=None,  # OAuth users don't have passwords
             is_active=True,
         )
@@ -97,7 +97,7 @@ class OAuthService:
 
         return user
 
-    def _generate_username_from_email(self, email: str) -> str:
-        """Generate a username from email address."""
+    def _generate_name_from_email(self, email: str) -> str:
+        """Generate a name from email address."""
         local_part = email.split("@")[0]
         return local_part.lower()
