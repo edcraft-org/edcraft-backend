@@ -1,0 +1,130 @@
+"""Authentication endpoints."""
+
+from fastapi import APIRouter, Cookie, HTTPException, Request, Response, status
+
+from edcraft_backend.config import settings
+from edcraft_backend.dependencies import AuthServiceDep, CurrentUser
+from edcraft_backend.exceptions import EdCraftBaseException
+from edcraft_backend.models.user import User
+from edcraft_backend.schemas.auth import (
+    AuthUserResponse,
+    LoginRequest,
+    SignupRequest,
+    TokenPairResponse,
+)
+
+router = APIRouter(prefix="/auth", tags=["authentication"])
+
+
+@router.post(
+    "/signup", response_model=AuthUserResponse, status_code=status.HTTP_201_CREATED
+)
+async def signup(data: SignupRequest, service: AuthServiceDep) -> User:
+    """Sign up a new user account."""
+    try:
+        return await service.signup(data.email, data.username, data.password)
+    except EdCraftBaseException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+
+@router.post("/login")
+async def login(
+    data: LoginRequest, request: Request, response: Response, service: AuthServiceDep
+) -> TokenPairResponse:
+    """Login with email and password. Tokens are set as httpOnly cookies."""
+    try:
+        tokens = await service.login(
+            data.email,
+            data.password,
+            ip_address=_get_client_ip(request),
+            user_agent=_get_user_agent(request),
+        )
+    except EdCraftBaseException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+    _set_token_cookies(response, tokens)
+    return tokens
+
+
+@router.post("/refresh")
+async def refresh_token(
+    request: Request,
+    response: Response,
+    service: AuthServiceDep,
+    refresh_token: str | None = Cookie(None),
+) -> TokenPairResponse:
+    """Rotate tokens using the refresh token cookie."""
+    if not refresh_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token missing"
+        )
+    try:
+        tokens = await service.refresh_access_token(
+            refresh_token,
+            ip_address=_get_client_ip(request),
+            user_agent=_get_user_agent(request),
+        )
+    except EdCraftBaseException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+    _set_token_cookies(response, tokens)
+    return tokens
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(
+    current_user: CurrentUser,
+    response: Response,
+    service: AuthServiceDep,
+    refresh_token: str | None = Cookie(None),
+) -> None:
+    """Revoke refresh token and clear cookies."""
+    if refresh_token:
+        try:
+            await service.logout(refresh_token)
+        except EdCraftBaseException as e:
+            raise HTTPException(status_code=e.status_code, detail=e.message) from e
+    response.delete_cookie("access_token")
+    response.delete_cookie("refresh_token")
+
+
+@router.get("/me", response_model=AuthUserResponse)
+async def get_me(current_user: CurrentUser) -> User:
+    """Return the authenticated user's profile."""
+    return current_user
+
+
+def _get_client_ip(request: Request) -> str | None:
+    """Extract client IP address, respecting X-Forwarded-For if present."""
+    if forwarded := request.headers.get("x-forwarded-for"):
+        # X-Forwarded-For can contain multiple IPs; take the first one
+        return forwarded.split(",")[0].strip()
+    if request.client:
+        return request.client.host
+    return None
+
+
+def _get_user_agent(request: Request) -> str | None:
+    """Extract user agent from request headers."""
+    return request.headers.get("user-agent")
+
+
+def _set_token_cookies(response: Response, tokens: TokenPairResponse) -> None:
+    """Attach access_token and refresh_token as httpOnly cookies."""
+    secure = settings.is_production
+    response.set_cookie(
+        key="access_token",
+        value=tokens.access_token,
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        max_age=settings.jwt.access_token_expire_minutes * 60,
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=tokens.refresh_token,
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        max_age=settings.jwt.refresh_token_expire_days * 24 * 60 * 60,
+    )

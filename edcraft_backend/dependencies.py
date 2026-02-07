@@ -1,11 +1,13 @@
 """Dependency injection setup for repositories and services."""
 
 from typing import Annotated
+from uuid import UUID
 
-from fastapi import Depends
+from fastapi import Cookie, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from edcraft_backend.database import get_db
+from edcraft_backend.models.user import User
 from edcraft_backend.repositories.assessment_question_repository import (
     AssessmentQuestionRepository,
 )
@@ -21,13 +23,18 @@ from edcraft_backend.repositories.question_repository import QuestionRepository
 from edcraft_backend.repositories.question_template_repository import (
     QuestionTemplateRepository,
 )
+from edcraft_backend.repositories.refresh_token_repository import RefreshTokenRepository
 from edcraft_backend.repositories.user_repository import UserRepository
+from edcraft_backend.security import decode_token
 from edcraft_backend.services.assessment_service import AssessmentService
 from edcraft_backend.services.assessment_template_service import (
     AssessmentTemplateService,
 )
+from edcraft_backend.services.auth_service import AuthService
 from edcraft_backend.services.folder_service import FolderService
-from edcraft_backend.services.question_generation_service import QuestionGenerationService
+from edcraft_backend.services.question_generation_service import (
+    QuestionGenerationService,
+)
 from edcraft_backend.services.question_service import QuestionService
 from edcraft_backend.services.question_template_service import QuestionTemplateService
 from edcraft_backend.services.user_service import UserService
@@ -84,6 +91,13 @@ def get_assessment_template_question_template_repository(
     return AssessmentTemplateQuestionTemplateRepository(db)
 
 
+def get_refresh_token_repository(
+    db: AsyncSession = Depends(get_db),
+) -> RefreshTokenRepository:
+    """Get RefreshTokenRepository instance."""
+    return RefreshTokenRepository(db)
+
+
 # Service dependencies
 def get_question_service(
     question_repo: QuestionRepository = Depends(get_question_repository),
@@ -104,7 +118,9 @@ def get_question_template_service(
     ),
 ) -> QuestionTemplateService:
     """Get QuestionTemplateService instance."""
-    return QuestionTemplateService(template_repo, assessment_template_ques_template_repo)
+    return QuestionTemplateService(
+        template_repo, assessment_template_ques_template_repo
+    )
 
 
 def get_folder_service(
@@ -114,7 +130,9 @@ def get_folder_service(
         get_assessment_template_repository
     ),
     question_svc: QuestionService = Depends(get_question_service),
-    question_template_svc: QuestionTemplateService = Depends(get_question_template_service),
+    question_template_svc: QuestionTemplateService = Depends(
+        get_question_template_service
+    ),
 ) -> FolderService:
     """Get FolderService instance."""
     return FolderService(
@@ -168,6 +186,7 @@ def get_assessment_template_service(
         assoc_repo,
     )
 
+
 def get_question_generation_service(
     question_template_svc: QuestionTemplateService = Depends(
         get_question_template_service
@@ -183,6 +202,45 @@ def get_question_generation_service(
         assessment_template_svc,
         assessment_svc,
     )
+
+
+def get_auth_service(
+    user_repo: UserRepository = Depends(get_user_repository),
+    refresh_token_repo: RefreshTokenRepository = Depends(get_refresh_token_repository),
+    folder_svc: FolderService = Depends(get_folder_service),
+) -> AuthService:
+    """Get AuthService instance."""
+    return AuthService(user_repo, refresh_token_repo, folder_svc)
+
+
+async def get_current_user(
+    user_repo: UserRepository = Depends(get_user_repository),
+    access_token: str | None = Cookie(None),
+) -> User:
+    """Resolve the authenticated user from the access_token httpOnly cookie."""
+
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+        )
+    try:
+        payload = decode_token(access_token)
+        if payload.get("type") != "access":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type"
+            )
+        user = await user_repo.get_by_id(UUID(payload["sub"]))
+        if not user or not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="User inactive"
+            )
+        return user
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
+        ) from e
 
 
 # Type aliases for cleaner router signatures
@@ -202,6 +260,10 @@ QuestionGenerationServiceDep = Annotated[
     QuestionGenerationService,
     Depends(get_question_generation_service),
 ]
+
+
+AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
+CurrentUser = Annotated[User, Depends(get_current_user)]
 
 # Repository type aliases
 UserRepositoryDep = Annotated[UserRepository, Depends(get_user_repository)]

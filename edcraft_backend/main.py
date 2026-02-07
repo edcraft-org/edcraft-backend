@@ -11,6 +11,7 @@ from edcraft_backend.exceptions import EdCraftBaseException
 from edcraft_backend.routers import (
     assessment_templates,
     assessments,
+    auth,
     folders,
     question_generation,
     question_templates,
@@ -44,6 +45,7 @@ async def edcraft_exception_handler(
         content={"detail": exc.message, "error_type": exc.__class__.__name__},
     )
 
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors.origins,
@@ -55,6 +57,7 @@ app.add_middleware(
 # Include routers (prefix and tags are defined in each router file)
 app.include_router(question_generation.router)
 app.include_router(users.router)
+app.include_router(auth.router)
 app.include_router(folders.router)
 app.include_router(questions.router)
 app.include_router(assessments.router)
