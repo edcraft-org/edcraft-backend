@@ -19,6 +19,7 @@ from edcraft_backend.repositories.assessment_template_repository import (
     AssessmentTemplateRepository,
 )
 from edcraft_backend.repositories.folder_repository import FolderRepository
+from edcraft_backend.repositories.oauth_account_repository import OAuthAccountRepository
 from edcraft_backend.repositories.question_repository import QuestionRepository
 from edcraft_backend.repositories.question_template_repository import (
     QuestionTemplateRepository,
@@ -32,6 +33,7 @@ from edcraft_backend.services.assessment_template_service import (
 )
 from edcraft_backend.services.auth_service import AuthService
 from edcraft_backend.services.folder_service import FolderService
+from edcraft_backend.services.oauth_service import OAuthService
 from edcraft_backend.services.question_generation_service import (
     QuestionGenerationService,
 )
@@ -96,6 +98,13 @@ def get_refresh_token_repository(
 ) -> RefreshTokenRepository:
     """Get RefreshTokenRepository instance."""
     return RefreshTokenRepository(db)
+
+
+def get_oauth_account_repository(
+    db: AsyncSession = Depends(get_db),
+) -> OAuthAccountRepository:
+    """Get OAuthAccountRepository instance."""
+    return OAuthAccountRepository(db)
 
 
 # Service dependencies
@@ -213,6 +222,16 @@ def get_auth_service(
     return AuthService(user_repo, refresh_token_repo, folder_svc)
 
 
+def get_oauth_service(
+    user_repo: UserRepository = Depends(get_user_repository),
+    oauth_account_repo: OAuthAccountRepository = Depends(get_oauth_account_repository),
+    auth_svc: AuthService = Depends(get_auth_service),
+    folder_svc: FolderService = Depends(get_folder_service),
+) -> OAuthService:
+    """Get OAuthService instance."""
+    return OAuthService(user_repo, oauth_account_repo, auth_svc, folder_svc)
+
+
 async def get_current_user(
     user_repo: UserRepository = Depends(get_user_repository),
     access_token: str | None = Cookie(None),
@@ -263,6 +282,7 @@ QuestionGenerationServiceDep = Annotated[
 
 
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
+OAuthServiceDep = Annotated[OAuthService, Depends(get_oauth_service)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 # Repository type aliases

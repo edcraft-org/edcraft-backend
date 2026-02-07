@@ -1,11 +1,16 @@
 """Authentication endpoints."""
 
+from authlib.integrations.base_client import OAuthError
 from fastapi import APIRouter, Cookie, HTTPException, Request, Response, status
+from starlette.responses import RedirectResponse
 
 from edcraft_backend.config import settings
-from edcraft_backend.dependencies import AuthServiceDep, CurrentUser
+from edcraft_backend.dependencies import AuthServiceDep, CurrentUser, OAuthServiceDep
 from edcraft_backend.exceptions import EdCraftBaseException
 from edcraft_backend.models.user import User
+from edcraft_backend.oauth.config import OAuthProvider, SUPPORTED_PROVIDERS
+from edcraft_backend.oauth.providers import PROVIDER_HANDLERS
+from edcraft_backend.oauth.registry import oauth
 from edcraft_backend.schemas.auth import (
     AuthUserResponse,
     LoginRequest,
@@ -92,6 +97,77 @@ async def logout(
 async def get_me(current_user: CurrentUser) -> User:
     """Return the authenticated user's profile."""
     return current_user
+
+
+@router.get("/oauth/{provider}/authorize")
+async def oauth_authorize(provider: str, request: Request) -> RedirectResponse:
+    """Redirect to the OAuth provider's authorization page."""
+    if provider not in SUPPORTED_PROVIDERS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported OAuth provider: {provider}",
+        )
+
+    client = oauth.create_client(provider)
+    if not client:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"OAuth provider {provider} is not configured",
+        )
+
+    redirect_uri = settings.oauth_github.redirect_uri
+    redirect: RedirectResponse = await client.authorize_redirect(request, redirect_uri)
+    return redirect
+
+
+@router.get("/oauth/{provider}/callback")
+async def oauth_callback(
+    provider: str,
+    request: Request,
+    response: Response,
+    oauth_svc: OAuthServiceDep,
+) -> TokenPairResponse:
+    """Handle provider callback and issue tokens."""
+    if provider not in SUPPORTED_PROVIDERS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported OAuth provider: {provider}",
+        )
+
+    client = oauth.create_client(provider)
+    if not client:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"OAuth provider {provider} is not configured",
+        )
+
+    try:
+        token = await client.authorize_access_token(request)
+
+        provider_enum = OAuthProvider(provider)
+        handler = PROVIDER_HANDLERS[provider_enum]
+        user_info = await handler(client, token)
+
+        tokens = await oauth_svc.handle_oauth_callback(
+            provider=provider,
+            provider_user_id=user_info.provider_user_id,
+            email=user_info.email,
+            username=user_info.username,
+            ip_address=_get_client_ip(request),
+            user_agent=_get_user_agent(request),
+        )
+
+        _set_token_cookies(response, tokens)
+
+        return tokens
+
+    except OAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"OAuth provider error: {str(e)}",
+        ) from e
+    except EdCraftBaseException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
 
 def _get_client_ip(request: Request) -> str | None:

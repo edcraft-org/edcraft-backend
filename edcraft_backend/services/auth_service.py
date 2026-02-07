@@ -82,7 +82,7 @@ class AuthService:
         if not user.is_active:
             raise AccountInactiveError()
 
-        return await self._issue_tokens(user.id, ip_address, user_agent)
+        return await self.issue_tokens(user.id, ip_address, user_agent)
 
     async def refresh_access_token(
         self,
@@ -113,7 +113,7 @@ class AuthService:
         # Revoke old refresh token (rotation)
         await self.refresh_token_repo.revoke(db_token.id)
 
-        return await self._issue_tokens(db_token.user_id, ip_address, user_agent)
+        return await self.issue_tokens(db_token.user_id, ip_address, user_agent)
 
     async def logout(self, refresh_token: str) -> None:
         """Revoke a refresh token."""
@@ -122,7 +122,7 @@ class AuthService:
         if db_token:
             await self.refresh_token_repo.revoke(db_token.id)
 
-    async def _issue_tokens(
+    async def issue_tokens(
         self,
         user_id: UUID,
         ip_address: str | None = None,
