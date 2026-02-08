@@ -10,7 +10,6 @@ from pydantic import BaseModel, ConfigDict
 class CreateQuestionRequest(BaseModel):
     """Schema for creating a new question."""
 
-    owner_id: UUID
     template_id: UUID | None = None
     question_type: str
     question_text: str

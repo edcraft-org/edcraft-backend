@@ -5,7 +5,7 @@ from fastapi import APIRouter, Cookie, HTTPException, Request, Response, status
 from starlette.responses import RedirectResponse
 
 from edcraft_backend.config import settings
-from edcraft_backend.dependencies import AuthServiceDep, CurrentUser, OAuthServiceDep
+from edcraft_backend.dependencies import AuthServiceDep, CurrentUserDep, OAuthServiceDep
 from edcraft_backend.exceptions import EdCraftBaseException
 from edcraft_backend.models.user import User
 from edcraft_backend.oauth.config import SUPPORTED_PROVIDERS, OAuthProvider
@@ -78,7 +78,7 @@ async def refresh_token(
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
-    current_user: CurrentUser,
+    current_user: CurrentUserDep,
     response: Response,
     service: AuthServiceDep,
     refresh_token: str | None = Cookie(None),
@@ -94,7 +94,7 @@ async def logout(
 
 
 @router.get("/me", response_model=AuthUserResponse)
-async def get_me(current_user: CurrentUser) -> User:
+async def get_me(current_user: CurrentUserDep) -> User:
     """Return the authenticated user's profile."""
     return current_user
 

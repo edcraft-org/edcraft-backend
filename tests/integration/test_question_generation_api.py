@@ -7,11 +7,11 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from edcraft_backend.models.user import User
 from tests.factories import (
     create_assessment_template_with_question_templates,
     create_test_folder,
     create_test_question_template,
-    create_test_user,
 )
 
 
@@ -26,7 +26,9 @@ class TestAnalyseCode:
         code_data = {
             "code": "def hello():\\n    print('Hello World')",
         }
-        response = await test_client.post("/question-generation/analyse-code", json=code_data)
+        response = await test_client.post(
+            "/question-generation/analyse-code", json=code_data
+        )
 
         assert response.status_code == 200
         data = response.json()
@@ -43,7 +45,9 @@ class TestAnalyseCode:
     async def test_analyse_code_empty_code(self, test_client: AsyncClient) -> None:
         """Test code analysis with empty code."""
         code_data = {"code": ""}
-        response = await test_client.post("/question-generation/analyse-code", json=code_data)
+        response = await test_client.post(
+            "/question-generation/analyse-code", json=code_data
+        )
 
         assert response.status_code == 200
         data = response.json()
@@ -58,13 +62,17 @@ class TestAnalyseCode:
         assert "variables" in data["code_info"]
 
     @pytest.mark.asyncio
-    async def test_analyse_code_with_invalid_encoding(self, test_client: AsyncClient) -> None:
+    async def test_analyse_code_with_invalid_encoding(
+        self, test_client: AsyncClient
+    ) -> None:
         """Test that invalid code encoding raises appropriate error."""
         code_data = {
             "code": "\\x",  # Invalid escape sequence
         }
 
-        response = await test_client.post("/question-generation/analyse-code", json=code_data)
+        response = await test_client.post(
+            "/question-generation/analyse-code", json=code_data
+        )
 
         assert response.status_code == 400
         assert "Invalid code format" in response.json()["detail"]
@@ -77,11 +85,10 @@ class TestGenerateQuestionFromTemplate:
 
     @pytest.mark.asyncio
     async def test_generate_question_from_template_success(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test successfully generating a question from a template."""
         # Create user and question template with valid config
-        user = await create_test_user(db_session)
         template = await create_test_question_template(
             db_session,
             user,
@@ -128,7 +135,7 @@ class TestGenerateQuestionFromTemplate:
 
     @pytest.mark.asyncio
     async def test_generate_question_from_template_not_found(
-        self, test_client: AsyncClient
+        self, test_client: AsyncClient, user: User
     ) -> None:
         """Test generating question from non-existent template returns 404."""
         non_existent_id = uuid4()
@@ -143,10 +150,9 @@ class TestGenerateQuestionFromTemplate:
 
     @pytest.mark.asyncio
     async def test_generate_question_from_template_missing_field(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test template with missing 'code' field raises ValidationError."""
-        user = await create_test_user(db_session)
         template = await create_test_question_template(
             db_session,
             user,
@@ -176,11 +182,10 @@ class TestGenerateAssessmentFromTemplate:
 
     @pytest.mark.asyncio
     async def test_generate_assessment_from_template_success(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test successfully generating an assessment from a template."""
         # Create user and assessment template with 3 question templates
-        user = await create_test_user(db_session)
         assessment_template, question_templates = (
             await create_assessment_template_with_question_templates(
                 db_session, user, num_templates=3
@@ -223,10 +228,9 @@ class TestGenerateAssessmentFromTemplate:
 
     @pytest.mark.asyncio
     async def test_generate_assessment_from_template_uses_template_defaults(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test assessment uses template defaults when metadata not provided."""
-        user = await create_test_user(db_session)
         assessment_template, _ = (
             await create_assessment_template_with_question_templates(
                 db_session, user, num_templates=2
@@ -254,10 +258,9 @@ class TestGenerateAssessmentFromTemplate:
 
     @pytest.mark.asyncio
     async def test_generate_assessment_from_template_overrides_defaults(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test custom metadata overrides template defaults."""
-        user = await create_test_user(db_session)
         assessment_template, _ = (
             await create_assessment_template_with_question_templates(
                 db_session, user, num_templates=2
@@ -287,10 +290,9 @@ class TestGenerateAssessmentFromTemplate:
 
     @pytest.mark.asyncio
     async def test_generate_assessment_from_template_with_folder(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test assessment is created in the specified folder."""
-        user = await create_test_user(db_session)
         folder = await create_test_folder(db_session, user)
         assessment_template, _ = (
             await create_assessment_template_with_question_templates(
@@ -317,10 +319,9 @@ class TestGenerateAssessmentFromTemplate:
 
     @pytest.mark.asyncio
     async def test_generate_assessment_from_template_not_found(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test generating assessment from non-existent template returns 404."""
-        user = await create_test_user(db_session)
         await db_session.commit()
 
         non_existent_id = uuid4()
@@ -338,10 +339,9 @@ class TestGenerateAssessmentFromTemplate:
 
     @pytest.mark.asyncio
     async def test_generate_assessment_from_template_input_count_mismatch(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test input count mismatch raises ValidationError."""
-        user = await create_test_user(db_session)
         assessment_template, _ = (
             await create_assessment_template_with_question_templates(
                 db_session, user, num_templates=3
@@ -367,13 +367,12 @@ class TestGenerateAssessmentFromTemplate:
 
     @pytest.mark.asyncio
     async def test_generate_assessment_from_template_empty_template(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test assessment template with no question templates creates empty assessment."""
         from edcraft_backend.models.assessment_template import AssessmentTemplate
         from tests.factories import get_user_root_folder
 
-        user = await create_test_user(db_session)
         root_folder = await get_user_root_folder(db_session, user)
         template = AssessmentTemplate(
             owner_id=user.id,
@@ -400,10 +399,9 @@ class TestGenerateAssessmentFromTemplate:
 
     @pytest.mark.asyncio
     async def test_generate_assessment_from_template_preserves_question_order(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test questions are created in the same order as templates."""
-        user = await create_test_user(db_session)
         assessment_template, question_templates = (
             await create_assessment_template_with_question_templates(
                 db_session, user, num_templates=5
@@ -428,6 +426,7 @@ class TestGenerateAssessmentFromTemplate:
         for i in range(5):
             assert data["questions"][i]["order"] == i
             assert data["questions"][i]["template_id"] == str(question_templates[i].id)
+
 
 @pytest.mark.integration
 @pytest.mark.question_generation

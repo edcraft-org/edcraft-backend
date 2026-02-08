@@ -12,7 +12,6 @@ from edcraft_backend.repositories.assessment_question_repository import (
     AssessmentQuestionRepository,
 )
 from edcraft_backend.repositories.assessment_repository import AssessmentRepository
-from edcraft_backend.repositories.folder_repository import FolderRepository
 from edcraft_backend.schemas.assessment import (
     AssessmentQuestionResponse,
     AssessmentWithQuestionsResponse,
@@ -21,6 +20,7 @@ from edcraft_backend.schemas.assessment import (
     UpdateAssessmentRequest,
 )
 from edcraft_backend.schemas.question import CreateQuestionRequest
+from edcraft_backend.services.folder_service import FolderService
 from edcraft_backend.services.question_service import QuestionService
 
 
@@ -30,62 +30,22 @@ class AssessmentService:
     def __init__(
         self,
         assessment_repository: AssessmentRepository,
-        folder_repository: FolderRepository,
+        folder_svc: FolderService,
         assessment_question_repository: AssessmentQuestionRepository,
         question_service: QuestionService,
     ):
         self.assessment_repo = assessment_repository
-        self.folder_repo = folder_repository
+        self.folder_svc = folder_svc
         self.assoc_repo = assessment_question_repository
         self.question_svc = question_service
 
-    async def create_assessment(self, assessment_data: CreateAssessmentRequest) -> Assessment:
-        """Create a new assessment.
+    async def get_owned_assessment(
+        self, user_id: UUID, assessment_id: UUID
+    ) -> Assessment:
+        """Get assessment and verify ownership.
 
         Args:
-            assessment_data: Assessment creation data
-
-        Returns:
-            Created assessment
-
-        Raises:
-            ResourceNotFoundError: If folder not found
-        """
-        folder = await self.folder_repo.get_by_id(assessment_data.folder_id)
-        if not folder:
-            raise ResourceNotFoundError("Folder", str(assessment_data.folder_id))
-
-        assessment = Assessment(**assessment_data.model_dump())
-        return await self.assessment_repo.create(assessment)
-
-    async def list_assessments(
-        self,
-        owner_id: UUID,
-        folder_id: UUID | None = None,
-    ) -> list[Assessment]:
-        """List assessments within folder or all user assessments.
-
-        Args:
-            owner_id: Owner UUID
-            folder_id: Folder UUID (None for ALL assessments owned by user)
-
-        Returns:
-            List of assessments ordered by updated_at descending
-        """
-        if folder_id:
-            assessments = await self.assessment_repo.get_by_folder(folder_id)
-        else:
-            assessments = await self.assessment_repo.list(
-                filters={"owner_id": owner_id},
-                order_by=Assessment.updated_at.desc()
-            )
-
-        return assessments
-
-    async def get_assessment(self, assessment_id: UUID) -> Assessment:
-        """Get an assessment by ID.
-
-        Args:
+            user_id: User UUID
             assessment_id: Assessment UUID
 
         Returns:
@@ -93,20 +53,91 @@ class AssessmentService:
 
         Raises:
             ResourceNotFoundError: If assessment not found
+            UnauthorizedAccessError: If user doesn't own the assessment
         """
         assessment = await self.assessment_repo.get_by_id(assessment_id)
         if not assessment:
             raise ResourceNotFoundError("Assessment", str(assessment_id))
+        if assessment.owner_id != user_id:
+            raise UnauthorizedAccessError("Assessment", str(assessment_id))
         return assessment
+
+    async def create_assessment(
+        self, user_id: UUID, assessment_data: CreateAssessmentRequest
+    ) -> Assessment:
+        """Create a new assessment.
+
+        Args:
+            user_id: User UUID
+            assessment_data: Assessment creation data
+
+        Returns:
+            Created assessment
+
+        Raises:
+            ResourceNotFoundError: If folder not found
+            UnauthorizedAccessError: If user doesn't own the folder
+        """
+        await self.folder_svc.get_owned_folder(user_id, assessment_data.folder_id)
+
+        assessment = Assessment(owner_id=user_id, **assessment_data.model_dump())
+        return await self.assessment_repo.create(assessment)
+
+    async def list_assessments(
+        self,
+        user_id: UUID,
+        folder_id: UUID | None = None,
+    ) -> list[Assessment]:
+        """List assessments within folder or all user assessments.
+
+        Args:
+            user_id: User UUID
+            folder_id: Folder UUID (None for ALL assessments owned by user)
+
+        Returns:
+            List of assessments ordered by updated_at descending
+
+        Raises:
+            ResourceNotFoundError: If folder not found
+            UnauthorizedAccessError: If folder does not belong to user
+        """
+        if folder_id:
+            await self.folder_svc.get_owned_folder(user_id, folder_id)
+            assessments = await self.assessment_repo.get_by_folder(folder_id)
+        else:
+            assessments = await self.assessment_repo.list(
+                filters={"owner_id": user_id},
+                order_by=Assessment.updated_at.desc(),
+            )
+
+        return assessments
+
+    async def get_assessment(self, user_id: UUID, assessment_id: UUID) -> Assessment:
+        """Get an assessment by ID and verify ownership.
+
+        Args:
+            user_id: User UUID
+            assessment_id: Assessment UUID
+
+        Returns:
+            Assessment entity
+
+        Raises:
+            ResourceNotFoundError: If assessment not found
+            UnauthorizedAccessError: If user doesn't own the assessment
+        """
+        return await self.get_owned_assessment(user_id, assessment_id)
 
     async def update_assessment(
         self,
+        user_id: UUID,
         assessment_id: UUID,
         assessment_data: UpdateAssessmentRequest,
     ) -> Assessment:
         """Update an assessment.
 
         Args:
+            user_id: User UUID
             assessment_id: Assessment UUID
             assessment_data: Assessment update data
 
@@ -117,16 +148,11 @@ class AssessmentService:
             ResourceNotFoundError: If assessment or folder not found
             UnauthorizedAccessError: If user doesn't own resources
         """
-        assessment = await self.get_assessment(assessment_id)
+        assessment = await self.get_owned_assessment(user_id, assessment_id)
         update_data = assessment_data.model_dump(exclude_unset=True)
 
-        # Verify folder exists if being updated
         if "folder_id" in update_data and update_data["folder_id"]:
-            folder = await self.folder_repo.get_by_id(update_data["folder_id"])
-            if not folder:
-                raise ResourceNotFoundError("Folder", str(update_data["folder_id"]))
-            if folder.owner_id != assessment.owner_id:
-                raise UnauthorizedAccessError("Folder", str(update_data["folder_id"]))
+            await self.folder_svc.get_owned_folder(user_id, update_data["folder_id"])
 
         for key, value in update_data.items():
             setattr(assessment, key, value)
@@ -134,11 +160,12 @@ class AssessmentService:
         return await self.assessment_repo.update(assessment)
 
     async def soft_delete_assessment(
-        self, assessment_id: UUID
+        self, user_id: UUID, assessment_id: UUID
     ) -> Assessment:
         """Soft delete an assessment and clean up orphaned questions.
 
         Args:
+            user_id: User UUID
             assessment_id: Assessment UUID
 
         Returns:
@@ -146,18 +173,20 @@ class AssessmentService:
 
         Raises:
             ResourceNotFoundError: If assessment not found
+            UnauthorizedAccessError: If user doesn't own the assessment
         """
-        assessment = await self.get_assessment(assessment_id)
+        assessment = await self.get_owned_assessment(user_id, assessment_id)
         deleted_assessment = await self.assessment_repo.soft_delete(assessment)
         await self.question_svc.cleanup_orphaned_questions(assessment.owner_id)
         return deleted_assessment
 
     async def get_assessment_with_questions(
-        self, assessment_id: UUID
+        self, user_id: UUID, assessment_id: UUID
     ) -> AssessmentWithQuestionsResponse:
         """Get assessment with all questions loaded.
 
         Args:
+            user_id: User UUID
             assessment_id: Assessment UUID
 
         Returns:
@@ -165,10 +194,13 @@ class AssessmentService:
 
         Raises:
             ResourceNotFoundError: If assessment not found
+            UnauthorizedAccessError: If user doesn't own the assessment
         """
         assessment = await self.assessment_repo.get_by_id_with_questions(assessment_id)
         if not assessment:
             raise ResourceNotFoundError("Assessment", str(assessment_id))
+        if assessment.owner_id != user_id:
+            raise UnauthorizedAccessError("Assessment", str(assessment_id))
 
         # Filter out soft-deleted questions
         questions: list[AssessmentQuestionResponse] = []
@@ -202,6 +234,7 @@ class AssessmentService:
 
     async def add_question_to_assessment(
         self,
+        user_id: UUID,
         assessment_id: UUID,
         question: CreateQuestionRequest,
         order: int | None = None,
@@ -209,6 +242,7 @@ class AssessmentService:
         """Add a question to an assessment.
 
         Args:
+            user_id: User UUID
             assessment_id: Assessment UUID
             question: QuestionCreate object
             order: Order position for the question
@@ -219,12 +253,13 @@ class AssessmentService:
         Raises:
             ResourceNotFoundError: If assessment or question not found
             ValidationError: If order is invalid
+            UnauthorizedAccessError: If user doesn't own the assessment
         """
-        # Verify assessment exists
-        assessment = await self.get_assessment(assessment_id)
+        # Verify assessment exists and ownership
+        assessment = await self.get_owned_assessment(user_id, assessment_id)
 
         # Create question
-        question_entity = await self.question_svc.create_question(question)
+        question_entity = await self.question_svc.create_question(user_id, question)
 
         # Validate and determine order
         current_count = await self.assoc_repo.get_count(assessment_id)
@@ -253,10 +288,11 @@ class AssessmentService:
         self.assessment_repo.db.expire(assessment)
 
         # Return updated assessment with questions
-        return await self.get_assessment_with_questions(assessment_id)
+        return await self.get_assessment_with_questions(user_id, assessment_id)
 
     async def link_question_to_assessment(
         self,
+        user_id: UUID,
         assessment_id: UUID,
         question_id: UUID,
         order: int | None = None,
@@ -264,6 +300,7 @@ class AssessmentService:
         """Link an existing question to an assessment.
 
         Args:
+            user_id: User UUID
             assessment_id: Assessment UUID
             question_id: Question UUID
             order: Order position for the question
@@ -275,12 +312,13 @@ class AssessmentService:
             ResourceNotFoundError: If assessment or question not found
             DuplicateResourceError: If question already linked to assessment
             ValidationError: If order is invalid
+            UnauthorizedAccessError: If user doesn't own resources
         """
-        # Verify assessment exists
-        assessment = await self.get_assessment(assessment_id)
+        # Verify assessment exists and ownership
+        assessment = await self.get_owned_assessment(user_id, assessment_id)
 
-        # Verify question exists
-        await self.question_svc.get_question(question_id)
+        # Verify question exists and ownership
+        await self.question_svc.get_owned_question(user_id, question_id)
 
         # Check for existing association
         existing_assoc = await self.assoc_repo.find_association(
@@ -320,23 +358,26 @@ class AssessmentService:
         self.assessment_repo.db.expire(assessment)
 
         # Return updated assessment with questions
-        return await self.get_assessment_with_questions(assessment_id)
+        return await self.get_assessment_with_questions(user_id, assessment_id)
 
     async def remove_question_from_assessment(
         self,
+        user_id: UUID,
         assessment_id: UUID,
         question_id: UUID,
     ) -> None:
         """Remove a question from an assessment and clean up if orphaned.
 
         Args:
+            user_id: User UUID
             assessment_id: Assessment UUID
             question_id: Question UUID
 
         Raises:
             ResourceNotFoundError: If association not found
+            UnauthorizedAccessError: If user doesn't own the assessment
         """
-        assessment = await self.get_assessment(assessment_id)
+        assessment = await self.get_owned_assessment(user_id, assessment_id)
 
         assoc = await self.assoc_repo.find_association(assessment_id, question_id)
         if not assoc:
@@ -351,12 +392,14 @@ class AssessmentService:
 
     async def reorder_questions(
         self,
+        user_id: UUID,
         assessment_id: UUID,
         question_orders: list[QuestionOrder],
     ) -> AssessmentWithQuestionsResponse:
         """Reorder questions in an assessment.
 
         Args:
+            user_id: User UUID
             assessment_id: Assessment UUID
             question_orders: List of QuestionOrder objects with question_id and order
 
@@ -366,9 +409,10 @@ class AssessmentService:
         Raises:
             ResourceNotFoundError: If assessment not found
             ValidationError: If not all questions are included in reorder
+            UnauthorizedAccessError: If user doesn't own the assessment
         """
-        # Verify assessment exists
-        await self.get_assessment(assessment_id)
+        # Verify assessment exists and ownership
+        await self.get_owned_assessment(user_id, assessment_id)
 
         # Get all current associations
         current_assocs = await self.assoc_repo.get_all_for_assessment(assessment_id)
@@ -406,4 +450,4 @@ class AssessmentService:
         await self.assessment_repo.db.flush()
 
         # Return updated assessment with questions
-        return await self.get_assessment_with_questions(assessment_id)
+        return await self.get_assessment_with_questions(user_id, assessment_id)

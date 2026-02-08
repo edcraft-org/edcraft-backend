@@ -5,6 +5,7 @@ from edcraft_backend.exceptions import (
     DuplicateResourceError,
     ForbiddenOperationError,
     ResourceNotFoundError,
+    UnauthorizedAccessError,
 )
 from edcraft_backend.models.folder import Folder
 from edcraft_backend.repositories.assessment_repository import AssessmentRepository
@@ -41,26 +42,29 @@ class FolderService:
         self.question_svc = question_service
         self.question_template_svc = question_template_service
 
-    async def create_root_folder(self, owner_id: UUID) -> Folder:
+    async def create_root_folder(self, user_id: UUID) -> Folder:
         """Create root folder for a new user.
 
         Args:
-            owner_id: User UUID
+            user_id: User UUID
 
         Returns:
             Created root folder
         """
         root_folder = Folder(
-            owner_id=owner_id,
+            owner_id=user_id,
             parent_id=None,
             name="My Projects",
         )
         return await self.folder_repo.create(root_folder)
 
-    async def create_folder(self, folder_data: CreateFolderRequest) -> Folder:
+    async def create_folder(
+        self, user_id: UUID, folder_data: CreateFolderRequest
+    ) -> Folder:
         """Create a new folder.
 
         Args:
+            user_id: User UUID
             folder_data: Folder creation data
 
         Returns:
@@ -69,15 +73,13 @@ class FolderService:
         Raises:
             DuplicateResourceError: If folder name already exists in parent
             ResourceNotFoundError: If parent folder does not exist
+            UnauthorizedAccessError: If user doesn't own the parent folder
         """
-        # Verify parent exists
-        parent = await self.folder_repo.get_by_id(folder_data.parent_id)
-        if not parent:
-            raise ResourceNotFoundError("Folder", str(folder_data.parent_id))
+        await self.get_owned_folder(user_id, folder_data.parent_id)
 
         # Check for duplicate name in same parent
         if await self.folder_repo.folder_name_exists(
-            folder_data.owner_id,
+            user_id,
             folder_data.name,
             folder_data.parent_id,
         ):
@@ -87,46 +89,52 @@ class FolderService:
                 f"{folder_data.name} in this location",
             )
 
-        folder = Folder(**folder_data.model_dump())
+        folder = Folder(owner_id=user_id, **folder_data.model_dump())
         return await self.folder_repo.create(folder)
 
     async def list_folders(
         self,
-        owner_id: UUID,
+        user_id: UUID,
         parent_id: UUID | None = None,
     ) -> list[Folder]:
         """List folders for a user, filtered by parent.
 
         Args:
-            owner_id: User UUID
+            user_id: User UUID requesting resources
             parent_id: Parent folder UUID (None for ALL folders owned by user)
 
         Returns:
             List of folders ordered by name
+
+        Raises:
+            ResourceNotFoundError: If parent folder not found
+            UnauthorizedAccessError: If user doesn't own the parent folder
         """
         if parent_id is None:
             return await self.folder_repo.list(
-                filters={"owner_id": owner_id},
-                order_by=Folder.name.asc()
+                filters={"owner_id": user_id},
+                order_by=Folder.name.asc(),
             )
         else:
+            await self.get_owned_folder(user_id, parent_id)
             return await self.folder_repo.get_children(parent_id)
 
-    async def get_root_folder(self, owner_id: UUID) -> Folder:
+    async def get_root_folder(self, user_id: UUID) -> Folder:
         """Get the root folder for a user.
 
         Args:
-            owner_id: User UUID
+            user_id: User UUID requesting resources
 
         Returns:
             Root folder
         """
-        return await self.folder_repo.get_root_folder(owner_id)
+        return await self.folder_repo.get_root_folder(user_id)
 
-    async def get_folder(self, folder_id: UUID) -> Folder:
-        """Get a folder by ID.
+    async def get_owned_folder(self, user_id: UUID, folder_id: UUID) -> Folder:
+        """Get a folder by ID, ensuring it is owned by the given user.
 
         Args:
+            user_id: User UUID requesting resources
             folder_id: Folder UUID
 
         Returns:
@@ -134,16 +142,38 @@ class FolderService:
 
         Raises:
             ResourceNotFoundError: If folder not found
+            UnauthorizedAccessError: If folder not owned by user
         """
         folder = await self.folder_repo.get_by_id(folder_id)
         if not folder:
             raise ResourceNotFoundError("Folder", str(folder_id))
+        if folder.owner_id != user_id:
+            raise UnauthorizedAccessError("Folder", str(folder_id))
         return folder
 
-    async def get_folder_with_contents(self, folder_id: UUID) -> FolderWithContentsResponse:
+    async def get_folder(self, user_id: UUID, folder_id: UUID) -> Folder:
+        """Get a folder by ID.
+
+        Args:
+            user_id: User UUID requesting resources
+            folder_id: Folder UUID
+
+        Returns:
+            Folder entity
+
+        Raises:
+            ResourceNotFoundError: If folder not found
+            UnauthorizedAccessError: If user doesn't own the folder
+        """
+        return await self.get_owned_folder(user_id, folder_id)
+
+    async def get_folder_with_contents(
+        self, user_id: UUID, folder_id: UUID
+    ) -> FolderWithContentsResponse:
         """Get a folder with its complete contents (assessments, templates, and child folders).
 
         Args:
+            user_id: User UUID requesting resources
             folder_id: Folder UUID
 
         Returns:
@@ -151,11 +181,14 @@ class FolderService:
 
         Raises:
             ResourceNotFoundError: If folder not found
+            UnauthorizedAccessError: If user doesn't own the folder
         """
         from edcraft_backend.schemas.assessment import AssessmentResponse
-        from edcraft_backend.schemas.assessment_template import AssessmentTemplateResponse
+        from edcraft_backend.schemas.assessment_template import (
+            AssessmentTemplateResponse,
+        )
 
-        folder = await self.get_folder(folder_id)
+        folder = await self.get_owned_folder(user_id, folder_id)
 
         assessment_responses = [
             AssessmentResponse.model_validate(assessment)
@@ -185,10 +218,13 @@ class FolderService:
             folders=folder_responses,
         )
 
-    async def get_folder_tree(self, folder_id: UUID) -> FolderTreeResponse:
+    async def get_folder_tree(
+        self, user_id: UUID, folder_id: UUID
+    ) -> FolderTreeResponse:
         """Get folder with full subtree.
 
         Args:
+            user_id: User UUID requesting resources
             folder_id: Folder UUID
 
         Returns:
@@ -196,11 +232,9 @@ class FolderService:
 
         Raises:
             ResourceNotFoundError: If folder not found
+            UnauthorizedAccessError: If user doesn't own the folder
         """
-        folder = await self.folder_repo.get_by_id(folder_id)
-        if not folder:
-            raise ResourceNotFoundError("Folder", str(folder_id))
-
+        folder = await self.get_owned_folder(user_id, folder_id)
         return await self._build_folder_tree(folder)
 
     async def _build_folder_tree(self, folder: Folder) -> FolderTreeResponse:
@@ -222,10 +256,11 @@ class FolderService:
             children=children_trees,
         )
 
-    async def get_folder_path(self, folder_id: UUID) -> list[Folder]:
+    async def get_folder_path(self, user_id: UUID, folder_id: UUID) -> list[Folder]:
         """Get the path from root to the given folder.
 
         Args:
+            user_id: User UUID requesting resources
             folder_id: Folder UUID
 
         Returns:
@@ -233,7 +268,10 @@ class FolderService:
 
         Raises:
             ResourceNotFoundError: If folder not found
+            UnauthorizedAccessError: If user doesn't own the folder
         """
+        await self.get_owned_folder(user_id, folder_id)
+
         path: list[Folder] = []
         current_id: UUID | None = folder_id
 
@@ -245,15 +283,15 @@ class FolderService:
             path.insert(0, folder)
             current_id = folder.parent_id
 
-        if not path:
-            raise ResourceNotFoundError("Folder", str(folder_id))
-
         return path
 
-    async def update_folder(self, folder_id: UUID, folder_data: UpdateFolderRequest) -> Folder:
+    async def update_folder(
+        self, user_id: UUID, folder_id: UUID, folder_data: UpdateFolderRequest
+    ) -> Folder:
         """Update folder name or description.
 
         Args:
+            user_id: User UUID requesting resources
             folder_id: Folder UUID
             folder_data: Folder update data
 
@@ -263,8 +301,9 @@ class FolderService:
         Raises:
             ResourceNotFoundError: If folder not found
             DuplicateResourceError: If name already exists in parent
+            UnauthorizedAccessError: If user doesn't own the folder
         """
-        folder = await self.get_folder(folder_id)
+        folder = await self.get_owned_folder(user_id, folder_id)
         update_data = folder_data.model_dump(exclude_unset=True)
 
         # Check for name conflict if name is being updated
@@ -287,10 +326,13 @@ class FolderService:
 
         return await self.folder_repo.update(folder)
 
-    async def move_folder(self, folder_id: UUID, move_data: MoveFolderRequest) -> Folder:
+    async def move_folder(
+        self, user_id: UUID, folder_id: UUID, move_data: MoveFolderRequest
+    ) -> Folder:
         """Move folder to a different parent.
 
         Args:
+            user_id: User UUID requesting resources
             folder_id: Folder UUID
             move_data: Move operation data
 
@@ -301,17 +343,16 @@ class FolderService:
             ResourceNotFoundError: If folder or target parent not found
             CircularReferenceError: If move would create circular reference
             DuplicateResourceError: If name already exists in target location
+            UnauthorizedAccessError: If user doesn't own the folder or target parent
         """
-        folder = await self.get_folder(folder_id)
+        folder = await self.get_owned_folder(user_id, folder_id)
 
         # Check for circular reference
         if await self._check_circular_reference(folder_id, move_data.parent_id):
             raise CircularReferenceError()
 
-        # Verify new parent exists
-        parent = await self.folder_repo.get_by_id(move_data.parent_id)
-        if not parent:
-            raise ResourceNotFoundError("Folder", str(move_data.parent_id))
+        # Verify new parent exists and is owned by same user
+        await self.get_owned_folder(user_id, move_data.parent_id)
 
         # Check for name conflict in target location
         if await self.folder_repo.folder_name_exists(
@@ -340,12 +381,11 @@ class FolderService:
             return True
         return await self.folder_repo.is_ancestor(folder_id, new_parent_id)
 
-    async def soft_delete_folder(
-        self, folder_id: UUID
-    ) -> Folder:
+    async def soft_delete_folder(self, user_id: UUID, folder_id: UUID) -> Folder:
         """Soft delete folder and all descendants using bulk operations.
 
         Args:
+            user_id: User UUID requesting resources
             folder_id: Folder UUID
 
         Returns:
@@ -354,10 +394,9 @@ class FolderService:
         Raises:
             ResourceNotFoundError: If folder not found
             ForbiddenOperationError: If attempting to delete root folder
+            UnauthorizedAccessError: If user doesn't own the folder
         """
-        folder = await self.folder_repo.get_by_id(folder_id)
-        if not folder:
-            raise ResourceNotFoundError("Folder", str(folder_id))
+        folder = await self.get_owned_folder(user_id, folder_id)
         if folder.parent_id is None:
             raise ForbiddenOperationError("Cannot delete root folder")
 
@@ -371,9 +410,5 @@ class FolderService:
         )
         await self.question_svc.cleanup_orphaned_questions(folder.owner_id)
         await self.question_template_svc.cleanup_orphaned_templates(folder.owner_id)
-
-        folder = await self.folder_repo.get_by_id(folder_id, include_deleted=True)
-        if not folder:
-            raise ResourceNotFoundError("Folder", str(folder_id))
 
         return folder

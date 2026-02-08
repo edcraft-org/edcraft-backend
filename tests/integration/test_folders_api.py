@@ -4,12 +4,12 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from edcraft_backend.models.user import User
 from tests.factories import (
     create_test_assessment,
     create_test_assessment_template,
     create_test_folder,
     create_test_folder_tree,
-    create_test_user,
     get_user_root_folder,
 )
 
@@ -21,15 +21,13 @@ class TestCreateFolder:
 
     @pytest.mark.asyncio
     async def test_create_folder(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test creating folder with valid parent."""
-        user = await create_test_user(db_session)
         parent = await create_test_folder(db_session, user, name="Parent")
         await db_session.commit()
 
         folder_data = {
-            "owner_id": str(user.id),
             "parent_id": str(parent.id),
             "name": "Child Folder",
             "description": "Nested folder",
@@ -43,18 +41,14 @@ class TestCreateFolder:
 
     @pytest.mark.asyncio
     async def test_create_folder_duplicate_name_same_parent(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test duplicate folder name under same parent returns 409."""
-        user = await create_test_user(db_session)
         parent = await create_test_folder(db_session, user, name="Parent")
-        await create_test_folder(
-            db_session, user, parent=parent, name="Duplicate"
-        )
+        await create_test_folder(db_session, user, parent=parent, name="Duplicate")
         await db_session.commit()
 
         folder_data = {
-            "owner_id": str(user.id),
             "parent_id": str(parent.id),
             "name": "Duplicate",
         }
@@ -64,19 +58,15 @@ class TestCreateFolder:
 
     @pytest.mark.asyncio
     async def test_create_folder_same_name_different_parent(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test same folder name under different parent is allowed."""
-        user = await create_test_user(db_session)
         parent1 = await create_test_folder(db_session, user, name="Parent1")
         parent2 = await create_test_folder(db_session, user, name="Parent2")
-        await create_test_folder(
-            db_session, user, parent=parent1, name="SameName"
-        )
+        await create_test_folder(db_session, user, parent=parent1, name="SameName")
         await db_session.commit()
 
         folder_data = {
-            "owner_id": str(user.id),
             "parent_id": str(parent2.id),
             "name": "SameName",
         }
@@ -86,13 +76,12 @@ class TestCreateFolder:
 
     @pytest.mark.asyncio
     async def test_create_folder_nonexistent_parent(
-        self, test_client: AsyncClient
+        self, test_client: AsyncClient, user: User
     ) -> None:
         """Test creating folder with non-existent parent returns 404."""
         import uuid
 
         folder_data = {
-            "owner_id": str(uuid.uuid4()),
             "parent_id": str(uuid.uuid4()),
             "name": "Test Folder",
         }
@@ -108,10 +97,9 @@ class TestListFolders:
 
     @pytest.mark.asyncio
     async def test_list_folders_for_user(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test listing all folders for a user."""
-        user = await create_test_user(db_session)
         root_folder = await get_user_root_folder(db_session, user)
         folder1 = await create_test_folder(db_session, user, name="Folder1")
         folder2 = await create_test_folder(db_session, user, name="Folder2")
@@ -120,7 +108,7 @@ class TestListFolders:
         )
         await db_session.commit()
 
-        response = await test_client.get("/folders", params={"owner_id": str(user.id)})
+        response = await test_client.get("/folders")
 
         assert response.status_code == 200
         data = response.json()
@@ -133,10 +121,9 @@ class TestListFolders:
 
     @pytest.mark.asyncio
     async def test_list_folders_filter_by_parent(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test filtering folders by parent_id to get children."""
-        user = await create_test_user(db_session)
         parent = await create_test_folder(db_session, user, name="Parent")
         child1 = await create_test_folder(
             db_session, user, parent=parent, name="Child1"
@@ -149,7 +136,7 @@ class TestListFolders:
 
         response = await test_client.get(
             "/folders",
-            params={"owner_id": str(user.id), "parent_id": str(parent.id)},
+            params={"parent_id": str(parent.id)},
         )
 
         assert response.status_code == 200
@@ -161,17 +148,16 @@ class TestListFolders:
 
     @pytest.mark.asyncio
     async def test_list_folders_excludes_soft_deleted(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test that soft-deleted folders are not in list."""
-        user = await create_test_user(db_session)
         active = await create_test_folder(db_session, user, name="Active")
         deleted = await create_test_folder(db_session, user, name="Deleted")
         await db_session.commit()
 
         await test_client.delete(f"/folders/{deleted.id}")
 
-        response = await test_client.get("/folders", params={"owner_id": str(user.id)})
+        response = await test_client.get("/folders")
 
         assert response.status_code == 200
         data = response.json()
@@ -187,10 +173,9 @@ class TestGetFolder:
 
     @pytest.mark.asyncio
     async def test_get_folder_success(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test getting a folder successfully."""
-        user = await create_test_user(db_session)
         folder = await create_test_folder(
             db_session, user, name="Test Folder", description="Test desc"
         )
@@ -205,7 +190,9 @@ class TestGetFolder:
         assert data["description"] == "Test desc"
 
     @pytest.mark.asyncio
-    async def test_get_folder_not_found(self, test_client: AsyncClient) -> None:
+    async def test_get_folder_not_found(
+        self, test_client: AsyncClient, user: User
+    ) -> None:
         """Test getting non-existent folder returns 404."""
         import uuid
 
@@ -215,10 +202,9 @@ class TestGetFolder:
 
     @pytest.mark.asyncio
     async def test_get_folder_soft_deleted_returns_404(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test getting soft-deleted folder returns 404."""
-        user = await create_test_user(db_session)
         folder = await create_test_folder(db_session, user)
         await db_session.commit()
 
@@ -235,10 +221,9 @@ class TestGetFolderTree:
 
     @pytest.mark.asyncio
     async def test_get_folder_tree_with_children(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test getting folder tree with nested children."""
-        user = await create_test_user(db_session)
         folders = await create_test_folder_tree(db_session, user, depth=3)
         await db_session.commit()
 
@@ -253,10 +238,9 @@ class TestGetFolderTree:
 
     @pytest.mark.asyncio
     async def test_get_folder_tree_includes_all_descendants(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test tree includes all descendant folders."""
-        user = await create_test_user(db_session)
         folders = await create_test_folder_tree(db_session, user, depth=3)
         await db_session.commit()
 
@@ -272,10 +256,9 @@ class TestGetFolderTree:
 
     @pytest.mark.asyncio
     async def test_get_folder_tree_excludes_soft_deleted_children(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test soft-deleted children not included in tree."""
-        user = await create_test_user(db_session)
         parent = await create_test_folder(db_session, user, name="Parent")
         child1 = await create_test_folder(
             db_session, user, parent=parent, name="Child1"
@@ -303,10 +286,9 @@ class TestGetFolderPath:
 
     @pytest.mark.asyncio
     async def test_get_folder_path_from_root(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test getting path from root to folder."""
-        user = await create_test_user(db_session)
         folders = await create_test_folder_tree(db_session, user, depth=3)
         await db_session.commit()
 
@@ -321,10 +303,9 @@ class TestGetFolderPath:
 
     @pytest.mark.asyncio
     async def test_get_folder_path_correct_order(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test path is in correct order (root to leaf)."""
-        user = await create_test_user(db_session)
         root_folder = await get_user_root_folder(db_session, user)
 
         child = await create_test_folder(
@@ -347,10 +328,9 @@ class TestGetFolderPath:
 
     @pytest.mark.asyncio
     async def test_get_folder_path_root_only(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test root folder returns path with only itself."""
-        user = await create_test_user(db_session)
         root_folder = await get_user_root_folder(db_session, user)
         await db_session.commit()
 
@@ -370,10 +350,9 @@ class TestUpdateFolder:
 
     @pytest.mark.asyncio
     async def test_update_folder_name(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test updating folder name successfully."""
-        user = await create_test_user(db_session)
         folder = await create_test_folder(db_session, user, name="Old Name")
         await db_session.commit()
 
@@ -385,13 +364,10 @@ class TestUpdateFolder:
 
     @pytest.mark.asyncio
     async def test_update_folder_description(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test updating folder description successfully."""
-        user = await create_test_user(db_session)
-        folder = await create_test_folder(
-            db_session, user, description="Old desc"
-        )
+        folder = await create_test_folder(db_session, user, description="Old desc")
         await db_session.commit()
 
         update_data = {"description": "New description"}
@@ -402,14 +378,11 @@ class TestUpdateFolder:
 
     @pytest.mark.asyncio
     async def test_update_folder_duplicate_name_same_parent(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test duplicate name under same parent returns 409."""
-        user = await create_test_user(db_session)
         parent = await create_test_folder(db_session, user, name="Parent")
-        await create_test_folder(
-            db_session, user, parent=parent, name="Existing"
-        )
+        await create_test_folder(db_session, user, parent=parent, name="Existing")
         folder = await create_test_folder(
             db_session, user, parent=parent, name="ToRename"
         )
@@ -428,10 +401,9 @@ class TestMoveFolder:
 
     @pytest.mark.asyncio
     async def test_move_folder_to_new_parent(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test moving folder to new parent successfully."""
-        user = await create_test_user(db_session)
         old_parent = await create_test_folder(db_session, user, name="OldParent")
         new_parent = await create_test_folder(db_session, user, name="NewParent")
         folder = await create_test_folder(
@@ -440,35 +412,28 @@ class TestMoveFolder:
         await db_session.commit()
 
         move_data = {"parent_id": str(new_parent.id)}
-        response = await test_client.patch(
-            f"/folders/{folder.id}/move", json=move_data
-        )
+        response = await test_client.patch(f"/folders/{folder.id}/move", json=move_data)
 
         assert response.status_code == 200
         assert response.json()["parent_id"] == str(new_parent.id)
 
     @pytest.mark.asyncio
     async def test_move_folder_circular_reference(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test circular reference (move to own child) returns 400."""
-        user = await create_test_user(db_session)
         parent = await create_test_folder(db_session, user, name="Parent")
-        child = await create_test_folder(
-            db_session, user, parent=parent, name="Child"
-        )
+        child = await create_test_folder(db_session, user, parent=parent, name="Child")
         await db_session.commit()
 
         move_data = {"parent_id": str(child.id)}
-        response = await test_client.patch(
-            f"/folders/{parent.id}/move", json=move_data
-        )
+        response = await test_client.patch(f"/folders/{parent.id}/move", json=move_data)
 
         assert response.status_code == 400
 
     @pytest.mark.asyncio
     async def test_move_folder_nonexistent_parent(
-        self, test_client: AsyncClient
+        self, test_client: AsyncClient, user: User
     ) -> None:
         """Test moving to non-existent parent returns 404."""
         import uuid
@@ -488,10 +453,9 @@ class TestSoftDeleteFolder:
 
     @pytest.mark.asyncio
     async def test_soft_delete_folder_success(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test soft deleting folder successfully."""
-        user = await create_test_user(db_session)
         folder = await create_test_folder(db_session, user)
         await db_session.commit()
 
@@ -503,10 +467,9 @@ class TestSoftDeleteFolder:
 
     @pytest.mark.asyncio
     async def test_soft_delete_folder_cascades_to_children(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test child folders cascade soft-deleted."""
-        user = await create_test_user(db_session)
         parent = await create_test_folder(db_session, user, name="Parent")
         child1 = await create_test_folder(
             db_session, user, parent=parent, name="Child1"
@@ -528,10 +491,9 @@ class TestSoftDeleteFolder:
 
     @pytest.mark.asyncio
     async def test_soft_delete_folder_cascades_to_assessments(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test folder deletion cascades to assessments."""
-        user = await create_test_user(db_session)
         folder = await create_test_folder(db_session, user, name="Folder")
         assessment1 = await create_test_assessment(db_session, user, folder=folder)
         assessment2 = await create_test_assessment(db_session, user, folder=folder)
@@ -549,13 +511,16 @@ class TestSoftDeleteFolder:
 
     @pytest.mark.asyncio
     async def test_soft_delete_folder_cascades_to_templates(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test folder deletion cascades to assessment templates."""
-        user = await create_test_user(db_session)
         folder = await create_test_folder(db_session, user, name="Folder")
-        template1 = await create_test_assessment_template(db_session, user, folder=folder)
-        template2 = await create_test_assessment_template(db_session, user, folder=folder)
+        template1 = await create_test_assessment_template(
+            db_session, user, folder=folder
+        )
+        template2 = await create_test_assessment_template(
+            db_session, user, folder=folder
+        )
         await db_session.commit()
 
         response = await test_client.delete(f"/folders/{folder.id}")
@@ -570,11 +535,9 @@ class TestSoftDeleteFolder:
 
     @pytest.mark.asyncio
     async def test_soft_delete_deeply_nested_folders(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test deletion works for deeply nested hierarchies."""
-        user = await create_test_user(db_session)
-
         # Create tree: root -> child -> grandchild -> great_grandchild
         root = await create_test_folder(db_session, user, name="Root")
         child = await create_test_folder(db_session, user, parent=root, name="Child")
@@ -596,7 +559,9 @@ class TestSoftDeleteFolder:
             assert folder.deleted_at is not None
 
     @pytest.mark.asyncio
-    async def test_soft_delete_folder_not_found(self, test_client: AsyncClient) -> None:
+    async def test_soft_delete_folder_not_found(
+        self, test_client: AsyncClient, user: User
+    ) -> None:
         """Test soft deleting non-existent folder returns 404."""
         import uuid
 
@@ -606,10 +571,9 @@ class TestSoftDeleteFolder:
 
     @pytest.mark.asyncio
     async def test_cannot_delete_root_folder(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test that deleting root folder returns 403 Forbidden."""
-        user = await create_test_user(db_session)
         root_folder = await get_user_root_folder(db_session, user)
         await db_session.commit()
 
@@ -624,10 +588,9 @@ class TestGetFolderContents:
 
     @pytest.mark.asyncio
     async def test_get_folder_contents_success(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test getting folder with contents successfully."""
-        user = await create_test_user(db_session)
         folder = await create_test_folder(
             db_session, user, name="Test Folder", description="Test desc"
         )
@@ -685,10 +648,9 @@ class TestGetFolderContents:
 
     @pytest.mark.asyncio
     async def test_get_folder_contents_empty_folder(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test getting folder with no contents returns empty lists."""
-        user = await create_test_user(db_session)
         folder = await create_test_folder(db_session, user, name="Empty Folder")
         await db_session.commit()
 
@@ -703,7 +665,7 @@ class TestGetFolderContents:
 
     @pytest.mark.asyncio
     async def test_get_folder_contents_not_found(
-        self, test_client: AsyncClient
+        self, test_client: AsyncClient, user: User
     ) -> None:
         """Test getting non-existent folder returns 404."""
         import uuid
@@ -714,10 +676,9 @@ class TestGetFolderContents:
 
     @pytest.mark.asyncio
     async def test_get_folder_contents_soft_deleted_folder_returns_404(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test getting soft-deleted folder returns 404."""
-        user = await create_test_user(db_session)
         folder = await create_test_folder(db_session, user)
         await create_test_assessment(db_session, user, folder=folder)
         await db_session.commit()
@@ -729,10 +690,9 @@ class TestGetFolderContents:
 
     @pytest.mark.asyncio
     async def test_get_folder_contents_excludes_soft_deleted_assessments(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test soft-deleted assessments are not included in contents."""
-        user = await create_test_user(db_session)
         folder = await create_test_folder(db_session, user)
         active_assessment = await create_test_assessment(
             db_session, user, folder=folder, title="Active"
@@ -755,10 +715,9 @@ class TestGetFolderContents:
 
     @pytest.mark.asyncio
     async def test_get_folder_contents_excludes_soft_deleted_templates(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test soft-deleted templates are not included in contents."""
-        user = await create_test_user(db_session)
         folder = await create_test_folder(db_session, user)
         active_template = await create_test_assessment_template(
             db_session, user, folder=folder, title="Active"
@@ -781,10 +740,9 @@ class TestGetFolderContents:
 
     @pytest.mark.asyncio
     async def test_get_folder_contents_excludes_soft_deleted_child_folders(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test soft-deleted child folders are not included in contents."""
-        user = await create_test_user(db_session)
         folder = await create_test_folder(db_session, user, name="Parent")
         active_child = await create_test_folder(
             db_session, user, parent=folder, name="Active Child"
@@ -808,10 +766,9 @@ class TestGetFolderContents:
 
     @pytest.mark.asyncio
     async def test_get_folder_contents_returns_complete_assessment_objects(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test assessments and templates have complete fields."""
-        user = await create_test_user(db_session)
         folder = await create_test_folder(db_session, user)
         assessment = await create_test_assessment(
             db_session,
@@ -839,10 +796,9 @@ class TestGetFolderContents:
 
     @pytest.mark.asyncio
     async def test_get_folder_contents_returns_complete_assessment_template_objects(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test assessments and templates have complete fields."""
-        user = await create_test_user(db_session)
         folder = await create_test_folder(db_session, user)
         template = await create_test_assessment_template(
             db_session,
@@ -870,10 +826,9 @@ class TestGetFolderContents:
 
     @pytest.mark.asyncio
     async def test_get_folder_contents_child_folders_have_correct_fields(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test child folders have all FolderResponse fields."""
-        user = await create_test_user(db_session)
         folder = await create_test_folder(db_session, user, name="Parent")
         child = await create_test_folder(
             db_session,
@@ -900,10 +855,9 @@ class TestGetFolderContents:
 
     @pytest.mark.asyncio
     async def test_get_folder_contents_child_folders_dont_include_nested_contents(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test child folders don't include their own contents (non-recursive)."""
-        user = await create_test_user(db_session)
         parent = await create_test_folder(db_session, user, name="Parent")
         child = await create_test_folder(db_session, user, parent=parent, name="Child")
 

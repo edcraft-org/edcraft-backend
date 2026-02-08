@@ -12,7 +12,6 @@ from edcraft_backend.schemas.assessment_template import AssessmentTemplateRespon
 class CreateFolderRequest(BaseModel):
     """Schema for creating a new folder."""
 
-    owner_id: UUID
     parent_id: UUID
     name: str
     description: str | None = None

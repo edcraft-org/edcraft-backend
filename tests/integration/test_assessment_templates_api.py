@@ -6,11 +6,11 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from edcraft_backend.models.user import User
 from tests.factories import (
     create_test_assessment_template,
     create_test_folder,
     create_test_question_template,
-    create_test_user,
 )
 
 
@@ -21,15 +21,13 @@ class TestCreateAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_create_assessment_template_with_folder(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test creating assessment template linked to folder."""
-        user = await create_test_user(db_session)
         folder = await create_test_folder(db_session, user)
         await db_session.commit()
 
         template_data = {
-            "owner_id": str(user.id),
             "folder_id": str(folder.id),
             "title": "Template in Folder",
             "description": "Test description",
@@ -42,14 +40,13 @@ class TestCreateAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_create_assessment_template_nonexistent_folder(
-        self, test_client: AsyncClient
+        self, test_client: AsyncClient, user: User
     ) -> None:
         """Test creating assessment template with non-existent folder returns 404."""
         import uuid
 
         non_existent_folder_id = uuid.uuid4()
         template_data = {
-            "owner_id": str(uuid.uuid4()),
             "folder_id": str(non_existent_folder_id),
             "title": "Test Template",
         }
@@ -65,10 +62,9 @@ class TestListAssessmentTemplates:
 
     @pytest.mark.asyncio
     async def test_list_assessment_templates_success(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test listing all assessment templates for a user."""
-        user = await create_test_user(db_session)
         template1 = await create_test_assessment_template(
             db_session, user, title="Template 1"
         )
@@ -77,9 +73,7 @@ class TestListAssessmentTemplates:
         )
         await db_session.commit()
 
-        response = await test_client.get(
-            "/assessment-templates", params={"owner_id": str(user.id)}
-        )
+        response = await test_client.get("/assessment-templates")
 
         assert response.status_code == 200
         data = response.json()
@@ -90,10 +84,9 @@ class TestListAssessmentTemplates:
 
     @pytest.mark.asyncio
     async def test_list_assessment_templates_filter_by_folder(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test filtering assessment templates by folder."""
-        user = await create_test_user(db_session)
         folder1 = await create_test_folder(db_session, user, name="Folder 1")
         folder2 = await create_test_folder(db_session, user, name="Folder 2")
         template_in_folder1 = await create_test_assessment_template(
@@ -104,7 +97,7 @@ class TestListAssessmentTemplates:
 
         response = await test_client.get(
             "/assessment-templates",
-            params={"owner_id": str(user.id), "folder_id": str(folder1.id)},
+            params={"folder_id": str(folder1.id)},
         )
 
         assert response.status_code == 200
@@ -114,10 +107,9 @@ class TestListAssessmentTemplates:
 
     @pytest.mark.asyncio
     async def test_list_assessment_templates_excludes_soft_deleted(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test that soft-deleted assessment templates are not in list."""
-        user = await create_test_user(db_session)
         active_template = await create_test_assessment_template(
             db_session, user, title="Active"
         )
@@ -130,9 +122,7 @@ class TestListAssessmentTemplates:
         await test_client.delete(f"/assessment-templates/{deleted_template.id}")
 
         # List templates
-        response = await test_client.get(
-            "/assessment-templates", params={"owner_id": str(user.id)}
-        )
+        response = await test_client.get("/assessment-templates")
 
         assert response.status_code == 200
         data = response.json()
@@ -148,10 +138,9 @@ class TestGetAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_get_assessment_template_success(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test getting an assessment template successfully."""
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(
             db_session, user, title="Test Template"
         )
@@ -168,10 +157,9 @@ class TestGetAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_get_assessment_template_with_question_templates_in_order(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test getting assessment template includes question templates in correct order."""
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(db_session, user)
         qt1 = await create_test_question_template(
             db_session, user, question_text="QT1?"
@@ -212,7 +200,9 @@ class TestGetAssessmentTemplate:
         assert data["question_templates"][2]["order"] == 2
 
     @pytest.mark.asyncio
-    async def test_get_assessment_template_not_found(self, test_client: AsyncClient) -> None:
+    async def test_get_assessment_template_not_found(
+        self, test_client: AsyncClient, user: User
+    ) -> None:
         """Test getting non-existent assessment template returns 404."""
         import uuid
 
@@ -224,10 +214,9 @@ class TestGetAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_get_assessment_template_soft_deleted_returns_404(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test getting soft-deleted assessment template returns 404."""
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(db_session, user)
         await db_session.commit()
 
@@ -247,10 +236,9 @@ class TestUpdateAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_update_assessment_template_title(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test updating assessment template title successfully."""
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(
             db_session, user, title="Old Title"
         )
@@ -267,10 +255,9 @@ class TestUpdateAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_update_assessment_template_description(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test updating assessment template description successfully."""
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(
             db_session, user, description="Old description"
         )
@@ -287,10 +274,9 @@ class TestUpdateAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_update_assessment_template_move_to_folder(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test moving assessment template to different folder."""
-        user = await create_test_user(db_session)
         folder1 = await create_test_folder(db_session, user, name="Folder 1")
         folder2 = await create_test_folder(db_session, user, name="Folder 2")
         template = await create_test_assessment_template(
@@ -309,7 +295,7 @@ class TestUpdateAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_update_assessment_template_not_found(
-        self, test_client: AsyncClient
+        self, test_client: AsyncClient, user: User
     ) -> None:
         """Test updating non-existent assessment template returns 404."""
         import uuid
@@ -330,10 +316,9 @@ class TestSoftDeleteAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_soft_delete_assessment_template_success(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test soft deleting assessment template successfully."""
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(db_session, user)
         await db_session.commit()
 
@@ -347,10 +332,9 @@ class TestSoftDeleteAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_soft_delete_assessment_template_not_in_list(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test soft-deleted assessment template not in list results."""
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(db_session, user)
         await db_session.commit()
 
@@ -358,9 +342,7 @@ class TestSoftDeleteAssessmentTemplate:
         await test_client.delete(f"/assessment-templates/{template.id}")
 
         # List templates
-        response = await test_client.get(
-            "/assessment-templates", params={"owner_id": str(user.id)}
-        )
+        response = await test_client.get("/assessment-templates")
 
         assert response.status_code == 200
         data = response.json()
@@ -369,7 +351,7 @@ class TestSoftDeleteAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_soft_delete_assessment_template_not_found(
-        self, test_client: AsyncClient
+        self, test_client: AsyncClient, user: User
     ) -> None:
         """Test soft deleting non-existent assessment template returns 404."""
         import uuid
@@ -381,14 +363,13 @@ class TestSoftDeleteAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_soft_delete_template_cleans_up_orphaned_question_templates(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test that deleting template triggers cleanup of orphaned question templates."""
         from sqlalchemy import select
 
         from edcraft_backend.models.question_template import QuestionTemplate
 
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(db_session, user)
 
         orphaned_qt = await create_test_question_template(
@@ -450,16 +431,14 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_insert_question_template_to_assessment_template_success(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test inserting question template to assessment template successfully."""
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(db_session, user)
         await db_session.commit()
 
         qt_data: dict[str, Any] = {
             "question_template": {
-                "owner_id": str(user.id),
                 "question_type": "mcq",
                 "question_text": "What is 2+2?",
                 "template_config": {
@@ -496,17 +475,15 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_insert_multiple_question_templates_with_order(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test inserting multiple question templates with specific order."""
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(db_session, user)
         await db_session.commit()
 
         # Insert question templates with specific order
         qt_data_1: dict[str, Any] = {
                 "question_template": {
-                    "owner_id": str(user.id),
                     "question_type": "mcq",
                     "question_text": "Question 1?",
                     "template_config": {
@@ -537,7 +514,6 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
 
         qt_data_2: dict[str, Any] = {
                 "question_template": {
-                    "owner_id": str(user.id),
                     "question_type": "mcq",
                     "question_text": "Question 2?",
                     "template_config": {
@@ -568,7 +544,6 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
 
         qt_data_3: dict[str, Any] = {
                 "question_template": {
-                    "owner_id": str(user.id),
                     "question_type": "mcq",
                     "question_text": "Question 3?",
                     "template_config": {
@@ -606,16 +581,14 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_insert_question_template_default_order(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test inserting question template with default order (auto-increments)."""
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(db_session, user)
         await db_session.commit()
 
         qt_data: dict[str, Any] = {
             "question_template": {
-                "owner_id": str(user.id),
                 "question_type": "mcq",
                 "question_text": "Test question?",
                 "template_config": {
@@ -648,18 +621,14 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_insert_question_template_to_nonexistent_assessment_template(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, user: User
     ) -> None:
         """Test inserting question template to non-existent assessment template returns 404."""
         import uuid
 
-        user = await create_test_user(db_session)
-        await db_session.commit()
-
         non_existent_template_id = uuid.uuid4()
         qt_data: dict[str, Any] = {
             "question_template": {
-                "owner_id": str(user.id),
                 "question_type": "mcq",
                 "question_text": "Test question?",
                 "template_config": {
@@ -692,16 +661,14 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_insert_question_template_with_insert_behavior(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test that inserting question template at existing order shifts other templates down."""
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(db_session, user)
         await db_session.commit()
 
         qt1_data: dict[str, Any] = {
             "question_template": {
-                "owner_id": str(user.id),
                 "question_type": "mcq",
                 "question_text": "Question Template 1?",
                 "template_config": {
@@ -731,7 +698,6 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
 
         qt2_data: dict[str, Any] = {
             "question_template": {
-                "owner_id": str(user.id),
                 "question_type": "mcq",
                 "question_text": "Question Template 2?",
                 "template_config": {
@@ -777,10 +743,9 @@ class TestLinkQuestionTemplateToAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_link_question_template_to_assessment_template_success(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test linking question template to assessment template successfully."""
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(db_session, user)
         qt = await create_test_question_template(db_session, user)
         await db_session.commit()
@@ -798,10 +763,9 @@ class TestLinkQuestionTemplateToAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_link_multiple_question_templates_with_order(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test linking multiple question templates with specific order."""
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(db_session, user)
         qt1 = await create_test_question_template(db_session, user)
         qt2 = await create_test_question_template(db_session, user)
@@ -831,10 +795,9 @@ class TestLinkQuestionTemplateToAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_link_question_template_default_order(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test linking question template with default order (auto-increments)."""
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(db_session, user)
         qt = await create_test_question_template(db_session, user)
         await db_session.commit()
@@ -850,7 +813,7 @@ class TestLinkQuestionTemplateToAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_link_question_template_to_nonexistent_assessment_template(
-        self, test_client: AsyncClient
+        self, test_client: AsyncClient, user: User
     ) -> None:
         """Test linking question template to non-existent assessment template returns 404."""
         import uuid
@@ -866,12 +829,11 @@ class TestLinkQuestionTemplateToAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_link_nonexistent_question_template_to_assessment_template(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test linking non-existent question template to assessment template returns 404."""
         import uuid
 
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(db_session, user)
         await db_session.commit()
 
@@ -885,10 +847,9 @@ class TestLinkQuestionTemplateToAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_link_question_template_with_insert_behavior(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test that linking question template at existing order shifts other templates down."""
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(db_session, user)
         qt1 = await create_test_question_template(db_session, user, question_text="QT1?")
         qt2 = await create_test_question_template(db_session, user, question_text="QT2?")
@@ -916,10 +877,9 @@ class TestLinkQuestionTemplateToAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_link_question_template_insert_in_middle(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test linking question template in middle shifts templates at/after position down."""
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(db_session, user)
         qt1 = await create_test_question_template(db_session, user, question_text="QT1?")
         qt2 = await create_test_question_template(db_session, user, question_text="QT2?")
@@ -960,10 +920,9 @@ class TestLinkQuestionTemplateToAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_link_question_template_with_order_exceeding_count(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test linking with order > count fails with validation error."""
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(db_session, user)
         qt1 = await create_test_question_template(db_session, user, question_text="QT1?")
         qt2 = await create_test_question_template(db_session, user, question_text="QT2?")
@@ -997,10 +956,9 @@ class TestRemoveQuestionTemplateFromAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_remove_question_template_from_assessment_template_success(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test removing question template from assessment template successfully."""
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(db_session, user)
         qt = await create_test_question_template(db_session, user)
         await db_session.commit()
@@ -1024,10 +982,9 @@ class TestRemoveQuestionTemplateFromAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_remove_question_template_preserves_other_question_templates(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test removing one question template preserves other question templates."""
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(db_session, user)
         qt1 = await create_test_question_template(db_session, user)
         qt2 = await create_test_question_template(db_session, user)
@@ -1056,7 +1013,7 @@ class TestRemoveQuestionTemplateFromAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_remove_question_template_from_nonexistent_assessment_template(
-        self, test_client: AsyncClient
+        self, test_client: AsyncClient, user: User
     ) -> None:
         """Test removing question template from non-existent assessment template returns 404."""
         import uuid
@@ -1071,12 +1028,11 @@ class TestRemoveQuestionTemplateFromAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_remove_nonexistent_question_template_from_assessment_template(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test removing non-existent question template from assessment template returns 404."""
         import uuid
 
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(db_session, user)
         await db_session.commit()
 
@@ -1089,10 +1045,9 @@ class TestRemoveQuestionTemplateFromAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_remove_question_template_normalizes_orders(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test that removing a question template normalizes remaining orders."""
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(db_session, user)
         qt1 = await create_test_question_template(db_session, user, question_text="QT1?")
         qt2 = await create_test_question_template(db_session, user, question_text="QT2?")
@@ -1127,14 +1082,13 @@ class TestRemoveQuestionTemplateFromAssessmentTemplate:
 
     @pytest.mark.asyncio
     async def test_remove_question_template_cleans_up_orphaned_template(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test that removing question template triggers cleanup if it becomes orphaned."""
         from sqlalchemy import select
 
         from edcraft_backend.models.question_template import QuestionTemplate
 
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(db_session, user)
 
         orphaned_qt = await create_test_question_template(
@@ -1204,10 +1158,9 @@ class TestReorderQuestionTemplates:
 
     @pytest.mark.asyncio
     async def test_reorder_question_templates_success(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test reordering question templates successfully."""
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(db_session, user)
         qt1 = await create_test_question_template(
             db_session, user, question_text="QT1?"
@@ -1256,10 +1209,9 @@ class TestReorderQuestionTemplates:
 
     @pytest.mark.asyncio
     async def test_reorder_question_templates_requires_all_questions(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test reordering only some question templates (partial update)."""
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(db_session, user)
         qt1 = await create_test_question_template(db_session, user)
         qt2 = await create_test_question_template(db_session, user)
@@ -1297,7 +1249,7 @@ class TestReorderQuestionTemplates:
 
     @pytest.mark.asyncio
     async def test_reorder_question_templates_nonexistent_assessment_template(
-        self, test_client: AsyncClient
+        self, test_client: AsyncClient, user: User
     ) -> None:
         """Test reordering question templates in non-existent assessment template returns 404."""
         import uuid
@@ -1317,10 +1269,9 @@ class TestReorderQuestionTemplates:
 
     @pytest.mark.asyncio
     async def test_reorder_normalizes_to_consecutive_integers(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test that reorder normalizes orders to 0, 1, 2, 3..."""
-        user = await create_test_user(db_session)
         template = await create_test_assessment_template(db_session, user)
         qt1 = await create_test_question_template(db_session, user, question_text="QT1?")
         qt2 = await create_test_question_template(db_session, user, question_text="QT2?")

@@ -26,45 +26,51 @@ class QuestionTemplateService:
 
     async def create_template(
         self,
+        user_id: UUID,
         template_data: CreateQuestionTemplateRequest,
     ) -> QuestionTemplate:
         """Create a new question template.
 
         Args:
+            user_id: User UUID
             template_data: Template creation data
 
         Returns:
             Created template
         """
-        template = QuestionTemplate(**template_data.model_dump())
+        template = QuestionTemplate(
+            owner_id=user_id,
+            **template_data.model_dump()
+        )
         return await self.template_repo.create(template)
 
     async def list_templates(
         self,
-        owner_id: UUID,
+        user_id: UUID,
     ) -> list[QuestionTemplate]:
         """List question templates.
 
         Args:
-            owner_id: Optional owner filter
+            user_id: User UUID filter
             question_type: Optional question type filter
 
         Returns:
             List of templates ordered by creation date
         """
         filters: dict[str, UUID] = {}
-        if owner_id:
-            filters["owner_id"] = owner_id
+        if user_id:
+            filters["owner_id"] = user_id
 
         return await self.template_repo.list(
             filters=filters if filters else None,
             order_by=QuestionTemplate.created_at.desc(),
         )
 
-    async def get_template(self, template_id: UUID) -> QuestionTemplate:
+    async def get_owned_template(self, user_id: UUID, template_id: UUID) -> QuestionTemplate:
         """Get a question template by ID.
 
         Args:
+            user_id: User UUID
             template_id: Template UUID
 
         Returns:
@@ -76,16 +82,40 @@ class QuestionTemplateService:
         template = await self.template_repo.get_by_id(template_id)
         if not template:
             raise ResourceNotFoundError("QuestionTemplate", str(template_id))
+        if template.owner_id != user_id:
+            raise UnauthorizedAccessError("QuestionTemplate", str(template_id))
         return template
+
+    async def get_template(
+        self,
+        user_id: UUID,
+        template_id: UUID,
+    ) -> QuestionTemplate:
+        """Get a question template by ID.
+
+        Args:
+            user_id: User UUID
+            template_id: Template UUID
+
+        Returns:
+            QuestionTemplate entity
+
+        Raises:
+            ResourceNotFoundError: If template not found
+            UnauthorizedAccessError: If user doesn't own the template
+        """
+        return await self.get_owned_template(user_id, template_id)
 
     async def update_template(
         self,
+        user_id: UUID,
         template_id: UUID,
         template_data: UpdateQuestionTemplateRequest,
     ) -> QuestionTemplate:
         """Update a question template.
 
         Args:
+            user_id: User UUID
             template_id: Template UUID
             template_data: Template update data
 
@@ -94,8 +124,9 @@ class QuestionTemplateService:
 
         Raises:
             ResourceNotFoundError: If template not found
+            UnauthorizedAccessError: If user doesn't own the template
         """
-        template = await self.get_template(template_id)
+        template = await self.get_owned_template(user_id, template_id)
         update_data = template_data.model_dump(exclude_unset=True)
 
         for key, value in update_data.items():
@@ -103,10 +134,13 @@ class QuestionTemplateService:
 
         return await self.template_repo.update(template)
 
-    async def soft_delete_template(self, template_id: UUID) -> QuestionTemplate:
+    async def soft_delete_template(
+        self, user_id: UUID, template_id: UUID
+    ) -> QuestionTemplate:
         """Soft delete a question template.
 
         Args:
+            user_id: User UUID
             template_id: Template UUID
 
         Returns:
@@ -114,8 +148,9 @@ class QuestionTemplateService:
 
         Raises:
             ResourceNotFoundError: If template not found
+            UnauthorizedAccessError: If user doesn't own the template
         """
-        template = await self.get_template(template_id)
+        template = await self.get_owned_template(user_id, template_id)
         return await self.template_repo.soft_delete(template)
 
     async def cleanup_orphaned_templates(self, owner_id: UUID) -> int:
@@ -138,14 +173,14 @@ class QuestionTemplateService:
 
     async def get_assessment_templates_for_question_template(
         self,
+        user_id: UUID,
         question_template_id: UUID,
-        requesting_user_id: UUID,
     ) -> list[AssessmentTemplate]:
         """Get all assessment templates that include this question template.
 
         Args:
+            user_id: User UUID requesting resources
             question_template_id: QuestionTemplate UUID
-            requesting_user_id: User UUID making the request
 
         Returns:
             List of assessment templates that include this question template
@@ -154,10 +189,7 @@ class QuestionTemplateService:
             ResourceNotFoundError: If question template not found
             UnauthorizedAccessError: If user doesn't own the question template
         """
-        template = await self.get_template(question_template_id)
-        if template.owner_id != requesting_user_id:
-            raise UnauthorizedAccessError("QuestionTemplate", str(question_template_id))
-
+        await self.get_owned_template(user_id, question_template_id)
         return await self.assoc_repo.get_assessment_templates_by_question_template_id(
             question_template_id
         )

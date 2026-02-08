@@ -54,12 +54,14 @@ class QuestionGenerationService:
 
     async def generate_question_from_template(
         self,
+        user_id: UUID,
         template_id: UUID,
         input_data: dict[str, Any],
     ) -> Question:
         """Generate question from template.
 
         Args:
+            user_id: User UUID
             template_id: QuestionTemplate UUID
             input_data: Input data for executing code
 
@@ -68,8 +70,9 @@ class QuestionGenerationService:
 
         Raises:
             QuestionGenerationError: If generation fails
+            UnauthorizedAccessError: If user doesn't own the question template
         """
-        template = await self.question_template_svc.get_template(template_id)
+        template = await self.question_template_svc.get_template(user_id, template_id)
 
         # Extract configuration from template
         config = template.template_config
@@ -80,7 +83,9 @@ class QuestionGenerationService:
 
         question_spec_dict = config.get("question_spec")
         if not question_spec_dict:
-            raise ValidationError("Template configuration missing 'question_spec' field.")
+            raise ValidationError(
+                "Template configuration missing 'question_spec' field."
+            )
 
         generation_options_dict = config.get("generation_options")
         if not generation_options_dict:
@@ -90,7 +95,9 @@ class QuestionGenerationService:
 
         entry_function = config.get("entry_function")
         if not entry_function:
-            raise ValidationError("Template configuration missing 'entry_function' field.")
+            raise ValidationError(
+                "Template configuration missing 'entry_function' field."
+            )
 
         # Create configurations
         question_spec = QuestionSpec(**question_spec_dict)
@@ -140,6 +147,7 @@ class QuestionGenerationService:
 
     async def generate_assessment_from_template(
         self,
+        user_id: UUID,
         template_id: UUID,
         assessment_metadata: AssessmentMetadata,
         question_inputs: list[dict[str, Any]],
@@ -147,6 +155,7 @@ class QuestionGenerationService:
         """Generate and persist assessment from assessment template.
 
         Args:
+            user_id: User UUID
             template_id: AssessmentTemplate UUID
             assessment_metadata: Metadata for assessment creation
             question_inputs: List of input data dicts for each question
@@ -157,10 +166,11 @@ class QuestionGenerationService:
         Raises:
             ValidationError: If question_inputs array length doesn't match templates
             QuestionGenerationError: If generation fails
+            UnauthorizedAccessError: If user doesn't own the assessment template
         """
         assessment_template = (
             await self.assessment_template_svc.get_template_with_question_templates(
-                template_id
+                user_id, template_id
             )
         )
 
@@ -175,13 +185,14 @@ class QuestionGenerationService:
 
         # Create assessment
         assessment_create = CreateAssessmentRequest(
-            owner_id=assessment_metadata.owner_id,
             folder_id=assessment_metadata.folder_id or assessment_template.folder_id,
             title=assessment_metadata.title or assessment_template.title,
             description=assessment_metadata.description
             or assessment_template.description,
         )
-        assessment = await self.assessment_svc.create_assessment(assessment_create)
+        assessment = await self.assessment_svc.create_assessment(
+            user_id, assessment_create
+        )
 
         try:
             # Generate and add questions in order
@@ -190,6 +201,7 @@ class QuestionGenerationService:
             ):
                 # Generate question using template
                 question = await self.generate_question_from_template(
+                    user_id=user_id,
                     template_id=question_template.id,
                     input_data=input_data,
                 )
@@ -200,7 +212,6 @@ class QuestionGenerationService:
                 del additional_data["question_type"]
 
                 question_create = CreateQuestionRequest(
-                    owner_id=assessment_metadata.owner_id,
                     template_id=question_template.id,
                     question_type=question_template.question_type,
                     question_text=question.text,
@@ -209,16 +220,19 @@ class QuestionGenerationService:
 
                 # Add question to assessment at specific order
                 await self.assessment_svc.add_question_to_assessment(
+                    user_id=user_id,
                     assessment_id=assessment.id,
                     question=question_create,
                 )
 
         except Exception as e:
             # Rollback by soft-deleting assessment if any question fails
-            await self.assessment_svc.soft_delete_assessment(assessment.id)
+            await self.assessment_svc.soft_delete_assessment(user_id, assessment.id)
             raise QuestionGenerationError(
                 f"Failed to generate assessment: {str(e)}"
             ) from e
 
         # Return complete assessment with questions
-        return await self.assessment_svc.get_assessment_with_questions(assessment.id)
+        return await self.assessment_svc.get_assessment_with_questions(
+            user_id, assessment.id
+        )

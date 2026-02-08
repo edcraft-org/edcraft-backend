@@ -6,11 +6,11 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from edcraft_backend.models.user import User
 from tests.factories import (
     create_test_assessment,
     create_test_folder,
     create_test_question,
-    create_test_user,
 )
 
 
@@ -21,15 +21,13 @@ class TestCreateAssessment:
 
     @pytest.mark.asyncio
     async def test_create_assessment_with_folder(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test creating assessment linked to folder."""
-        user = await create_test_user(db_session)
         folder = await create_test_folder(db_session, user)
         await db_session.commit()
 
         assessment_data = {
-            "owner_id": str(user.id),
             "folder_id": str(folder.id),
             "title": "Assessment in Folder",
             "description": "Test description",
@@ -42,14 +40,13 @@ class TestCreateAssessment:
 
     @pytest.mark.asyncio
     async def test_create_assessment_nonexistent_folder(
-        self, test_client: AsyncClient
+        self, test_client: AsyncClient, user: User
     ) -> None:
         """Test creating assessment with non-existent folder returns 404."""
         import uuid
 
         non_existent_folder_id = uuid.uuid4()
         assessment_data = {
-            "owner_id": str(uuid.uuid4()),
             "folder_id": str(non_existent_folder_id),
             "title": "Test Assessment",
         }
@@ -65,10 +62,9 @@ class TestListAssessments:
 
     @pytest.mark.asyncio
     async def test_list_assessments_success(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test listing all assessments for a user."""
-        user = await create_test_user(db_session)
         assessment1 = await create_test_assessment(
             db_session, user, title="Assessment 1"
         )
@@ -77,7 +73,7 @@ class TestListAssessments:
         )
         await db_session.commit()
 
-        response = await test_client.get("/assessments", params={"owner_id": str(user.id)})
+        response = await test_client.get("/assessments")
 
         assert response.status_code == 200
         data = response.json()
@@ -88,10 +84,9 @@ class TestListAssessments:
 
     @pytest.mark.asyncio
     async def test_list_assessments_filter_by_folder(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test filtering assessments by folder."""
-        user = await create_test_user(db_session)
         folder1 = await create_test_folder(db_session, user, name="Folder 1")
         folder2 = await create_test_folder(db_session, user, name="Folder 2")
         assessment_in_folder1 = await create_test_assessment(
@@ -102,7 +97,7 @@ class TestListAssessments:
 
         response = await test_client.get(
             "/assessments",
-            params={"owner_id": str(user.id), "folder_id": str(folder1.id)},
+            params={"folder_id": str(folder1.id)},
         )
 
         assert response.status_code == 200
@@ -112,10 +107,9 @@ class TestListAssessments:
 
     @pytest.mark.asyncio
     async def test_list_assessments_excludes_soft_deleted(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test that soft-deleted assessments are not in list."""
-        user = await create_test_user(db_session)
         active_assessment = await create_test_assessment(
             db_session, user, title="Active"
         )
@@ -128,7 +122,7 @@ class TestListAssessments:
         await test_client.delete(f"/assessments/{deleted_assessment.id}")
 
         # List assessments
-        response = await test_client.get("/assessments", params={"owner_id": str(user.id)})
+        response = await test_client.get("/assessments")
 
         assert response.status_code == 200
         data = response.json()
@@ -144,10 +138,9 @@ class TestGetAssessment:
 
     @pytest.mark.asyncio
     async def test_get_assessment_success(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test getting an assessment successfully."""
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(
             db_session, user, title="Test Assessment"
         )
@@ -164,10 +157,9 @@ class TestGetAssessment:
 
     @pytest.mark.asyncio
     async def test_get_assessment_with_questions_in_order(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test getting assessment includes questions in correct order."""
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user)
         question1 = await create_test_question(db_session, user, question_text="Q1")
         question2 = await create_test_question(db_session, user, question_text="Q2")
@@ -201,7 +193,9 @@ class TestGetAssessment:
         assert data["questions"][2]["order"] == 2
 
     @pytest.mark.asyncio
-    async def test_get_assessment_not_found(self, test_client: AsyncClient) -> None:
+    async def test_get_assessment_not_found(
+        self, test_client: AsyncClient, user: User
+    ) -> None:
         """Test getting non-existent assessment returns 404."""
         import uuid
 
@@ -213,10 +207,9 @@ class TestGetAssessment:
 
     @pytest.mark.asyncio
     async def test_get_assessment_soft_deleted_returns_404(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test getting soft-deleted assessment returns 404."""
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user)
         await db_session.commit()
 
@@ -236,15 +229,16 @@ class TestUpdateAssessment:
 
     @pytest.mark.asyncio
     async def test_update_assessment_title(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test updating assessment title successfully."""
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user, title="Old Title")
         await db_session.commit()
 
         update_data = {"title": "New Title"}
-        response = await test_client.patch(f"/assessments/{assessment.id}", json=update_data)
+        response = await test_client.patch(
+            f"/assessments/{assessment.id}", json=update_data
+        )
 
         assert response.status_code == 200
         data = response.json()
@@ -252,17 +246,18 @@ class TestUpdateAssessment:
 
     @pytest.mark.asyncio
     async def test_update_assessment_description(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test updating assessment description successfully."""
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(
             db_session, user, description="Old description"
         )
         await db_session.commit()
 
         update_data = {"description": "New description"}
-        response = await test_client.patch(f"/assessments/{assessment.id}", json=update_data)
+        response = await test_client.patch(
+            f"/assessments/{assessment.id}", json=update_data
+        )
 
         assert response.status_code == 200
         data = response.json()
@@ -270,30 +265,35 @@ class TestUpdateAssessment:
 
     @pytest.mark.asyncio
     async def test_update_assessment_move_to_folder(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test moving assessment to different folder."""
-        user = await create_test_user(db_session)
         folder1 = await create_test_folder(db_session, user, name="Folder 1")
         folder2 = await create_test_folder(db_session, user, name="Folder 2")
         assessment = await create_test_assessment(db_session, user, folder=folder1)
         await db_session.commit()
 
         update_data = {"folder_id": str(folder2.id)}
-        response = await test_client.patch(f"/assessments/{assessment.id}", json=update_data)
+        response = await test_client.patch(
+            f"/assessments/{assessment.id}", json=update_data
+        )
 
         assert response.status_code == 200
         data = response.json()
         assert data["folder_id"] == str(folder2.id)
 
     @pytest.mark.asyncio
-    async def test_update_assessment_not_found(self, test_client: AsyncClient) -> None:
+    async def test_update_assessment_not_found(
+        self, test_client: AsyncClient, user: User
+    ) -> None:
         """Test updating non-existent assessment returns 404."""
         import uuid
 
         non_existent_id = uuid.uuid4()
         update_data = {"title": "New Title"}
-        response = await test_client.patch(f"/assessments/{non_existent_id}", json=update_data)
+        response = await test_client.patch(
+            f"/assessments/{non_existent_id}", json=update_data
+        )
 
         assert response.status_code == 404
 
@@ -305,10 +305,9 @@ class TestSoftDeleteAssessment:
 
     @pytest.mark.asyncio
     async def test_soft_delete_assessment_success(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test soft deleting assessment successfully."""
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user)
         await db_session.commit()
 
@@ -322,10 +321,9 @@ class TestSoftDeleteAssessment:
 
     @pytest.mark.asyncio
     async def test_soft_delete_assessment_not_in_list(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test soft-deleted assessment not in list results."""
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user)
         await db_session.commit()
 
@@ -333,7 +331,7 @@ class TestSoftDeleteAssessment:
         await test_client.delete(f"/assessments/{assessment.id}")
 
         # List assessments
-        response = await test_client.get("/assessments", params={"owner_id": str(user.id)})
+        response = await test_client.get("/assessments")
 
         assert response.status_code == 200
         data = response.json()
@@ -341,7 +339,9 @@ class TestSoftDeleteAssessment:
         assert str(assessment.id) not in assessment_ids
 
     @pytest.mark.asyncio
-    async def test_soft_delete_assessment_not_found(self, test_client: AsyncClient) -> None:
+    async def test_soft_delete_assessment_not_found(
+        self, test_client: AsyncClient, user: User
+    ) -> None:
         """Test soft deleting non-existent assessment returns 404."""
         import uuid
 
@@ -352,14 +352,13 @@ class TestSoftDeleteAssessment:
 
     @pytest.mark.asyncio
     async def test_soft_delete_assessment_cleans_up_orphaned_questions(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test that deleting assessment triggers cleanup of orphaned questions."""
         from sqlalchemy import select
 
         from edcraft_backend.models.question import Question
 
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user)
 
         orphaned_question = await create_test_question(
@@ -400,7 +399,9 @@ class TestSoftDeleteAssessment:
         )
         orphaned_q = orphaned_q_result.scalar_one_or_none()
         assert orphaned_q is not None
-        assert orphaned_q.deleted_at is not None, "Orphaned question should be soft deleted"
+        assert (
+            orphaned_q.deleted_at is not None
+        ), "Orphaned question should be soft deleted"
 
         shared_q_result = await db_session.execute(
             select(Question).where(Question.id == shared_q_id)
@@ -417,10 +418,9 @@ class TestLinkQuestionToAssessment:
 
     @pytest.mark.asyncio
     async def test_add_question_to_assessment_success(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test linking question to assessment successfully."""
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user)
         question = await create_test_question(db_session, user)
         await db_session.commit()
@@ -438,10 +438,9 @@ class TestLinkQuestionToAssessment:
 
     @pytest.mark.asyncio
     async def test_add_multiple_questions_with_order(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test adding multiple questions with specific order."""
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user)
         question1 = await create_test_question(db_session, user)
         question2 = await create_test_question(db_session, user)
@@ -471,10 +470,9 @@ class TestLinkQuestionToAssessment:
 
     @pytest.mark.asyncio
     async def test_add_question_default_order(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test linking question with default order (auto-increments)."""
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user)
         question = await create_test_question(db_session, user)
         await db_session.commit()
@@ -490,7 +488,7 @@ class TestLinkQuestionToAssessment:
 
     @pytest.mark.asyncio
     async def test_add_question_to_nonexistent_assessment(
-        self, test_client: AsyncClient
+        self, test_client: AsyncClient, user: User
     ) -> None:
         """Test linking question to non-existent assessment returns 404."""
         import uuid
@@ -498,24 +496,27 @@ class TestLinkQuestionToAssessment:
         non_existent_assessment_id = uuid.uuid4()
         question_data: dict[str, Any] = {"question_id": str(uuid.uuid4()), "order": 0}
         response = await test_client.post(
-            f"/assessments/{non_existent_assessment_id}/questions/link", json=question_data
+            f"/assessments/{non_existent_assessment_id}/questions/link",
+            json=question_data,
         )
 
         assert response.status_code == 404
 
     @pytest.mark.asyncio
     async def test_add_nonexistent_question_to_assessment(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test linking non-existent question to assessment returns 404."""
         import uuid
 
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user)
         await db_session.commit()
 
         non_existent_question_id = uuid.uuid4()
-        question_data: dict[str, Any] = {"question_id": str(non_existent_question_id), "order": 0}
+        question_data: dict[str, Any] = {
+            "question_id": str(non_existent_question_id),
+            "order": 0,
+        }
         response = await test_client.post(
             f"/assessments/{assessment.id}/questions/link", json=question_data
         )
@@ -524,10 +525,9 @@ class TestLinkQuestionToAssessment:
 
     @pytest.mark.asyncio
     async def test_link_question_with_insert_behavior(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test that adding question at existing order shifts other questions down."""
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user)
         question1 = await create_test_question(db_session, user, question_text="Q1")
         question2 = await create_test_question(db_session, user, question_text="Q2")
@@ -555,10 +555,9 @@ class TestLinkQuestionToAssessment:
 
     @pytest.mark.asyncio
     async def test_link_question_insert_in_middle(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test linking question in middle shifts questions at/after position down."""
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user)
         q1 = await create_test_question(db_session, user, question_text="Q1")
         q2 = await create_test_question(db_session, user, question_text="Q2")
@@ -599,10 +598,9 @@ class TestLinkQuestionToAssessment:
 
     @pytest.mark.asyncio
     async def test_link_question_with_order_exceeding_count(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test linking with order > count fails with validation error."""
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user)
         q1 = await create_test_question(db_session, user, question_text="Q1")
         q2 = await create_test_question(db_session, user, question_text="Q2")
@@ -636,16 +634,14 @@ class TestInsertQuestionIntoAssessment:
 
     @pytest.mark.asyncio
     async def test_insert_question_into_assessment_success(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test inserting a new question into assessment successfully."""
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user)
         await db_session.commit()
 
         question_data: dict[str, Any] = {
             "question": {
-                "owner_id": str(user.id),
                 "question_type": "mcq",
                 "question_text": "What is 2+2?",
                 "additional_data": {
@@ -668,16 +664,14 @@ class TestInsertQuestionIntoAssessment:
 
     @pytest.mark.asyncio
     async def test_insert_question_with_default_order(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test inserting question with default order (auto-increments)."""
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user)
         await db_session.commit()
 
         question_data: dict[str, Any] = {
             "question": {
-                "owner_id": str(user.id),
                 "question_type": "short_answer",
                 "question_text": "What is 2+2?",
                 "additional_data": {
@@ -696,17 +690,15 @@ class TestInsertQuestionIntoAssessment:
 
     @pytest.mark.asyncio
     async def test_insert_multiple_questions_auto_order(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test inserting multiple questions with auto-incrementing order."""
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user)
         await db_session.commit()
 
         # Insert first question
         question1_data: dict[str, Any] = {
             "question": {
-                "owner_id": str(user.id),
                 "question_type": "short_answer",
                 "question_text": "The sky is blue. True or False?",
                 "additional_data": {"correct_answer": "True"},
@@ -719,7 +711,6 @@ class TestInsertQuestionIntoAssessment:
         # Insert second question (should auto-increment to order 1)
         question2_data: dict[str, Any] = {
             "question": {
-                "owner_id": str(user.id),
                 "question_type": "short_answer",
                 "question_text": "Water freezes at 100°C. True or False?",
                 "additional_data": {"correct_answer": "False"},
@@ -737,18 +728,14 @@ class TestInsertQuestionIntoAssessment:
 
     @pytest.mark.asyncio
     async def test_insert_question_into_nonexistent_assessment(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, user: User
     ) -> None:
         """Test inserting question into non-existent assessment returns 404."""
         import uuid
 
-        user = await create_test_user(db_session)
-        await db_session.commit()
-
         non_existent_assessment_id = uuid.uuid4()
         question_data: dict[str, Any] = {
             "question": {
-                "owner_id": str(user.id),
                 "question_type": "short_answer",
                 "question_text": "Test question",
                 "additional_data": {},
@@ -763,17 +750,15 @@ class TestInsertQuestionIntoAssessment:
 
     @pytest.mark.asyncio
     async def test_insert_question_with_specific_order(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test inserting question with specific order position."""
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user)
         await db_session.commit()
 
         # Insert question at order 0
         question_data: dict[str, Any] = {
             "question": {
-                "owner_id": str(user.id),
                 "question_type": "short_answer",
                 "question_text": "What is 1+1?",
                 "additional_data": {
@@ -792,16 +777,14 @@ class TestInsertQuestionIntoAssessment:
 
     @pytest.mark.asyncio
     async def test_insert_question_with_insert_behavior(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test that inserting question at existing order shifts other questions down."""
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user)
         await db_session.commit()
 
         question1_data: dict[str, Any] = {
             "question": {
-                "owner_id": str(user.id),
                 "question_type": "short_answer",
                 "question_text": "Question 1",
                 "additional_data": {},
@@ -814,7 +797,6 @@ class TestInsertQuestionIntoAssessment:
 
         question2_data: dict[str, Any] = {
             "question": {
-                "owner_id": str(user.id),
                 "question_type": "short_answer",
                 "question_text": "Question 2",
                 "additional_data": {},
@@ -843,10 +825,9 @@ class TestRemoveQuestionFromAssessment:
 
     @pytest.mark.asyncio
     async def test_remove_question_from_assessment_success(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test removing question from assessment successfully."""
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user)
         question = await create_test_question(db_session, user)
         await db_session.commit()
@@ -870,10 +851,9 @@ class TestRemoveQuestionFromAssessment:
 
     @pytest.mark.asyncio
     async def test_remove_question_preserves_other_questions(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test removing one question preserves other questions."""
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user)
         question1 = await create_test_question(db_session, user)
         question2 = await create_test_question(db_session, user)
@@ -890,7 +870,9 @@ class TestRemoveQuestionFromAssessment:
         )
 
         # Remove first question
-        await test_client.delete(f"/assessments/{assessment.id}/questions/{question1.id}")
+        await test_client.delete(
+            f"/assessments/{assessment.id}/questions/{question1.id}"
+        )
 
         # Verify only second question remains
         response = await test_client.get(f"/assessments/{assessment.id}")
@@ -900,7 +882,7 @@ class TestRemoveQuestionFromAssessment:
 
     @pytest.mark.asyncio
     async def test_remove_question_from_nonexistent_assessment(
-        self, test_client: AsyncClient
+        self, test_client: AsyncClient, user: User
     ) -> None:
         """Test removing question from non-existent assessment returns 404."""
         import uuid
@@ -915,12 +897,11 @@ class TestRemoveQuestionFromAssessment:
 
     @pytest.mark.asyncio
     async def test_remove_nonexistent_question_from_assessment(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test removing non-existent question from assessment returns 404."""
         import uuid
 
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user)
         await db_session.commit()
 
@@ -933,10 +914,9 @@ class TestRemoveQuestionFromAssessment:
 
     @pytest.mark.asyncio
     async def test_remove_question_normalizes_orders(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test that removing a question normalizes remaining orders."""
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user)
         question1 = await create_test_question(db_session, user, question_text="Q1")
         question2 = await create_test_question(db_session, user, question_text="Q2")
@@ -971,14 +951,13 @@ class TestRemoveQuestionFromAssessment:
 
     @pytest.mark.asyncio
     async def test_remove_question_cleans_up_orphaned_question(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test that removing a question triggers cleanup if it becomes orphaned."""
         from sqlalchemy import select
 
         from edcraft_backend.models.question import Question
 
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user)
 
         orphaned_question = await create_test_question(
@@ -1048,10 +1027,9 @@ class TestReorderQuestions:
 
     @pytest.mark.asyncio
     async def test_reorder_questions_success(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test reordering questions successfully."""
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user)
         question1 = await create_test_question(db_session, user, question_text="Q1")
         question2 = await create_test_question(db_session, user, question_text="Q2")
@@ -1093,10 +1071,9 @@ class TestReorderQuestions:
 
     @pytest.mark.asyncio
     async def test_reorder_questions_requires_all_questions(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test that partial reorder is rejected (requires all questions)."""
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user)
         question1 = await create_test_question(db_session, user)
         question2 = await create_test_question(db_session, user)
@@ -1132,7 +1109,7 @@ class TestReorderQuestions:
 
     @pytest.mark.asyncio
     async def test_reorder_questions_nonexistent_assessment(
-        self, test_client: AsyncClient
+        self, test_client: AsyncClient, user: User
     ) -> None:
         """Test reordering questions in non-existent assessment returns 404."""
         import uuid
@@ -1149,10 +1126,9 @@ class TestReorderQuestions:
 
     @pytest.mark.asyncio
     async def test_reorder_normalizes_to_consecutive_integers(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test that reorder normalizes orders to 0, 1, 2, 3..."""
-        user = await create_test_user(db_session)
         assessment = await create_test_assessment(db_session, user)
         question1 = await create_test_question(db_session, user, question_text="Q1")
         question2 = await create_test_question(db_session, user, question_text="Q2")

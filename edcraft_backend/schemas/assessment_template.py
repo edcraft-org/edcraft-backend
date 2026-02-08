@@ -14,7 +14,6 @@ from edcraft_backend.schemas.question_template import (
 class CreateAssessmentTemplateRequest(BaseModel):
     """Schema for creating a new assessment template."""
 
-    owner_id: UUID
     folder_id: UUID
     title: str
     description: str | None = None

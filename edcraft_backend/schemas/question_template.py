@@ -28,7 +28,6 @@ class QuestionTemplateConfig(BaseModel):
 class CreateQuestionTemplateRequest(BaseModel):
     """Schema for creating a new question template."""
 
-    owner_id: UUID
     question_type: str
     question_text: str
     description: str | None = None

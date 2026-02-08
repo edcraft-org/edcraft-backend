@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from edcraft_backend.models.assessment_template_question_template import (
     AssessmentTemplateQuestionTemplate,
 )
+from edcraft_backend.models.user import User
 from edcraft_backend.repositories.assessment_template_question_template_repository import (
     AssessmentTemplateQuestionTemplateRepository,
 )
@@ -26,10 +27,9 @@ class TestListQuestionTemplates:
 
     @pytest.mark.asyncio
     async def test_list_question_templates_success(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test listing all question templates for a user."""
-        user = await create_test_user(db_session)
         template1 = await create_test_question_template(
             db_session, user, question_type="mcq"
         )
@@ -38,9 +38,7 @@ class TestListQuestionTemplates:
         )
         await db_session.commit()
 
-        response = await test_client.get(
-            "/question-templates", params={"owner_id": str(user.id)}
-        )
+        response = await test_client.get("/question-templates")
 
         assert response.status_code == 200
         data = response.json()
@@ -51,10 +49,9 @@ class TestListQuestionTemplates:
 
     @pytest.mark.asyncio
     async def test_list_question_templates_excludes_soft_deleted(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test that soft-deleted templates are not in list."""
-        user = await create_test_user(db_session)
         active_template = await create_test_question_template(
             db_session, user, question_text="Active template"
         )
@@ -67,9 +64,7 @@ class TestListQuestionTemplates:
         await test_client.delete(f"/question-templates/{deleted_template.id}")
 
         # List templates
-        response = await test_client.get(
-            "/question-templates", params={"owner_id": str(user.id)}
-        )
+        response = await test_client.get("/question-templates")
 
         assert response.status_code == 200
         data = response.json()
@@ -85,10 +80,9 @@ class TestGetQuestionTemplate:
 
     @pytest.mark.asyncio
     async def test_get_question_template_success(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test getting a question template successfully."""
-        user = await create_test_user(db_session)
         template = await create_test_question_template(
             db_session,
             user,
@@ -112,10 +106,9 @@ class TestGetQuestionTemplate:
 
     @pytest.mark.asyncio
     async def test_get_question_template_with_description(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test getting a question template with description."""
-        user = await create_test_user(db_session)
         template = await create_test_question_template(
             db_session,
             user,
@@ -133,17 +126,16 @@ class TestGetQuestionTemplate:
 
     @pytest.mark.asyncio
     async def test_get_question_template_with_entry_function_params(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test that entry_function_params are correctly parsed from valid code."""
-        user = await create_test_user(db_session)
         template = await create_test_question_template(
             db_session,
             user,
             question_type="mcq",
             question_text="What does the function return?",
             template_config={
-                "code": "def calculate(x: int, y: int = 10, *args, z: str = 'test', **kwargs) -> int:\n    return x + y", # noqa: E501
+                "code": "def calculate(x: int, y: int = 10, *args, z: str = 'test', **kwargs) -> int:\n    return x + y",  # noqa: E501
                 "question_spec": {
                     "target": [
                         {
@@ -175,7 +167,9 @@ class TestGetQuestionTemplate:
         assert params["has_var_kwargs"] is True
 
     @pytest.mark.asyncio
-    async def test_get_question_template_not_found(self, test_client: AsyncClient) -> None:
+    async def test_get_question_template_not_found(
+        self, test_client: AsyncClient, user: User
+    ) -> None:
         """Test getting non-existent template returns 404."""
         import uuid
 
@@ -187,10 +181,9 @@ class TestGetQuestionTemplate:
 
     @pytest.mark.asyncio
     async def test_get_question_template_soft_deleted_returns_404(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test getting soft-deleted template returns 404."""
-        user = await create_test_user(db_session)
         template = await create_test_question_template(db_session, user)
         await db_session.commit()
 
@@ -210,10 +203,9 @@ class TestUpdateQuestionTemplate:
 
     @pytest.mark.asyncio
     async def test_update_question_template_question_text(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test updating question template text successfully."""
-        user = await create_test_user(db_session)
         template = await create_test_question_template(
             db_session, user, question_text="Old text"
         )
@@ -230,10 +222,9 @@ class TestUpdateQuestionTemplate:
 
     @pytest.mark.asyncio
     async def test_update_question_template_description(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test updating question template description successfully."""
-        user = await create_test_user(db_session)
         template = await create_test_question_template(
             db_session, user, description="Old description"
         )
@@ -250,10 +241,9 @@ class TestUpdateQuestionTemplate:
 
     @pytest.mark.asyncio
     async def test_update_question_template_clear_description(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test clearing description by setting it to None."""
-        user = await create_test_user(db_session)
         template = await create_test_question_template(
             db_session, user, description="Has description"
         )
@@ -270,10 +260,9 @@ class TestUpdateQuestionTemplate:
 
     @pytest.mark.asyncio
     async def test_update_question_template_config(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test updating template configuration successfully."""
-        user = await create_test_user(db_session)
         template = await create_test_question_template(
             db_session,
             user,
@@ -328,7 +317,7 @@ class TestUpdateQuestionTemplate:
 
     @pytest.mark.asyncio
     async def test_update_question_template_not_found(
-        self, test_client: AsyncClient
+        self, test_client: AsyncClient, user: User
     ) -> None:
         """Test updating non-existent template returns 404."""
         import uuid
@@ -349,10 +338,9 @@ class TestSoftDeleteQuestionTemplate:
 
     @pytest.mark.asyncio
     async def test_soft_delete_question_template_success(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test soft deleting question template successfully."""
-        user = await create_test_user(db_session)
         template = await create_test_question_template(db_session, user)
         await db_session.commit()
 
@@ -366,10 +354,9 @@ class TestSoftDeleteQuestionTemplate:
 
     @pytest.mark.asyncio
     async def test_soft_delete_question_template_not_in_list(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test soft-deleted template not in list results."""
-        user = await create_test_user(db_session)
         template = await create_test_question_template(db_session, user)
         await db_session.commit()
 
@@ -377,9 +364,7 @@ class TestSoftDeleteQuestionTemplate:
         await test_client.delete(f"/question-templates/{template.id}")
 
         # List templates
-        response = await test_client.get(
-            "/question-templates", params={"owner_id": str(user.id)}
-        )
+        response = await test_client.get("/question-templates")
 
         assert response.status_code == 200
         data = response.json()
@@ -388,7 +373,7 @@ class TestSoftDeleteQuestionTemplate:
 
     @pytest.mark.asyncio
     async def test_soft_delete_question_template_not_found(
-        self, test_client: AsyncClient
+        self, test_client: AsyncClient, user: User
     ) -> None:
         """Test soft deleting non-existent template returns 404."""
         import uuid
@@ -406,10 +391,9 @@ class TestGetAssessmentTemplatesForQuestionTemplate:
 
     @pytest.mark.asyncio
     async def test_get_assessment_templates_for_question_template_success(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test getting assessment templates that include a question template."""
-        user = await create_test_user(db_session)
         question_template = await create_test_question_template(db_session, user)
         assessment_template1 = await create_test_assessment_template(
             db_session, user, title="Assessment Template 1"
@@ -438,7 +422,6 @@ class TestGetAssessmentTemplatesForQuestionTemplate:
         # Get assessment templates for question template
         response = await test_client.get(
             f"/question-templates/{question_template.id}/assessment-templates",
-            params={"owner_id": str(user.id)},
         )
 
         assert response.status_code == 200
@@ -451,35 +434,29 @@ class TestGetAssessmentTemplatesForQuestionTemplate:
 
     @pytest.mark.asyncio
     async def test_get_assessment_templates_for_question_template_unauthorized(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
-        """Test accessing assessment templates for question template not owned by user."""
-        user1 = await create_test_user(db_session, email="user1@test.com")
-        user2 = await create_test_user(db_session, email="user2@test.com")
-        question_template = await create_test_question_template(db_session, user1)
+        """Test accessing assessment templates for question template not owned by current user."""
+        other_user = await create_test_user(db_session, email="other@test.com")
+        question_template = await create_test_question_template(db_session, other_user)
         await db_session.commit()
 
         response = await test_client.get(
             f"/question-templates/{question_template.id}/assessment-templates",
-            params={"owner_id": str(user2.id)},
         )
 
         assert response.status_code == 403
 
     @pytest.mark.asyncio
     async def test_get_assessment_templates_for_question_template_not_found(
-        self, test_client: AsyncClient, db_session: AsyncSession
+        self, test_client: AsyncClient, user: User
     ) -> None:
         """Test getting assessment templates for non-existent question template."""
         import uuid
 
-        user = await create_test_user(db_session)
-        await db_session.commit()
-
         non_existent_id = uuid.uuid4()
         response = await test_client.get(
             f"/question-templates/{non_existent_id}/assessment-templates",
-            params={"owner_id": str(user.id)},
         )
 
         assert response.status_code == 404

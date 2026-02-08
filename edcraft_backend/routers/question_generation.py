@@ -4,7 +4,7 @@ from uuid import UUID
 from edcraft_engine.question_generator.models import Question as EngineQuestion
 from fastapi import APIRouter, Depends, status
 
-from edcraft_backend.dependencies import QuestionGenerationServiceDep
+from edcraft_backend.dependencies import CurrentUserDep, QuestionGenerationServiceDep
 from edcraft_backend.exceptions import (
     CodeAnalysisError,
     CodeDecodingError,
@@ -129,7 +129,9 @@ async def generate_template_preview(
             generation_options=request.generation_options,
         )
     except Exception as e:
-        raise QuestionGenerationError(f"Template preview generation failed: {str(e)}") from e
+        raise QuestionGenerationError(
+            f"Template preview generation failed: {str(e)}"
+        ) from e
 
     return TemplatePreviewResponse(
         question_text=preview_question.text,
@@ -145,12 +147,14 @@ async def generate_template_preview(
     status_code=status.HTTP_200_OK,
 )
 async def generate_question_from_template(
+    user: CurrentUserDep,
     template_id: UUID,
     request: GenerateQuestionFromTemplateRequest,
     service: QuestionGenerationServiceDep,
 ) -> EngineQuestion:
     """Generate a question from a question template."""
     return await service.generate_question_from_template(
+        user_id=user.id,
         template_id=template_id,
         input_data=request.input_data,
     )
@@ -162,12 +166,14 @@ async def generate_question_from_template(
     status_code=status.HTTP_201_CREATED,
 )
 async def generate_assessment_from_template(
+    user: CurrentUserDep,
     template_id: UUID,
     request: GenerateAssessmentFromTemplateRequest,
     service: QuestionGenerationServiceDep,
 ) -> AssessmentWithQuestionsResponse:
     """Generate and persist an assessment from an assessment template."""
     return await service.generate_assessment_from_template(
+        user_id=user.id,
         template_id=template_id,
         assessment_metadata=request.assessment_metadata,
         question_inputs=request.question_inputs,

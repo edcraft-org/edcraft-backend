@@ -163,7 +163,7 @@ def get_user_service(
 
 def get_assessment_service(
     assessment_repo: AssessmentRepository = Depends(get_assessment_repository),
-    folder_repo: FolderRepository = Depends(get_folder_repository),
+    folder_svc: FolderService = Depends(get_folder_service),
     assessment_question_repo: AssessmentQuestionRepository = Depends(
         get_assessment_question_repository
     ),
@@ -171,7 +171,7 @@ def get_assessment_service(
 ) -> AssessmentService:
     """Get AssessmentService instance."""
     return AssessmentService(
-        assessment_repo, folder_repo, assessment_question_repo, question_svc
+        assessment_repo, folder_svc, assessment_question_repo, question_svc
     )
 
 
@@ -179,7 +179,7 @@ def get_assessment_template_service(
     template_repo: AssessmentTemplateRepository = Depends(
         get_assessment_template_repository
     ),
-    folder_repo: FolderRepository = Depends(get_folder_repository),
+    folder_svc: FolderService = Depends(get_folder_service),
     question_template_svc: QuestionTemplateService = Depends(
         get_question_template_service
     ),
@@ -190,7 +190,7 @@ def get_assessment_template_service(
     """Get AssessmentTemplateService instance."""
     return AssessmentTemplateService(
         template_repo,
-        folder_repo,
+        folder_svc,
         question_template_svc,
         assoc_repo,
     )
@@ -283,7 +283,7 @@ QuestionGenerationServiceDep = Annotated[
 
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 OAuthServiceDep = Annotated[OAuthService, Depends(get_oauth_service)]
-CurrentUser = Annotated[User, Depends(get_current_user)]
+CurrentUserDep = Annotated[User, Depends(get_current_user)]
 
 # Repository type aliases
 UserRepositoryDep = Annotated[UserRepository, Depends(get_user_repository)]

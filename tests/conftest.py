@@ -20,6 +20,7 @@ from edcraft_backend.config import settings  # noqa: E402
 from edcraft_backend.database import get_db  # noqa: E402
 from edcraft_backend.main import app  # noqa: E402
 from edcraft_backend.models.base import Base  # noqa: E402
+from edcraft_backend.models.user import User  # noqa: E402
 from tests.mocks import MockQuestionGenerator, MockStaticAnalyser  # noqa: E402
 
 
@@ -146,3 +147,13 @@ async def test_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, N
 
     # Clear dependency overrides after test
     app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def user(
+    test_client: AsyncClient, db_session: AsyncSession
+) -> User:
+    """Create and authenticate a test user, setting auth cookies on test_client."""
+    from tests.factories import create_and_login_user
+
+    return await create_and_login_user(test_client, db_session)

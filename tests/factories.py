@@ -3,6 +3,8 @@
 from typing import Any
 from uuid import uuid4
 
+from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from edcraft_backend.models.assessment import Assessment
@@ -16,12 +18,36 @@ from edcraft_backend.models.question import Question
 from edcraft_backend.models.question_template import QuestionTemplate
 from edcraft_backend.models.user import User
 
+# Auth Helpers
+
+
+async def create_and_login_user(
+    test_client: AsyncClient, db_session: AsyncSession
+) -> User:
+    """Create a user via signup API and login to set auth cookies on the client.
+
+    Args:
+        test_client: HTTP test client \\
+        db_session: Database session to retrieve the created user
+
+    Returns:
+        Created User instance
+    """
+    unique_id = str(uuid4())[:8]
+    email = f"test_{unique_id}@example.com"
+    password = "TestPassword123!"  # noqa S106
+
+    await test_client.post("/auth/signup", json={"email": email, "password": password})
+    await test_client.post("/auth/login", json={"email": email, "password": password})
+
+    result = await db_session.execute(select(User).where(User.email == email))
+    return result.scalar_one()
+
+
 # Core Factories
 
 
-async def create_test_user(
-    db: AsyncSession, **overrides: Any
-) -> User:
+async def create_test_user(db: AsyncSession, **overrides: Any) -> User:
     """
     Create a test user with sensible defaults.
 
