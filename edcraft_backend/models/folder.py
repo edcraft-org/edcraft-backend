@@ -3,7 +3,7 @@
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import ForeignKey, Index, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from edcraft_backend.models.base import EntityBase
@@ -56,7 +56,16 @@ class Folder(EntityBase):
     # Constraints
     __table_args__ = (
         # Ensure unique folder names within the same parent for the same user
-        UniqueConstraint("owner_id", "parent_id", "name", name="uq_folder_name_per_parent_user"),
+        UniqueConstraint(
+            "owner_id", "parent_id", "name", name="uq_folder_name_per_parent_user"
+        ),
+        # Ensure each user has only one root folder (no parent, not deleted)
+        Index(
+            "uq_one_root_per_user",
+            "owner_id",
+            unique=True,
+            postgresql_where=text("(parent_id IS NULL) AND (deleted_at IS NULL)"),
+        ),
     )
 
     def __repr__(self) -> str:

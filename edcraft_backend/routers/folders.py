@@ -127,6 +127,6 @@ async def soft_delete_folder(
 ) -> None:
     """Soft delete folder (cascade to children) and clean up orphaned resources."""
     try:
-        await service.soft_delete_folder(current_user.id, folder_id)
+        await service.soft_delete_non_root_folder(current_user.id, folder_id)
     except EdCraftBaseException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e

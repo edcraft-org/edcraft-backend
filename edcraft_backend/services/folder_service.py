@@ -381,11 +381,13 @@ class FolderService:
             return True
         return await self.folder_repo.is_ancestor(folder_id, new_parent_id)
 
-    async def soft_delete_folder(self, user_id: UUID, folder_id: UUID) -> Folder:
-        """Soft delete folder and all descendants using bulk operations.
+    async def soft_delete_non_root_folder(
+        self, user_id: UUID, folder_id: UUID
+    ) -> Folder:
+        """Soft delete a non-root folder and all its descendants.
 
         Args:
-            user_id: User UUID requesting resources
+            user_id: User UUID requesting deletion
             folder_id: Folder UUID
 
         Returns:
@@ -399,9 +401,31 @@ class FolderService:
         folder = await self.get_owned_folder(user_id, folder_id)
         if folder.parent_id is None:
             raise ForbiddenOperationError("Cannot delete root folder")
+        await self._soft_delete_folder_contents(folder)
+        return folder
 
-        descendant_ids = await self.folder_repo.get_all_descendant_ids(folder_id)
-        all_folder_ids = [folder_id] + descendant_ids
+    async def soft_delete_folder(self, user_id: UUID, folder_id: UUID) -> Folder:
+        """Soft delete folder and all descendants using bulk operations.
+
+        Args:
+            user_id: User UUID requesting deletion
+            folder_id: Folder UUID
+
+        Returns:
+            Soft-deleted folder
+
+        Raises:
+            ResourceNotFoundError: If folder not found
+            UnauthorizedAccessError: If user doesn't own the folder
+        """
+        folder = await self.get_owned_folder(user_id, folder_id)
+        await self._soft_delete_folder_contents(folder)
+        return folder
+
+    async def _soft_delete_folder_contents(self, folder: Folder) -> None:
+        """Soft delete all contents of a folder (assessments, templates, child folders)."""
+        descendant_ids = await self.folder_repo.get_all_descendant_ids(folder.id)
+        all_folder_ids = [folder.id] + descendant_ids
 
         await self.folder_repo.bulk_soft_delete_by_ids(all_folder_ids)
         await self.assessment_repo.bulk_soft_delete_by_folder_ids(all_folder_ids)
@@ -410,5 +434,3 @@ class FolderService:
         )
         await self.question_svc.cleanup_orphaned_questions(folder.owner_id)
         await self.question_template_svc.cleanup_orphaned_templates(folder.owner_id)
-
-        return folder

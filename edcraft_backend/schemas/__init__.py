@@ -60,16 +60,12 @@ from edcraft_backend.schemas.question_template import (
     UpdateQuestionTemplateRequest,
 )
 from edcraft_backend.schemas.user import (
-    CreateUserRequest,
     UpdateUserRequest,
     UserResponse,
-    UserSummaryResponse,
 )
 
 __all__ = [
     # User
-    "CreateUserRequest",
-    "UserSummaryResponse",
     "UserResponse",
     "UpdateUserRequest",
     # Folder

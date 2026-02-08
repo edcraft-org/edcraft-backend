@@ -6,7 +6,7 @@ from uuid import UUID
 from edcraft_backend.exceptions import DuplicateResourceError, ResourceNotFoundError
 from edcraft_backend.models.user import User
 from edcraft_backend.repositories.user_repository import UserRepository
-from edcraft_backend.schemas.user import CreateUserRequest, UpdateUserRequest
+from edcraft_backend.schemas.user import UpdateUserRequest
 
 if TYPE_CHECKING:
     from edcraft_backend.services.folder_service import FolderService
@@ -22,41 +22,6 @@ class UserService:
     ):
         self.user_repo = user_repository
         self.folder_svc = folder_service
-
-    async def create_user(self, user_data: CreateUserRequest) -> User:
-        """Create a new user.
-
-        Args:
-            user_data: User creation data
-
-        Returns:
-            Created user
-
-        Raises:
-            DuplicateResourceError: If email already exists
-        """
-        # Check for duplicates
-        if await self.user_repo.email_exists(user_data.email):
-            raise DuplicateResourceError("User", "email", user_data.email)
-
-        # Create user
-        user = User(**user_data.model_dump())
-        user = await self.user_repo.create(user)
-
-        # Create root folder for user
-        await self.folder_svc.create_root_folder(user.id)
-
-        return user
-
-    async def list_users(self) -> list[User]:
-        """List all non-deleted users.
-
-        Returns:
-            List of users ordered by creation date (newest first)
-        """
-        return await self.user_repo.list(
-            order_by=User.created_at.desc(),
-        )
 
     async def get_user(self, user_id: UUID) -> User:
         """Get a user by ID.
@@ -95,7 +60,9 @@ class UserService:
 
         # Check for email conflict if email is being updated
         if "email" in update_data and update_data["email"] != user.email:
-            if await self.user_repo.email_exists(update_data["email"], exclude_id=user_id):
+            if await self.user_repo.email_exists(
+                update_data["email"], exclude_id=user_id
+            ):
                 raise DuplicateResourceError("User", "email", update_data["email"])
 
         # Apply updates
@@ -117,19 +84,8 @@ class UserService:
             ResourceNotFoundError: If user not found
         """
         user = await self.get_user(user_id)
+
+        root_folder = await self.folder_svc.get_root_folder(user_id)
+        await self.folder_svc.soft_delete_folder(user_id, root_folder.id)
+
         return await self.user_repo.soft_delete(user)
-
-    async def hard_delete_user(self, user_id: UUID) -> None:
-        """Hard delete a user (cascade deletes all content).
-
-        Args:
-            user_id: User UUID
-
-        Raises:
-            ResourceNotFoundError: If user not found
-        """
-        user = await self.user_repo.get_by_id(user_id, include_deleted=True)
-        if not user:
-            raise ResourceNotFoundError("User", str(user_id))
-
-        await self.user_repo.hard_delete(user)

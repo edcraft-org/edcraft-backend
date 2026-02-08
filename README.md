@@ -13,6 +13,7 @@ EdCraft Backend is a FastAPI-based web service that exposes the EdCraft Engine f
 - Type-safe API with Pydantic models
 - Structured project layout with routers, services, and schemas
 - Comprehensive development tooling (pytest, mypy, ruff)
+- JWT-based authentication and OAuth2 support (GitHub)
 
 ## Requirements
 
@@ -163,6 +164,7 @@ edcraft-backend/
 │   ├── __init__.py
 │   ├── main.py                  # FastAPI app initialization
 │   ├── database.py              # Database session management
+│   ├── dependencies.py          # Shared FastAPI dependencies (auth, db)
 │   ├── exceptions.py            # Custom exception classes
 │   ├── forms_config.json        # Form configuration (JSON)
 │   ├── config/                  # Configuration management
@@ -171,6 +173,8 @@ edcraft-backend/
 │   │   └── settings.py          # Pydantic settings
 │   ├── models/                  # SQLAlchemy database models
 │   │   ├── user.py
+│   │   ├── refresh_token.py
+│   │   ├── oauth_account.py
 │   │   ├── folder.py
 │   │   ├── assessment.py
 │   │   ├── assessment_question.py
@@ -179,6 +183,7 @@ edcraft-backend/
 │   │   ├── assessment_template_question_template.py
 │   │   └── question_template.py
 │   ├── routers/                 # API route handlers
+│   │   ├── auth.py
 │   │   ├── users.py
 │   │   ├── folders.py
 │   │   ├── assessments.py
@@ -188,6 +193,7 @@ edcraft-backend/
 │   │   └── question_generation.py
 │   ├── schemas/                 # Pydantic models for validation
 │   │   ├── user.py
+│   │   ├── auth.py
 │   │   ├── folder.py
 │   │   ├── assessment.py
 │   │   ├── question.py
@@ -196,16 +202,20 @@ edcraft-backend/
 │   │   ├── code_info.py
 │   │   ├── form_builder.py
 │   │   └── question_generation.py
-│   └── services/                # Business logic
-│       ├── user_service.py
-│       ├── folder_service.py
-│       ├── assessment_service.py
-│       ├── question_service.py
-│       ├── assessment_template_service.py
-│       ├── question_template_service.py
-│       ├── code_analysis_service.py
-│       ├── form_builder_service.py
-│       └── question_generation_service.py
+│   ├── services/                # Business logic
+│   │   ├── auth_service.py
+│   │   ├── oauth_service.py
+│   │   ├── user_service.py
+│   │   ├── folder_service.py
+│   │   ├── assessment_service.py
+│   │   ├── question_service.py
+│   │   ├── assessment_template_service.py
+│   │   ├── question_template_service.py
+│   │   ├── code_analysis_service.py
+│   │   ├── form_builder_service.py
+│   │   └── question_generation_service.py
+│   ├── security/                # JWT and password utilities
+│   └── oauth/                   # OAuth provider configuration
 ├── alembic/                     # Database migrations
 │   └── versions/
 ├── tests/                       # Test suite
@@ -314,6 +324,8 @@ The application uses a comprehensive database schema for managing assessments, q
 
 ```mermaid
 erDiagram
+    users ||--o{ refresh_tokens : "has"
+    users ||--o{ oauth_accounts : "has"
     users ||--o{ folders : "owns"
     users ||--o{ assessments : "owns"
     users ||--o{ assessment_templates : "owns"
@@ -335,10 +347,31 @@ erDiagram
     users {
         uuid id PK
         string email UK
-        string username UK
+        string name
+        string password_hash "nullable (OAuth users)"
+        bool is_active
         datetime created_at
         datetime updated_at
         datetime deleted_at "soft delete"
+    }
+
+    refresh_tokens {
+        uuid id PK
+        uuid user_id FK
+        string token_hash UK
+        datetime expires_at
+        bool is_revoked
+        string ip_address "nullable"
+        string user_agent "nullable"
+        datetime created_at
+    }
+
+    oauth_accounts {
+        uuid id PK
+        uuid user_id FK
+        string provider
+        string provider_user_id
+        datetime created_at
     }
 
     folders {
@@ -417,8 +450,16 @@ erDiagram
 The application uses a comprehensive database schema for managing assessments, questions, and organizational structure:
 
 - **User** ([user.py](edcraft_backend/models/user.py)) - User accounts
-  - Fields: email, username
+  - Fields: email, name, password_hash (nullable for OAuth users), is_active
   - Owns all content (folders, assessments, questions, templates)
+
+- **RefreshToken** ([refresh_token.py](edcraft_backend/models/refresh_token.py)) - Persisted refresh tokens for rotation and revocation
+  - Stores a hash of the token (not the token itself)
+  - Tracks IP address and user agent for security auditing
+
+- **OAuthAccount** ([oauth_account.py](edcraft_backend/models/oauth_account.py)) - Links OAuth provider identities to users
+  - Unique constraint on `(provider, provider_user_id)`
+  - Allows one user to link multiple OAuth providers
 
 - **Folder** ([folder.py](edcraft_backend/models/folder.py)) - Hierarchical folder organization using tree structure
   - Self-referential parent-child relationship
@@ -433,7 +474,7 @@ The application uses a comprehensive database schema for managing assessments, q
   - The root folder has `parent_id=None` and serves as the top-level container for all user content
   - Root folders cannot be deleted (attempting to delete returns 403 Forbidden)
   - Root folders can be renamed by the user
-  - The root folder is accessible via `GET /users/{user_id}/root-folder`
+  - The root folder is accessible via `GET /users/me/root-folder`
 
 - **Assessment** ([assessment.py](edcraft_backend/models/assessment.py)) - Collection of questions, also serves as question bank
   - Many-to-many relationship with questions
@@ -502,6 +543,57 @@ async def get_items(db: AsyncSession = Depends(get_db)):
     return result.scalars().all()
 ```
 
+## Authentication
+
+The application uses JWT-based authentication with httpOnly cookies and supports both email/password and OAuth (GitHub) login.
+
+### How It Works
+
+**Email/Password Flow:**
+1. Sign up via `POST /auth/signup` with email and password (min 12 characters)
+2. Log in via `POST /auth/login` to receive access and refresh tokens set as httpOnly cookies
+3. Call `POST /auth/refresh` to rotate tokens before the access token expires
+4. Call `POST /auth/logout` to revoke the refresh token
+
+**OAuth (GitHub) Flow:**
+1. Redirect the user to `GET /auth/oauth/github/authorize`
+2. User authorizes on GitHub; GitHub redirects back to `/auth/oauth/github/callback`
+3. Backend exchanges the code for an access token, fetches the user's profile and verified email
+4. Links the OAuth account to an existing user (by email) or creates a new user
+5. Issues access and refresh tokens as httpOnly cookies
+
+### Token Details
+
+| Token | Lifetime | Storage | Purpose |
+|-------|----------|---------|---------|
+| Access Token | 30 min (default) | httpOnly cookie | Authenticate API requests |
+| Refresh Token | 14 days (default) | httpOnly cookie | Obtain new access tokens |
+
+Refresh tokens are stored as hashes in the database, enabling revocation. Token rotation invalidates the previous refresh token on each use.
+
+### Protecting Routes
+
+Protected routes use the `CurrentUserDep` dependency, which reads the `access_token` cookie, validates the JWT, and resolves the user:
+
+```python
+from edcraft_backend.dependencies import CurrentUserDep
+
+@router.get("/items")
+async def get_items(current_user: CurrentUserDep):
+    # current_user is the authenticated User model instance
+    ...
+```
+
+### Setting Up OAuth (GitHub)
+
+1. Create a GitHub OAuth App at https://github.com/settings/developers
+2. Set the callback URL to `http://localhost:5000/auth/oauth/github/callback` (development)
+3. Add the client ID and secret to your `.env.development`:
+   ```
+   OAUTH_GITHUB_CLIENT_ID=<your-client-id>
+   OAUTH_GITHUB_CLIENT_SECRET=<your-client-secret>
+   ```
+
 ## Configuration
 
 The application uses **Pydantic BaseSettings** for type-safe, environment-based configuration with environment-specific .env files.
@@ -546,6 +638,22 @@ The docker-compose.yml uses `env_file` directives to load environment-specific c
   - `5432` for development db
   - `5433` for test db
 
+#### JWT Settings
+- `JWT_SECRET` - Secret key for signing tokens (generate with `openssl rand -hex 32`)
+- `JWT_ALGORITHM` - Signing algorithm (default: `HS256`)
+- `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` - Access token lifetime (default: `30`)
+- `JWT_REFRESH_TOKEN_EXPIRE_DAYS` - Refresh token lifetime (default: `14`)
+- `JWT_ISSUER` - JWT issuer claim (default: `edcraft`)
+- `JWT_AUDIENCE` - JWT audience claim (default: `edcraft`)
+
+#### OAuth Settings
+- `OAUTH_GITHUB_CLIENT_ID` - GitHub OAuth app client ID
+- `OAUTH_GITHUB_CLIENT_SECRET` - GitHub OAuth app client secret
+- `OAUTH_GITHUB_REDIRECT_URI` - GitHub OAuth callback URL
+
+#### Authentication Settings
+- `PASSWORD_MIN_LENGTH` - Minimum password length (default: `12`)
+- `FRONTEND_URL` - Frontend URL for OAuth redirects (default: `http://localhost:5173`)
 
 #### CORS Settings
 - `CORS_ORIGINS` - JSON array of allowed origins (default: `["http://localhost:5173","http://127.0.0.1:5173"]`)
@@ -563,307 +671,28 @@ Once the server is running, visit http://127.0.0.1:8000/docs for interactive API
 
 ### Available Endpoints
 
-The API provides comprehensive CRUD operations for all resources, along with endpoints for question generation.
-
-#### Users (`/users`)
-
-Manage user accounts.
-
-- `POST /users` - Create a new user
-  - Body: `{email: string, username: string}`
-  - Returns: Created user with ID and timestamps
-
-- `GET /users` - List all users (excluding soft-deleted)
-  - Returns: Array of users
-
-- `GET /users/{user_id}` - Get user by ID
-  - Returns: User details
-
-- `PATCH /users/{user_id}` - Update user
-  - Body: `{email?: string, username?: string}`
-  - Returns: Updated user
-
-- `DELETE /users/{user_id}` - Soft delete user
-  - Sets `deleted_at` timestamp
-
-- `DELETE /users/{user_id}/hard` - Hard delete user
-  - Permanently deletes user and cascades to all owned content
-
-- `GET /users/{user_id}/root-folder` - Get user's root folder
-  - Returns: User's root folder (auto-created during user registration)
-  - Used as the top-level container for organizing all user content
-
-#### Folders (`/folders`)
-
-Hierarchical folder management.
-
-- `POST /folders` - Create a folder
-  - Body: `{owner_id: UUID, parent_id: UUID, name: string, description?: string}`
-  - Returns: Created folder
-
-- `GET /folders?owner_id={uuid}&parent_id={uuid}` - List folders
-  - Query params: `owner_id` (required), `parent_id` (optional)
-  - If `parent_id` is omitted, returns ALL folders owned by the user (including nested folders)
-  - If `parent_id` is provided, returns only direct children of that folder
-  - Returns: Array of folders
-
-- `GET /folders/{folder_id}` - Get folder by ID
-  - Returns: Folder details
-
-- `GET /folders/{folder_id}/tree` - Get folder with full subtree
-  - Returns: Nested folder structure with all descendants
-  - Useful for rendering folder trees in UI
-
-- `GET /folders/{folder_id}/path` - Get folder path from root
-  - Returns: Array of folders from root to current folder
-
-- `GET /folders/{folder_id}/contents` - Get folder with contents
-  - Returns: Folder details plus complete Assessment, AssessmentTemplate, and child Folder objects
-  - Response includes: assessments array, assessment_templates array, and folders array
-
-- `PATCH /folders/{folder_id}` - Update folder
-  - Body: `{name?: string, description?: string}`
-  - Returns: Updated folder
-
-- `PATCH /folders/{folder_id}/move` - Move folder to different parent
-  - Body: `{parent_id: UUID | null}`
-  - Validates against circular references
-  - Returns: Updated folder
-
-- `DELETE /folders/{folder_id}` - Soft delete folder
-  - Cascades to all children and contained assessments/templates
-  - **Note**: Root folders (with `parent_id=null`) cannot be deleted and will return 403 Forbidden
-
-#### Questions (`/questions`)
-
-Manage individual question instances.
-
-- `GET /questions?owner_id={uuid}&question_type={string}` - List questions
-  - Query params: `owner_id` (required), `question_type` (optional)
-  - Returns: Array of questions
-
-- `GET /questions/{question_id}` - Get question by ID
-  - Returns: Question details with additional_data
-
-- `PATCH /questions/{question_id}` - Update question
-  - Body: `{question_type?: string, question_text?: string, additional_data?: object}`
-  - Returns: Updated question
-
-- `DELETE /questions/{question_id}` - Soft delete question
-  - Removes question from all assessments
-
-- `GET /questions/{question_id}/assessments?owner_id={uuid}` - Get assessments that include this question
-  - Query params: `owner_id` (required, must match question owner)
-  - Returns: Array of assessments using this question
-
-#### Assessments (`/assessments`)
-
-Manage assessments (collections of questions).
-
-- `POST /assessments` - Create an assessment
-  - Body: `{owner_id: UUID, folder_id: UUID, title: string, description?: string}`
-  - Returns: Created assessment
-
-- `GET /assessments?owner_id={uuid}&folder_id={uuid}` - List assessments
-  - Query params: `owner_id` (required), `folder_id` (optional)
-  - If `folder_id` is omitted, returns ALL assessments owned by the user
-  - If `folder_id` is provided, returns only assessments in that specific folder
-  - Returns: Array of assessments
-
-- `GET /assessments/{assessment_id}` - Get assessment with questions
-  - Returns: Assessment with questions ordered by their position
-
-- `PATCH /assessments/{assessment_id}` - Update assessment metadata
-  - Body: `{title?: string, description?: string, folder_id?: UUID}`
-  - Returns: Updated assessment
-
-- `DELETE /assessments/{assessment_id}` - Soft delete assessment
-  - Questions are preserved and can be reused in other assessments
-  - Orphaned questions (not in any assessment) are automatically cleaned up
-
-- `POST /assessments/{assessment_id}/questions` - Create and insert new question
-  - Body: `{question: {owner_id: UUID, template_id?: UUID, question_type: string, question_text: string, additional_data: object}, order?: number}`
-  - Creates a new question and adds it to the assessment
-  - Order is optional; omit to append to the end
-  - Valid order range: 0 to current question count (inclusive)
-  - Questions at or after specified order are automatically shifted down
-  - Returns: Assessment with updated questions
-
-- `POST /assessments/{assessment_id}/questions/link` - Link existing question to assessment
-  - Body: `{question_id: UUID, order?: number}`
-  - Links an existing question to the assessment
-  - Order is optional; omit to append to the end
-  - Valid order range: 0 to current question count (inclusive)
-  - Questions at or after specified order are automatically shifted down
-  - Prevents duplicate questions in the same assessment
-  - Returns: Assessment with updated questions
-
-- `DELETE /assessments/{assessment_id}/questions/{question_id}` - Remove question from assessment
-  - Removes the association only (question itself is preserved)
-  - Automatically normalizes remaining question orders to be consecutive (0, 1, 2...)
-
-- `PATCH /assessments/{assessment_id}/questions/reorder` - Reorder all questions
-  - Body: `{question_orders: [{question_id: UUID, order: number}, ...]}`
-  - Must include all questions currently in the assessment
-  - Orders are validated to be unique
-  - Returns: Assessment with reordered questions
-
-#### Question Templates (`/question-templates`)
-
-Manage question template blueprints.
-
-**QuestionTemplateConfig Structure:**
-```json
-{
-  "code": "string",
-  "question_spec": "QuestionSpec object",
-  "generation_options": "GenerationOptions object",
-  "entry_function": "string"
-}
-```
-
-- `GET /question-templates?owner_id={uuid}` - List templates
-  - Query params: `owner_id` (required)
-  - Returns: Array of templates
-
-- `GET /question-templates/{template_id}` - Get template by ID
-  - Returns: Template details with template_config
-
-- `PATCH /question-templates/{template_id}` - Update template
-  - Body: `{question_type?: string, question_text?: string, description?: string, template_config?: QuestionTemplateConfig}`
-  - Returns: Updated template
-
-- `DELETE /question-templates/{template_id}` - Soft delete template
-  - Questions created from this template are preserved
-
-- `GET /question-templates/{question_template_id}/assessment-templates?owner_id={uuid}` - Get assessment templates that include this question template
-  - Query params: `owner_id` (required, must match question template owner)
-  - Returns: Array of assessment templates using this question template
-
-#### Assessment Templates (`/assessment-templates`)
-
-Manage assessment template collections.
-
-- `POST /assessment-templates` - Create an assessment template
-  - Body: `{owner_id: UUID, folder_id: UUID, title: string, description?: string}`
-  - Returns: Created template
-
-- `GET /assessment-templates?owner_id={uuid}&folder_id={uuid}` - List templates
-  - Query params: `owner_id` (required), `folder_id` (optional)
-  - If `folder_id` is omitted, returns ALL assessment templates owned by the user
-  - If `folder_id` is provided, returns only templates in that specific folder
-  - Returns: Array of assessment templates
-
-- `GET /assessment-templates/{template_id}` - Get template with question templates
-  - Returns: Assessment template with question templates in order
-
-- `PATCH /assessment-templates/{template_id}` - Update template metadata
-  - Body: `{title?: string, description?: string, folder_id?: UUID}`
-  - Returns: Updated template
-
-- `DELETE /assessment-templates/{template_id}` - Soft delete template
-  - Question templates are preserved
-
-- `POST /assessment-templates/{template_id}/question-templates` - Create and insert new question template
-  - Body: `{question_template: {owner_id: UUID, question_type: string, question_text: string, additional_data: object}, order?: number}`
-  - Creates a new question template and adds it to the assessment template
-  - Order is optional; omit to append to the end
-  - Valid order range: 0 to current question template count (inclusive)
-  - Question templates at or after specified order are automatically shifted down
-  - Returns: Assessment template with updated question templates
-
-- `POST /assessment-templates/{template_id}/question-templates/link` - Link existing question template
-  - Body: `{question_template_id: UUID, order?: number}`
-  - Links an existing question template to the assessment template
-  - Order is optional; omit to append to the end
-  - Valid order range: 0 to current question template count (inclusive)
-  - Question templates at or after specified order are automatically shifted down
-  - Prevents duplicate templates in the same assessment template
-  - Returns: Assessment template with updated question templates
-
-- `DELETE /assessment-templates/{template_id}/question-templates/{qt_id}` - Remove template
-  - Removes the association only
-
-- `PATCH /assessment-templates/{template_id}/question-templates/reorder` - Reorder templates
-  - Body: `{question_template_orders: [{question_template_id: UUID, order: number}, ...]}`
-  - Must include all question templates currently in the assessment template
-  - Orders are validated to be unique
-  - Returns: Assessment template with reordered question templates
-
-#### Question Generation (`/question-generation`)
-
-Question generation endpoints.
-
-- `POST /question-generation/analyse-code` - Analyze Python code
-  - Body: `{code: string}`
-  - Returns: Code information and form schema for question builder
-
-- `POST /question-generation/generate-question` - Generate a question
-  - Body: `{code: string, question_spec: object, execution_spec: object, generation_options: object}`
-  - Returns: Generated question (not persisted to database)
-
-- `POST /question-generation/generate-template` - Generate a template preview
-  - Body: `{code: string, entry_function: string, question_spec: object, generation_options: object}`
-  - Creates a question template preview without database persistence
-  - Returns: `{question_text: string, question_type: string, template_config: object, preview_question: object}`
-  - The `template_config` contains all configuration needed for future template creation
-  - The `preview_question` contains placeholder values (e.g., `<option_1>`, `<placeholder_answer>`)
-
-- `POST /question-generation/generate-into-assessment` - Generate and persist to assessment
-  - Body: `{assessment_id: UUID, owner_id: UUID, code: string, question_spec: object, execution_spec: object, generation_options: object}`
-  - Generates question using engine, creates Question record, links to Assessment
-  - Returns: Created question record
-
-- `POST /question-generation/question-templates/{template_id}/generate` - Generate from template
-  - Body: `{owner_id: UUID, code: string, assessment_id: UUID}`
-  - Uses template configuration to generate question
-  - Adds generated question to the specified assessment
-  - Returns: Created question record linked to template
-
-- `POST /question-generation/from-template/{template_id}` - Generate question from template
-  - Path param: `template_id` (UUID of QuestionTemplate)
-  - Body: `{input_data: object}`
-  - Returns: Generated question
-  - Example request:
-    ```json
-    {
-      "input_data": {"n": 5, "arr": [1, 2, 3, 4, 5]}
-    }
-    ```
-
-- `POST /question-generation/assessment-from-template/{template_id}` - Generate assessment from template
-  - Path param: `template_id` (UUID of AssessmentTemplate)
-  - Body: `{assessment_metadata: object, question_inputs: array}`
-  - Creates new assessment with all questions generated from templates
-  - Returns: Created assessment with all questions
-  - Example request:
-    ```json
-    {
-      "assessment_metadata": {
-        "owner_id": "uuid",
-        "folder_id": "uuid",
-        "title": "Custom Assessment Title",
-        "description": "Custom description"
-      },
-      "question_inputs": [
-        {"n": 5, "arr": [1, 2, 3, 4, 5]},
-        {"n": 10, "arr": [5, 4, 3, 2, 1]}
-      ]
-    }
-    ```
-  - Note: `question_inputs` array length must match number of question templates in the assessment template
-  - Note: `title` and `description` are optional; defaults to assessment template values if not provided
-
-### Orphaned Resource Cleanup
-
-When assessments, assessment templates, or folders are deleted, a cleanup process automatically removes orphaned questions and question templates that are no longer associated with any active assessments or templates.
-
-**Key behaviors:**
-- **Automatic cleanup**: Triggered when deleting assessments, assessment templates, or folders
-- **Preservation of shared resources**: Questions/templates used in multiple assessments/templates are only deleted when they become completely orphaned (not used anywhere)
-- **User-scoped**: Cleanup only affects resources owned by the same user
-
-This ensures the database remains clean without accumulating unused questions or templates while preserving resources that are still in use.
+Full endpoint reference is auto-generated at http://127.0.0.1:8000/docs. Key non-obvious behaviors:
+
+**Users** (`/users`, all require auth)
+- A root folder is automatically created for each user on registration (`GET /users/me/root-folder` to retrieve it)
+- Soft delete (`DELETE /users/me`) soft deletes all owned content
+
+**Folders** (`/folders`, all require auth)
+- `GET /folders` without `parent_id` returns all folders owned by the user; with `parent_id` returns only direct children
+- Root folders (`parent_id=null`) cannot be deleted — returns 403
+- Move (`PATCH /folders/{folder_id}/move`) validates against circular references
+
+**Assessments & Assessment Templates** (all require auth)
+- Questions/question templates support ordered insertion: omit `order` to append, or specify to insert at position (others shift down)
+- Reorder endpoints require all items to be included with unique orders
+- Deleting an assessment preserves its questions; orphaned questions (no longer in any assessment) are cleaned up automatically
+
+**Question Templates**
+- `template_config` structure: `{code, question_spec, generation_options, entry_function}`
+
+**Question Generation**
+- `generate-template` returns a preview with placeholder values (e.g. `<option_1>`) and `template_config` for future template creation
+- `assessment-from-template`: `question_inputs` array length must match the number of question templates in the assessment template; `title`/`description` default to template values if omitted
 
 ## Architecture
 
@@ -874,7 +703,9 @@ The codebase follows a clean layered architecture:
 3. **Schemas Layer** (`schemas/`) - Data models and validation
 4. **Models Layer** (`models/`) - Database models and ORM mappings
 5. **Repositories Layer** (`repositories/`) - Data access and database operations
-6. **Exceptions** - Custom error handling
+6. **Security** (`security/`) - JWT creation/validation and password hashing
+7. **OAuth** (`oauth/`) - OAuth provider configuration and user info fetching
+8. **Exceptions** - Custom error handling
 
 ## License
 

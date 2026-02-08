@@ -2,7 +2,7 @@
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String
+from sqlalchemy import Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from edcraft_backend.models.base import EntityBase
@@ -20,9 +20,17 @@ class User(EntityBase):
     """User model."""
 
     __tablename__ = "users"
+    __table_args__ = (
+        Index(
+            "uq_users_email_non_deleted",
+            "email",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+    )
 
     # Basic Fields
-    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
 
     # Auth Fields

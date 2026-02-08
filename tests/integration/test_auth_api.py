@@ -29,7 +29,7 @@ class TestSignup:
         data = response.json()
         assert data["email"] == signup_data["email"]
         assert "id" in data
-        assert "name" in data
+        assert "name" in data and data["name"] == "newuser"
         assert "password" not in data
         assert "password_hash" not in data
 
@@ -66,6 +66,52 @@ class TestSignup:
         response = await test_client.post("/auth/signup", json=signup_data)
 
         assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_signup_with_previously_deleted_email(
+        self, test_client: AsyncClient
+    ) -> None:
+        """Test signup with an email belonging to a soft-deleted account succeeds."""
+        signup_data = {
+            "email": "reuse@example.com",
+            "password": "SecurePassword123!",
+        }
+
+        # Create and delete the first account
+        await test_client.post("/auth/signup", json=signup_data)
+        await test_client.post("/auth/login", json=signup_data)
+        await test_client.delete("/users/me")
+
+        # Signup again with the same email
+        response = await test_client.post("/auth/signup", json=signup_data)
+
+        assert response.status_code == 201
+        assert response.json()["email"] == signup_data["email"]
+
+    @pytest.mark.asyncio
+    async def test_signup_creates_root_folder(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test that creating a user automatically creates their root folder."""
+        from sqlalchemy import select
+
+        from edcraft_backend.models.folder import Folder
+
+        user_data = {
+            "email": "newuserauto@example.com",
+            "password": "SecurePassword123!",
+        }
+        response = await test_client.post("/auth/signup", json=user_data)
+        assert response.status_code == 201
+        user_id = response.json()["id"]
+
+        # Verify root folder exists in database
+        result = await db_session.execute(
+            select(Folder).where(Folder.owner_id == user_id, Folder.parent_id.is_(None))
+        )
+        root_folder = result.scalar_one_or_none()
+        assert root_folder is not None
+        assert root_folder.name == "My Projects"
 
 
 @pytest.mark.integration
