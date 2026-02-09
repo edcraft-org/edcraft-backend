@@ -48,3 +48,24 @@ class AuthUserResponse(BaseModel):
     name: str
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class VerifyEmailRequest(BaseModel):
+    """Schema for email verification."""
+
+    token: str = Field(..., min_length=32, max_length=128)
+
+
+class ResendVerificationRequest(BaseModel):
+    """Schema for resending verification email."""
+
+    email: EmailStr
+
+
+class VerifyEmailResponse(BaseModel):
+    message: str
+    email: str
+
+
+class ResendVerificationResponse(BaseModel):
+    message: str

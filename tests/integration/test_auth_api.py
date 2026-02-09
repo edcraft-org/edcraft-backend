@@ -18,8 +18,14 @@ class TestSignup:
     """Tests for POST /auth/signup endpoint."""
 
     @pytest.mark.asyncio
-    async def test_signup_success(self, test_client: AsyncClient) -> None:
+    async def test_signup_success(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
         """Test successful user signup with valid email and password."""
+        from sqlalchemy import select
+
+        from edcraft_backend.models.folder import Folder
+
         signup_data = {
             "email": "newuser@example.com",
             "password": "SecurePassword123!",
@@ -33,6 +39,15 @@ class TestSignup:
         assert "name" in data and data["name"] == "newuser"
         assert "password" not in data
         assert "password_hash" not in data
+
+        # Verify root folder was created during signup
+        user_id = data["id"]
+        result = await db_session.execute(
+            select(Folder).where(Folder.owner_id == user_id, Folder.parent_id.is_(None))
+        )
+        root_folder = result.scalar_one_or_none()
+        assert root_folder is not None
+        assert root_folder.name == "My Projects"
 
     @pytest.mark.asyncio
     async def test_signup_duplicate_email(
@@ -577,3 +592,376 @@ class TestOAuthCallback:
                 all_users = result.scalars().all()
                 assert len(all_users) == 1
                 assert all_users[0].id == user.id
+
+
+@pytest.mark.integration
+@pytest.mark.auth
+class TestVerifyEmail:
+    """Tests for POST /auth/verify-email endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_verify_email_success(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test successful email verification activates user."""
+        from datetime import UTC, datetime, timedelta
+
+        from sqlalchemy import select
+
+        from edcraft_backend.models.one_time_token import OneTimeToken, TokenType
+        from edcraft_backend.models.user import User
+        from edcraft_backend.security import generate_token, hash_token
+
+        # Create inactive user
+        user = User(
+            email="verify@example.com",
+            name="verify",
+            password_hash="hashed",
+            is_active=False,
+        )
+        db_session.add(user)
+        await db_session.flush()
+
+        # Create verification token
+        raw_token = generate_token(32)
+        token_hash = hash_token(raw_token)
+        expires_at = datetime.now(UTC) + timedelta(hours=24)
+
+        verification_token = OneTimeToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            token_type=TokenType.EMAIL_VERIFICATION,
+            expires_at=expires_at,
+        )
+        db_session.add(verification_token)
+        await db_session.commit()
+
+        # Verify email
+        response = await test_client.post(
+            "/auth/verify-email", json={"token": raw_token}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["message"] == "Email verified successfully"
+        assert data["email"] == "verify@example.com"
+
+        # Check user is now active
+        result = await db_session.execute(select(User).where(User.id == user.id))
+        updated_user = result.scalar_one()
+        assert updated_user.is_active is True
+
+        # Check token is marked as used
+        await db_session.refresh(verification_token)
+        assert verification_token.is_used is True
+
+    @pytest.mark.asyncio
+    async def test_verify_email_already_active(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test verifying an already active user returns success."""
+        from datetime import UTC, datetime, timedelta
+
+        from edcraft_backend.models.one_time_token import OneTimeToken, TokenType
+        from edcraft_backend.security import generate_token, hash_token
+
+        # Create active user
+        user = await create_test_user(
+            db_session,
+            email="active@example.com",
+            password_hash="hashed",
+            is_active=True,
+        )
+        await db_session.commit()
+
+        # Create verification token
+        raw_token = generate_token(32)
+        token_hash = hash_token(raw_token)
+        expires_at = datetime.now(UTC) + timedelta(hours=24)
+
+        verification_token = OneTimeToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            token_type=TokenType.EMAIL_VERIFICATION,
+            expires_at=expires_at,
+        )
+        db_session.add(verification_token)
+        await db_session.commit()
+
+        # Verify email
+        response = await test_client.post(
+            "/auth/verify-email", json={"token": raw_token}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["email"] == "active@example.com"
+
+    @pytest.mark.asyncio
+    async def test_verify_email_invalid_token(self, test_client: AsyncClient) -> None:
+        """Test email verification with invalid token returns 401."""
+        response = await test_client.post(
+            "/auth/verify-email", json={"token": "invalid_token_12345678901234567890"}
+        )
+
+        assert response.status_code == 401
+        assert "invalid" in response.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    async def test_verify_email_expired_token(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test email verification with expired token returns 401."""
+        from datetime import UTC, datetime, timedelta
+
+        from edcraft_backend.models.one_time_token import OneTimeToken, TokenType
+        from edcraft_backend.models.user import User
+        from edcraft_backend.security import generate_token, hash_token
+
+        # Create inactive user
+        user = User(
+            email="expired@example.com",
+            name="expired",
+            password_hash="hashed",
+            is_active=False,
+        )
+        db_session.add(user)
+        await db_session.flush()
+
+        # Create expired token
+        raw_token = generate_token(32)
+        token_hash = hash_token(raw_token)
+        expires_at = datetime.now(UTC) - timedelta(hours=1)  # Expired
+
+        expired_token = OneTimeToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            token_type=TokenType.EMAIL_VERIFICATION,
+            expires_at=expires_at,
+        )
+        db_session.add(expired_token)
+        await db_session.commit()
+
+        # Try to verify with expired token
+        response = await test_client.post(
+            "/auth/verify-email", json={"token": raw_token}
+        )
+
+        assert response.status_code == 401
+        assert (
+            "invalid" in response.json()["detail"].lower()
+            or "expired" in response.json()["detail"].lower()
+        )
+
+    @pytest.mark.asyncio
+    async def test_verify_email_used_token(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test email verification with already used token returns 401."""
+        from datetime import UTC, datetime, timedelta
+
+        from edcraft_backend.models.one_time_token import OneTimeToken, TokenType
+        from edcraft_backend.models.user import User
+        from edcraft_backend.security import generate_token, hash_token
+
+        # Create inactive user
+        user = User(
+            email="used@example.com",
+            name="used",
+            password_hash="hashed",
+            is_active=False,
+        )
+        db_session.add(user)
+        await db_session.flush()
+
+        # Create used token
+        raw_token = generate_token(32)
+        token_hash = hash_token(raw_token)
+        expires_at = datetime.now(UTC) + timedelta(hours=24)
+
+        used_token = OneTimeToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            token_type=TokenType.EMAIL_VERIFICATION,
+            expires_at=expires_at,
+            is_used=True,  # Already used
+        )
+        db_session.add(used_token)
+        await db_session.commit()
+
+        # Try to verify with used token
+        response = await test_client.post(
+            "/auth/verify-email", json={"token": raw_token}
+        )
+
+        assert response.status_code == 401
+        assert "invalid" in response.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    async def test_verify_email_wrong_token_type(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test email verification with password reset token returns 401."""
+        from datetime import UTC, datetime, timedelta
+
+        from edcraft_backend.models.one_time_token import OneTimeToken, TokenType
+        from edcraft_backend.models.user import User
+        from edcraft_backend.security import generate_token, hash_token
+
+        # Create inactive user
+        user = User(
+            email="wrongtype@example.com",
+            name="wrongtype",
+            password_hash="hashed",
+            is_active=False,
+        )
+        db_session.add(user)
+        await db_session.flush()
+
+        # Create password reset token (wrong type)
+        raw_token = generate_token(32)
+        token_hash = hash_token(raw_token)
+        expires_at = datetime.now(UTC) + timedelta(hours=24)
+
+        wrong_type_token = OneTimeToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            token_type=TokenType.PASSWORD_RESET,  # Wrong type
+            expires_at=expires_at,
+        )
+        db_session.add(wrong_type_token)
+        await db_session.commit()
+
+        # Try to verify with wrong token type
+        response = await test_client.post(
+            "/auth/verify-email", json={"token": raw_token}
+        )
+
+        assert response.status_code == 401
+        assert "invalid" in response.json()["detail"].lower()
+
+
+@pytest.mark.integration
+@pytest.mark.auth
+class TestResendVerification:
+    """Tests for POST /auth/resend-verification endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_resend_verification_success(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test resending verification email for unverified user."""
+        from unittest.mock import AsyncMock, patch
+
+        from edcraft_backend.models.user import User
+
+        # Create inactive user
+        user = User(
+            email="resend@example.com",
+            name="resend",
+            password_hash="hashed",
+            is_active=False,
+        )
+        db_session.add(user)
+        await db_session.flush()
+
+        # Mock email service
+        with patch(
+            "edcraft_backend.services.auth_service.AuthService._send_verification_email",
+            new_callable=AsyncMock,
+        ):
+            response = await test_client.post(
+                "/auth/resend-verification", json={"email": "resend@example.com"}
+            )
+
+            assert response.status_code == 200
+            data = response.json()
+            assert "verification email has been sent" in data["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_resend_verification_nonexistent_email(
+        self, test_client: AsyncClient
+    ) -> None:
+        """Test resending verification for non-existent email returns generic success."""
+        response = await test_client.post(
+            "/auth/resend-verification", json={"email": "nonexistent@example.com"}
+        )
+
+        # Should still return 200 to prevent user enumeration
+        assert response.status_code == 200
+        data = response.json()
+        assert "verification email has been sent" in data["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_resend_verification_already_verified(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test resending verification for already verified user returns generic success."""
+        # Create active user
+        await create_test_user(
+            db_session,
+            email="verified@example.com",
+            password_hash="hashed",
+            is_active=True,
+        )
+        await db_session.commit()
+
+        response = await test_client.post(
+            "/auth/resend-verification", json={"email": "verified@example.com"}
+        )
+
+        # Should still return 200 to prevent user enumeration
+        assert response.status_code == 200
+        data = response.json()
+        assert "verification email has been sent" in data["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_resend_verification_revokes_old_tokens(
+        self, test_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Test resending verification revokes old tokens before creating new one."""
+        from datetime import UTC, datetime, timedelta
+        from unittest.mock import AsyncMock, patch
+
+        from edcraft_backend.models.one_time_token import OneTimeToken, TokenType
+        from edcraft_backend.models.user import User
+        from edcraft_backend.security import generate_token, hash_token
+
+        # Create inactive user
+        user = User(
+            email="revoke@example.com",
+            name="revoke",
+            password_hash="hashed",
+            is_active=False,
+        )
+        db_session.add(user)
+        await db_session.flush()
+
+        # Create old verification token
+        raw_token = generate_token(32)
+        token_hash = hash_token(raw_token)
+        expires_at = datetime.now(UTC) + timedelta(hours=24)
+
+        old_token = OneTimeToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            token_type=TokenType.EMAIL_VERIFICATION,
+            expires_at=expires_at,
+        )
+        db_session.add(old_token)
+        await db_session.commit()
+
+        # Mock email service
+        with patch(
+            "edcraft_backend.services.auth_service.AuthService._send_verification_email",
+            new_callable=AsyncMock,
+        ):
+            response = await test_client.post(
+                "/auth/resend-verification", json={"email": "revoke@example.com"}
+            )
+
+            assert response.status_code == 200
+
+            # Check old token is marked as used
+            await db_session.refresh(old_token)
+            assert old_token.is_used is True

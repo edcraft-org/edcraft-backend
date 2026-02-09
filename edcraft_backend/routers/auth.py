@@ -16,8 +16,12 @@ from edcraft_backend.oauth.registry import oauth
 from edcraft_backend.schemas.auth import (
     AuthUserResponse,
     LoginRequest,
+    ResendVerificationRequest,
+    ResendVerificationResponse,
     SignupRequest,
     TokenPairResponse,
+    VerifyEmailRequest,
+    VerifyEmailResponse,
 )
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
@@ -99,6 +103,37 @@ async def logout(
 async def get_me(current_user: CurrentUserDep) -> User:
     """Return the authenticated user's profile."""
     return current_user
+
+
+@router.post("/verify-email", status_code=status.HTTP_200_OK)
+async def verify_email(
+    data: VerifyEmailRequest,
+    service: AuthServiceDep,
+) -> VerifyEmailResponse:
+    """Verify email address with token."""
+    try:
+        user = await service.verify_email(data.token)
+        return VerifyEmailResponse(
+            message="Email verified successfully",
+            email=user.email,
+        )
+    except EdCraftBaseException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+
+@router.post("/resend-verification", status_code=status.HTTP_200_OK)
+async def resend_verification(
+    data: ResendVerificationRequest,
+    service: AuthServiceDep,
+) -> ResendVerificationResponse:
+    """Resend verification email."""
+    try:
+        await service.resend_verification_email(data.email)
+        return ResendVerificationResponse(
+            message="If the email exists and is unverified, a verification email has been sent"
+        )
+    except EdCraftBaseException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
 
 @router.get("/oauth/{provider}/authorize")

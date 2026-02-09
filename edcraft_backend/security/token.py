@@ -1,6 +1,7 @@
 """JWT token creation, decoding, and hashing."""
 
 import hashlib
+import secrets
 from datetime import datetime, timedelta
 
 from jose import JWTError, jwt
@@ -12,6 +13,11 @@ from edcraft_backend.exceptions import TokenDecodeError
 def hash_token(token: str) -> str:
     """SHA-256 hash of a raw token."""
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+def generate_token(length: int = 32) -> str:
+    """Generate a cryptographically secure random token."""
+    return secrets.token_urlsafe(length)
 
 
 def create_access_token(sub: str, now: datetime) -> str:

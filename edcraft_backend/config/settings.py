@@ -131,6 +131,29 @@ class OAuthGithubSettings(BaseSettings):
     )
 
 
+class EmailSettings(BaseSettings):
+    """Email configuration. Env prefix: EMAIL_"""
+
+    model_config = SettingsConfigDict(
+        env_file=None, env_prefix="EMAIL_", case_sensitive=False, extra="ignore"
+    )
+
+    smtp_host: str = Field(default="smtp.gmail.com", description="SMTP server host")
+    smtp_port: int = Field(default=587, description="SMTP server port")
+    smtp_user: str | None = Field(default=None, description="SMTP username")
+    smtp_password: str | None = Field(default=None, description="SMTP password")
+    from_email: str = Field(
+        default="noreply@edcraft.com", description="From email address"
+    )
+    from_name: str = Field(default="EdCraft", description="From name")
+    enabled: bool = Field(
+        default=True, description="Enable email sending (set to False for dev mode)"
+    )
+    verification_token_expire_hours: int = Field(
+        default=24, description="Email verification token expiration in hours"
+    )
+
+
 class Settings(BaseSettings):
     """
     Application settings with environment-based configuration.
@@ -148,6 +171,7 @@ class Settings(BaseSettings):
     jwt: JwtSettings = Field(default_factory=JwtSettings)
     oauth_google: OAuthGoogleSettings = Field(default_factory=OAuthGoogleSettings)
     oauth_github: OAuthGithubSettings = Field(default_factory=OAuthGithubSettings)
+    email: EmailSettings = Field(default_factory=EmailSettings)
 
     # Standalone settings
     log_level: str = Field(default="info", description="Logging level")

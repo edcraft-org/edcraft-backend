@@ -1,6 +1,6 @@
 """RefreshToken model."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
@@ -34,6 +34,16 @@ class RefreshToken(Base):
 
     # Relationships
     user: Mapped["User"] = relationship()
+
+    @property
+    def is_expired(self) -> bool:
+        """Check if token has expired."""
+        return datetime.now(UTC) > self.expires_at
+
+    @property
+    def is_valid(self) -> bool:
+        """Check if token is valid (not revoked and not expired)."""
+        return not self.is_revoked and not self.is_expired
 
     def __repr__(self) -> str:
         return f"<RefreshToken(user_id={self.user_id}, is_revoked={self.is_revoked})>"

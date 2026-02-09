@@ -20,6 +20,9 @@ from edcraft_backend.repositories.assessment_template_repository import (
 )
 from edcraft_backend.repositories.folder_repository import FolderRepository
 from edcraft_backend.repositories.oauth_account_repository import OAuthAccountRepository
+from edcraft_backend.repositories.one_time_token_repository import (
+    OneTimeTokenRepository,
+)
 from edcraft_backend.repositories.question_repository import QuestionRepository
 from edcraft_backend.repositories.question_template_repository import (
     QuestionTemplateRepository,
@@ -32,6 +35,7 @@ from edcraft_backend.services.assessment_template_service import (
     AssessmentTemplateService,
 )
 from edcraft_backend.services.auth_service import AuthService
+from edcraft_backend.services.email_service import EmailService
 from edcraft_backend.services.folder_service import FolderService
 from edcraft_backend.services.oauth_service import OAuthService
 from edcraft_backend.services.question_generation_service import (
@@ -107,7 +111,19 @@ def get_oauth_account_repository(
     return OAuthAccountRepository(db)
 
 
+def get_one_time_token_repository(
+    db: AsyncSession = Depends(get_db),
+) -> OneTimeTokenRepository:
+    """Get OneTimeTokenRepository instance."""
+    return OneTimeTokenRepository(db)
+
+
 # Service dependencies
+def get_email_service() -> EmailService:
+    """Get EmailService instance."""
+    return EmailService()
+
+
 def get_question_service(
     question_repo: QuestionRepository = Depends(get_question_repository),
     assessment_question_repo: AssessmentQuestionRepository = Depends(
@@ -216,10 +232,16 @@ def get_question_generation_service(
 def get_auth_service(
     user_repo: UserRepository = Depends(get_user_repository),
     refresh_token_repo: RefreshTokenRepository = Depends(get_refresh_token_repository),
+    one_time_token_repo: OneTimeTokenRepository = Depends(
+        get_one_time_token_repository
+    ),
     folder_svc: FolderService = Depends(get_folder_service),
+    email_svc: EmailService = Depends(get_email_service),
 ) -> AuthService:
     """Get AuthService instance."""
-    return AuthService(user_repo, refresh_token_repo, folder_svc)
+    return AuthService(
+        user_repo, refresh_token_repo, one_time_token_repo, folder_svc, email_svc
+    )
 
 
 def get_oauth_service(
@@ -300,3 +322,8 @@ AssessmentTemplateRepositoryDep = Annotated[
     AssessmentTemplateRepository,
     Depends(get_assessment_template_repository),
 ]
+OneTimeTokenRepositoryDep = Annotated[
+    OneTimeTokenRepository,
+    Depends(get_one_time_token_repository),
+]
+EmailServiceDep = Annotated[EmailService, Depends(get_email_service)]

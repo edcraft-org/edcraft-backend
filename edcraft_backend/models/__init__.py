@@ -9,6 +9,7 @@ from edcraft_backend.models.assessment_template_question_template import (
 from edcraft_backend.models.base import AssociationBase, Base, EntityBase
 from edcraft_backend.models.folder import Folder
 from edcraft_backend.models.oauth_account import OAuthAccount
+from edcraft_backend.models.one_time_token import OneTimeToken, TokenType
 from edcraft_backend.models.question import Question
 from edcraft_backend.models.question_template import QuestionTemplate
 from edcraft_backend.models.refresh_token import RefreshToken
@@ -25,6 +26,8 @@ __all__ = [
     "QuestionTemplate",
     "OAuthAccount",
     "RefreshToken",
+    "OneTimeToken",
+    "TokenType",
     "Base",
     "AssociationBase",
     "EntityBase",

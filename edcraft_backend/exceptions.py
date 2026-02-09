@@ -113,3 +113,10 @@ class AccountInactiveError(EdCraftBaseException):
 
     def __init__(self) -> None:
         super().__init__("Account is inactive", status.HTTP_403_FORBIDDEN)
+
+
+class EmailSendError(EdCraftBaseException):
+    """Failed to send email."""
+
+    def __init__(self, message: str = "Failed to send email") -> None:
+        super().__init__(message, status.HTTP_500_INTERNAL_SERVER_ERROR)
