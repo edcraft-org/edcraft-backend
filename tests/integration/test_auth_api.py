@@ -1,6 +1,7 @@
 """Integration tests for Auth API endpoints."""
 
 from unittest.mock import AsyncMock, patch
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from httpx import AsyncClient
@@ -362,31 +363,52 @@ class TestOAuthCallback:
     async def test_oauth_callback_unsupported_provider(
         self, test_client: AsyncClient
     ) -> None:
-        """Test OAuth callback with unsupported provider returns 400."""
-        response = await test_client.get("/auth/oauth/unsupported/callback")
+        """Test OAuth callback with unsupported provider redirects with error."""
+        response = await test_client.get(
+            "/auth/oauth/unsupported/callback", follow_redirects=False
+        )
 
-        assert response.status_code == 400
-        assert "unsupported" in response.json()["detail"].lower()
+        assert response.status_code in [302, 303, 307]
+
+        # Parse redirect URL
+        location = response.headers["location"]
+        parsed = urlparse(location)
+        params = parse_qs(parsed.query)
+
+        assert "/auth/callback" in location
+        assert params["success"][0] == "false"
+        assert "Unsupported" in params["error"][0]
 
     @pytest.mark.asyncio
     async def test_oauth_callback_unconfigured_provider(
         self, test_client: AsyncClient
     ) -> None:
-        """Test OAuth callback with unconfigured provider returns 503."""
+        """Test OAuth callback with unconfigured provider redirects with error."""
         mock_oauth = MockOAuthRegistry()
 
         with patch("edcraft_backend.routers.auth.oauth", mock_oauth):
             response = await test_client.get(
-                "/auth/oauth/github/callback", params={"code": "test_code"}
+                "/auth/oauth/github/callback",
+                params={"code": "test_code"},
+                follow_redirects=False,
             )
 
-            assert response.status_code == 503
+            assert response.status_code in [302, 303, 307]
+
+            # Parse redirect URL
+            location = response.headers["location"]
+            parsed = urlparse(location)
+            params = parse_qs(parsed.query)
+
+            assert "/auth/callback" in location
+            assert params["success"][0] == "false"
+            assert "not configured" in params["error"][0]
 
     @pytest.mark.asyncio
     async def test_oauth_callback_success_creates_new_user(
         self, test_client: AsyncClient, db_session: AsyncSession
     ) -> None:
-        """Test OAuth callback creates new user and returns tokens."""
+        """Test OAuth callback creates new user and redirects with success."""
         # Mock OAuth registry and client
         mock_oauth = MockOAuthRegistry()
         mock_oauth.register("github")
@@ -404,14 +426,21 @@ class TestOAuthCallback:
                 {"github": AsyncMock(return_value=mock_user_info)},
             ):
                 response = await test_client.get(
-                    "/auth/oauth/github/callback", params={"code": "test_code"}
+                    "/auth/oauth/github/callback",
+                    params={"code": "test_code"},
+                    follow_redirects=False,
                 )
 
-                assert response.status_code == 200
-                data = response.json()
-                assert "access_token" in data
-                assert "refresh_token" in data
-                assert data["token_type"] == "bearer"  # noqa S105
+                # Verify redirect with success
+                assert response.status_code in [302, 303, 307]
+
+                # Parse redirect URL
+                location = response.headers["location"]
+                parsed = urlparse(location)
+                params = parse_qs(parsed.query)
+
+                assert "/auth/callback" in location
+                assert params["success"][0] == "true"
 
                 # Verify cookies are set
                 assert "access_token" in response.cookies
@@ -461,10 +490,21 @@ class TestOAuthCallback:
                 {"github": AsyncMock(return_value=mock_user_info)},
             ):
                 response = await test_client.get(
-                    "/auth/oauth/github/callback", params={"code": "test_code"}
+                    "/auth/oauth/github/callback",
+                    params={"code": "test_code"},
+                    follow_redirects=False,
                 )
 
-                assert response.status_code == 200
+                # Verify redirect with success
+                assert response.status_code in [302, 303, 307]
+
+                # Parse redirect URL
+                location = response.headers["location"]
+                parsed = urlparse(location)
+                params = parse_qs(parsed.query)
+
+                assert "/auth/callback" in location
+                assert params["success"][0] == "true"
 
                 # Verify OAuth account is linked to existing user
                 await db_session.refresh(existing_user)
@@ -508,13 +548,25 @@ class TestOAuthCallback:
                 {"github": AsyncMock(return_value=mock_user_info)},
             ):
                 response = await test_client.get(
-                    "/auth/oauth/github/callback", params={"code": "test_code"}
+                    "/auth/oauth/github/callback",
+                    params={"code": "test_code"},
+                    follow_redirects=False,
                 )
 
-                assert response.status_code == 200
-                data = response.json()
-                assert "access_token" in data
-                assert "refresh_token" in data
+                # Verify redirect with success
+                assert response.status_code in [302, 303, 307]
+
+                # Parse redirect URL
+                location = response.headers["location"]
+                parsed = urlparse(location)
+                params = parse_qs(parsed.query)
+
+                assert "/auth/callback" in location
+                assert params["success"][0] == "true"
+
+                # Verify cookies are set
+                assert "access_token" in response.cookies
+                assert "refresh_token" in response.cookies
 
                 # Verify it's the same user (not a new one created)
                 from sqlalchemy import select

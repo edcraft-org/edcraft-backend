@@ -84,7 +84,7 @@ class ServerSettings(BaseSettings):
     )
 
     host: str = Field(default="127.0.0.1", description="Server host")
-    port: int = Field(default=5000, description="Server port")
+    port: int = Field(default=8000, description="Server port")
 
 
 class JwtSettings(BaseSettings):
@@ -113,7 +113,7 @@ class OAuthGoogleSettings(BaseSettings):
     client_id: str | None = Field(default=None)
     client_secret: str | None = Field(default=None)
     redirect_uri: str = Field(
-        default="http://localhost:5000/auth/oauth/google/callback"
+        default="http://localhost:8000/auth/oauth/google/callback"
     )
 
 
@@ -127,7 +127,7 @@ class OAuthGithubSettings(BaseSettings):
     client_id: str | None = Field(default=None)
     client_secret: str | None = Field(default=None)
     redirect_uri: str = Field(
-        default="http://localhost:5000/auth/oauth/github/callback"
+        default="http://localhost:8000/auth/oauth/github/callback"
     )
 
 
@@ -154,6 +154,9 @@ class Settings(BaseSettings):
     password_min_length: int = Field(default=12)
     frontend_url: str = Field(
         default="http://localhost:5173", description="Frontend URL for OAuth redirects"
+    )
+    session_secret: str = Field(
+        default="change-me-session", description="Secret key for signing session cookies"
     )
 
     model_config = SettingsConfigDict(

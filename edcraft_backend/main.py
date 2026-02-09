@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.sessions import SessionMiddleware
 
 from edcraft_backend.config import settings
 from edcraft_backend.database import close_db
@@ -45,6 +46,12 @@ async def edcraft_exception_handler(
         content={"detail": exc.message, "error_type": exc.__class__.__name__},
     )
 
+
+# SessionMiddleware required for OAuth (Authlib stores state in session)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.session_secret,
+)
 
 app.add_middleware(
     CORSMiddleware,

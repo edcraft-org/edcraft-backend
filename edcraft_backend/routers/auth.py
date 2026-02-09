@@ -1,5 +1,7 @@
 """Authentication endpoints."""
 
+from urllib.parse import quote
+
 from authlib.integrations.base_client import OAuthError
 from fastapi import APIRouter, Cookie, HTTPException, Request, Response, status
 from starlette.responses import RedirectResponse
@@ -100,7 +102,9 @@ async def get_me(current_user: CurrentUserDep) -> User:
 
 
 @router.get("/oauth/{provider}/authorize")
-async def oauth_authorize(provider: str, request: Request) -> RedirectResponse:
+async def oauth_authorize(
+    provider: str, request: Request, state: str | None = None
+) -> RedirectResponse:
     """Redirect to the OAuth provider's authorization page."""
     if provider not in SUPPORTED_PROVIDERS:
         raise HTTPException(
@@ -116,7 +120,9 @@ async def oauth_authorize(provider: str, request: Request) -> RedirectResponse:
         )
 
     redirect_uri = settings.oauth_github.redirect_uri
-    redirect: RedirectResponse = await client.authorize_redirect(request, redirect_uri)
+    redirect: RedirectResponse = await client.authorize_redirect(
+        request, redirect_uri, state=state
+    )
     return redirect
 
 
@@ -126,19 +132,18 @@ async def oauth_callback(
     request: Request,
     response: Response,
     oauth_svc: OAuthServiceDep,
-) -> TokenPairResponse:
+    state: str | None = None,
+) -> RedirectResponse:
     """Handle provider callback and issue tokens."""
     if provider not in SUPPORTED_PROVIDERS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported OAuth provider: {provider}",
+        return _redirect_to_frontend_error(
+            f"Unsupported OAuth provider: {provider}", state
         )
 
     client = oauth.create_client(provider)
     if not client:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"OAuth provider {provider} is not configured",
+        return _redirect_to_frontend_error(
+            f"OAuth provider {provider} is not configured", state
         )
 
     try:
@@ -157,17 +162,15 @@ async def oauth_callback(
             user_agent=_get_user_agent(request),
         )
 
-        _set_token_cookies(response, tokens)
+        redirect_response = _redirect_to_frontend_success(state)
+        _set_token_cookies(redirect_response, tokens)
 
-        return tokens
+        return redirect_response
 
     except OAuthError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"OAuth provider error: {str(e)}",
-        ) from e
+        return _redirect_to_frontend_error(f"OAuth provider error: {str(e)}", state)
     except EdCraftBaseException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+        return _redirect_to_frontend_error(e.message, state)
 
 
 def _get_client_ip(request: Request) -> str | None:
@@ -204,3 +207,19 @@ def _set_token_cookies(response: Response, tokens: TokenPairResponse) -> None:
         samesite="lax",
         max_age=settings.jwt.refresh_token_expire_days * 24 * 60 * 60,
     )
+
+
+def _redirect_to_frontend_success(state: str | None) -> RedirectResponse:
+    """Redirect to frontend with success status."""
+    params = "success=true"
+    if state:
+        params += f"&state={quote(state)}"
+    return RedirectResponse(url=f"{settings.frontend_url}/auth/callback?{params}")
+
+
+def _redirect_to_frontend_error(error: str, state: str | None) -> RedirectResponse:
+    """Redirect to frontend with error status."""
+    params = f"success=false&error={quote(error)}"
+    if state:
+        params += f"&state={quote(state)}"
+    return RedirectResponse(url=f"{settings.frontend_url}/auth/callback?{params}")

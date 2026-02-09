@@ -15,20 +15,24 @@ class MockOAuthClient:
         self.provider = provider
         self.name = provider
 
-    async def authorize_redirect(self, request: Any, redirect_uri: str) -> Any:
+    async def authorize_redirect(
+        self, request: Any, redirect_uri: str, **kwargs: Any
+    ) -> Any:
         """Mock OAuth authorization redirect.
 
         Args:
             request: FastAPI request object
             redirect_uri: Callback URI
+            **kwargs: Additional OAuth parameters (e.g., state)
 
         Returns:
             Mock redirect response
         """
         from starlette.responses import RedirectResponse
 
-        # Simulate redirect to OAuth provider with a mock state
-        mock_auth_url = f"https://{self.provider}.com/authorize?redirect_uri={redirect_uri}&state=mock_state"
+        # Use provided state or generate a mock one
+        state = kwargs.get("state", "mock_state")
+        mock_auth_url = f"https://{self.provider}.com/authorize?redirect_uri={redirect_uri}&state={state}"
         return RedirectResponse(url=mock_auth_url, status_code=302)
 
     async def authorize_access_token(self, request: Any) -> dict[str, Any]:

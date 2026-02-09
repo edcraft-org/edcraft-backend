@@ -587,7 +587,7 @@ async def get_items(current_user: CurrentUserDep):
 ### Setting Up OAuth (GitHub)
 
 1. Create a GitHub OAuth App at https://github.com/settings/developers
-2. Set the callback URL to `http://localhost:5000/auth/oauth/github/callback` (development)
+2. Set the callback URL to `http://localhost:8000/auth/oauth/github/callback` (development)
 3. Add the client ID and secret to your `.env.development`:
    ```
    OAUTH_GITHUB_CLIENT_ID=<your-client-id>
@@ -646,6 +646,10 @@ The docker-compose.yml uses `env_file` directives to load environment-specific c
 - `JWT_ISSUER` - JWT issuer claim (default: `edcraft`)
 - `JWT_AUDIENCE` - JWT audience claim (default: `edcraft`)
 
+#### Session Settings
+- `SESSION_SECRET` - Secret key for signing session cookies (generate with `openssl rand -hex 32`)
+  - Required for OAuth flows (Authlib stores state in sessions)
+
 #### OAuth Settings
 - `OAUTH_GITHUB_CLIENT_ID` - GitHub OAuth app client ID
 - `OAUTH_GITHUB_CLIENT_SECRET` - GitHub OAuth app client secret
@@ -661,7 +665,7 @@ The docker-compose.yml uses `env_file` directives to load environment-specific c
 
 #### Server Settings
 - `SERVER_HOST` - Server host (default: `127.0.0.1`, use `0.0.0.0` for production)
-- `SERVER_PORT` - Server port (default: `5000`)
+- `SERVER_PORT` - Server port (default: `8000`)
 - `LOG_LEVEL` - Logging level (`debug`, `info`, `warning`, `error`, `critical`)
 
 
