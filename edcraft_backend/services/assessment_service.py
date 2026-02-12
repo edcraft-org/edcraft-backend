@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from edcraft_backend.exceptions import (
+    DataIntegrityError,
     DuplicateResourceError,
     ResourceNotFoundError,
     UnauthorizedAccessError,
@@ -13,7 +14,10 @@ from edcraft_backend.repositories.assessment_question_repository import (
 )
 from edcraft_backend.repositories.assessment_repository import AssessmentRepository
 from edcraft_backend.schemas.assessment import (
+    AssessmentMCQResponse,
+    AssessmentMRQResponse,
     AssessmentQuestionResponse,
+    AssessmentShortAnswerResponse,
     AssessmentWithQuestionsResponse,
     CreateAssessmentRequest,
     QuestionOrder,
@@ -180,6 +184,49 @@ class AssessmentService:
         await self.question_svc.cleanup_orphaned_questions(assessment.owner_id)
         return deleted_assessment
 
+    def _build_assessment_question_response(
+        self, assoc: AssessmentQuestion
+    ) -> AssessmentQuestionResponse:
+        """Build the appropriate response type for an assessment question.
+
+        Args:
+            assoc: AssessmentQuestion association
+
+        Returns:
+            AssessmentQuestionResponse subtype based on question_type
+
+        Raises:
+            DataIntegrityError: If question type is unknown
+        """
+        q = assoc.question
+
+        base_data = {
+            "id": q.id,
+            "owner_id": q.owner_id,
+            "template_id": q.template_id,
+            "question_type": q.question_type,
+            "question_text": q.question_text,
+            "created_at": q.created_at,
+            "updated_at": q.updated_at,
+            "order": assoc.order,
+            "added_at": assoc.added_at,
+        }
+
+        if q.question_type == "mcq":
+            return AssessmentMCQResponse.model_validate(
+                {**base_data, "mcq_data": q.data}
+            )
+        elif q.question_type == "mrq":
+            return AssessmentMRQResponse.model_validate(
+                {**base_data, "mrq_data": q.data}
+            )
+        elif q.question_type == "short_answer":
+            return AssessmentShortAnswerResponse.model_validate(
+                {**base_data, "short_answer_data": q.data}
+            )
+        else:
+            raise DataIntegrityError(f"Unknown question type: {q.question_type}")
+
     async def get_assessment_with_questions(
         self, user_id: UUID, assessment_id: UUID
     ) -> AssessmentWithQuestionsResponse:
@@ -206,20 +253,8 @@ class AssessmentService:
         questions: list[AssessmentQuestionResponse] = []
         for assoc in assessment.question_associations:
             if assoc.question and assoc.question.deleted_at is None:
-                questions.append(
-                    AssessmentQuestionResponse(
-                        id=assoc.question.id,
-                        owner_id=assoc.question.owner_id,
-                        template_id=assoc.question.template_id,
-                        question_type=assoc.question.question_type,
-                        question_text=assoc.question.question_text,
-                        additional_data=assoc.question.additional_data,
-                        created_at=assoc.question.created_at,
-                        updated_at=assoc.question.updated_at,
-                        order=assoc.order,
-                        added_at=assoc.added_at,
-                    )
-                )
+                question_response = self._build_assessment_question_response(assoc)
+                questions.append(question_response)
 
         return AssessmentWithQuestionsResponse(
             id=assessment.id,

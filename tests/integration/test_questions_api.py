@@ -169,14 +169,16 @@ class TestUpdateQuestion:
         question = await create_test_question(
             db_session,
             user,
-            additional_data={"options": ["A", "B"], "correct_indices": [0]},
+            question_type="mrq",
+            options=["A", "B"],
+            correct_indices=[0],
         )
         await db_session.commit()
 
         update_data = {
-            "additional_data": {
+            "data": {
                 "options": ["X", "Y", "Z"],
-                "correct_indices": ["1", "2"],
+                "correct_indices": [1, 2],
             }
         }
         response = await test_client.patch(
@@ -185,32 +187,71 @@ class TestUpdateQuestion:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["additional_data"]["options"] == ["X", "Y", "Z"]
-        assert data["additional_data"]["correct_indices"] == ["1", "2"]
+        assert data["mrq_data"]["options"] == ["X", "Y", "Z"]
+        assert data["mrq_data"]["correct_indices"] == [1, 2]
 
     @pytest.mark.asyncio
-    async def test_update_question_correct_indices(
+    async def test_update_question_correct_index(
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
-        """Test updating correct_indices successfully."""
+        """Test updating correct_index successfully."""
         question = await create_test_question(
             db_session,
             user,
-            additional_data={
-                "options": ["A", "B", "C", "D"],
-                "correct_indices": [0],
-            },
+            question_type="mcq",
+            options=["A", "B", "C", "D"],
+            correct_index=0,
         )
         await db_session.commit()
 
-        update_data = {"additional_data": {"correct_indices": [2]}}
+        update_data = {
+            "data": {
+                "options": ["A", "B", "C", "D"],
+                "correct_index": 2
+            }
+        }
         response = await test_client.patch(
             f"/questions/{question.id}", json=update_data
         )
 
         assert response.status_code == 200
         data = response.json()
-        assert data["additional_data"]["correct_indices"] == [2]
+        assert data["mcq_data"]["correct_index"] == 2
+
+    @pytest.mark.asyncio
+    async def test_update_question_type(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test changing question type from MCQ to MRQ."""
+        question = await create_test_question(
+            db_session,
+            user,
+            question_type="mcq",
+            question_text="Original MCQ question?",
+            options=["A", "B", "C"],
+            correct_index=0,
+        )
+        await db_session.commit()
+
+        update_data = {
+            "question_type": "mrq",
+            "question_text": "Updated MRQ question?",
+            "data": {
+                "options": ["X", "Y", "Z"],
+                "correct_indices": [0, 2],
+            },
+        }
+        response = await test_client.patch(
+            f"/questions/{question.id}", json=update_data
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["question_type"] == "mrq"
+        assert data["question_text"] == "Updated MRQ question?"
+        assert data["mrq_data"]["options"] == ["X", "Y", "Z"]
+        assert data["mrq_data"]["correct_indices"] == [0, 2]
+        assert "mcq_data" not in data
 
     @pytest.mark.asyncio
     async def test_update_question_not_found(

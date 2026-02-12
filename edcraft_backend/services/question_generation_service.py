@@ -11,7 +11,15 @@ from edcraft_engine.question_generator.question_generator import QuestionGenerat
 
 from edcraft_backend.exceptions import QuestionGenerationError, ValidationError
 from edcraft_backend.schemas.assessment import CreateAssessmentRequest
-from edcraft_backend.schemas.question import CreateQuestionRequest
+from edcraft_backend.schemas.question import (
+    CreateMCQRequest,
+    CreateMRQRequest,
+    CreateQuestionRequest,
+    CreateShortAnswerRequest,
+    MCQData,
+    MRQData,
+    ShortAnswerData,
+)
 from edcraft_backend.schemas.question_generation import AssessmentMetadata
 from edcraft_backend.services.assessment_template_service import (
     AssessmentTemplateService,
@@ -207,16 +215,40 @@ class QuestionGenerationService:
                 )
 
                 # Convert generated question to DB question
-                additional_data = question.model_dump()
-                del additional_data["text"]
-                del additional_data["question_type"]
+                question_data = question.model_dump()
+                question_text = question_data.pop("text")
+                question_type = question_data.pop("question_type")
 
-                question_create = CreateQuestionRequest(
-                    template_id=question_template.id,
-                    question_type=question_template.question_type,
-                    question_text=question.text,
-                    additional_data=additional_data,
-                )
+                # Create the appropriate request type based on question_type
+                question_create: CreateQuestionRequest
+                if question_type == "mcq":
+                    question_create = CreateMCQRequest(
+                        template_id=question_template.id,
+                        question_text=question_text,
+                        data=MCQData(
+                            options=question_data["options"],
+                            correct_index=question_data["correct_indices"][0],
+                        ),
+                    )
+                elif question_type == "mrq":
+                    question_create = CreateMRQRequest(
+                        template_id=question_template.id,
+                        question_text=question_text,
+                        data=MRQData(
+                            options=question_data["options"],
+                            correct_indices=question_data["correct_indices"],
+                        ),
+                    )
+                elif question_type == "short_answer":
+                    question_create = CreateShortAnswerRequest(
+                        template_id=question_template.id,
+                        question_text=question_text,
+                        data=ShortAnswerData(
+                            correct_answer=question_data["answer"],
+                        ),
+                    )
+                else:
+                    raise ValidationError(f"Unknown question type: {question_type}")
 
                 # Add question to assessment at specific order
                 await self.assessment_svc.add_question_to_assessment(

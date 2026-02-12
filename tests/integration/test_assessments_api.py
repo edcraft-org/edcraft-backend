@@ -644,9 +644,9 @@ class TestInsertQuestionIntoAssessment:
             "question": {
                 "question_type": "mcq",
                 "question_text": "What is 2+2?",
-                "additional_data": {
+                "data": {
                     "options": ["3", "4", "5", "6"],
-                    "correct_indices": [1],
+                    "correct_index": 1,
                 },
             },
             "order": 0,
@@ -674,7 +674,7 @@ class TestInsertQuestionIntoAssessment:
             "question": {
                 "question_type": "short_answer",
                 "question_text": "What is 2+2?",
-                "additional_data": {
+                "data": {
                     "correct_answer": "4",
                 },
             }
@@ -701,7 +701,7 @@ class TestInsertQuestionIntoAssessment:
             "question": {
                 "question_type": "short_answer",
                 "question_text": "The sky is blue. True or False?",
-                "additional_data": {"correct_answer": "True"},
+                "data": {"correct_answer": "True"},
             }
         }
         await test_client.post(
@@ -713,7 +713,7 @@ class TestInsertQuestionIntoAssessment:
             "question": {
                 "question_type": "short_answer",
                 "question_text": "Water freezes at 100°C. True or False?",
-                "additional_data": {"correct_answer": "False"},
+                "data": {"correct_answer": "False"},
             }
         }
         response = await test_client.post(
@@ -738,7 +738,9 @@ class TestInsertQuestionIntoAssessment:
             "question": {
                 "question_type": "short_answer",
                 "question_text": "Test question",
-                "additional_data": {},
+                "data": {
+                    "correct_answer": "answer",
+                },
             },
             "order": 0,
         }
@@ -761,7 +763,7 @@ class TestInsertQuestionIntoAssessment:
             "question": {
                 "question_type": "short_answer",
                 "question_text": "What is 1+1?",
-                "additional_data": {
+                "data": {
                     "correct_answer": "2",
                 },
             },
@@ -787,7 +789,9 @@ class TestInsertQuestionIntoAssessment:
             "question": {
                 "question_type": "short_answer",
                 "question_text": "Question 1",
-                "additional_data": {},
+                "data": {
+                    "correct_answer": "Answer 1",
+                },
             },
             "order": 0,
         }
@@ -799,7 +803,9 @@ class TestInsertQuestionIntoAssessment:
             "question": {
                 "question_type": "short_answer",
                 "question_text": "Question 2",
-                "additional_data": {},
+                "data": {
+                    "correct_answer": "Answer 2",
+                },
             },
             "order": 0,
         }

@@ -78,6 +78,13 @@ class CircularReferenceError(EdCraftBaseException):
         super().__init__(message, status.HTTP_400_BAD_REQUEST)
 
 
+class DataIntegrityError(EdCraftBaseException):
+    """Raised when data integrity constraints are violated."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class ForbiddenOperationError(EdCraftBaseException):
     """Raised when an operation is not allowed."""
 

@@ -5,7 +5,12 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from edcraft_backend.schemas.question import CreateQuestionRequest, QuestionResponse
+from edcraft_backend.schemas.question import (
+    CreateQuestionRequest,
+    MCQResponse,
+    MRQResponse,
+    ShortAnswerResponse,
+)
 
 
 class CreateAssessmentRequest(BaseModel):
@@ -38,11 +43,30 @@ class AssessmentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class AssessmentQuestionResponse(QuestionResponse):
-    """Schema for a question within an assessment, including order."""
+class AssessmentMCQResponse(MCQResponse):
+    """Response schema for MCQ question in assessment context."""
 
     order: int
     added_at: datetime
+
+
+class AssessmentMRQResponse(MRQResponse):
+    """Response schema for MRQ question in assessment context."""
+
+    order: int
+    added_at: datetime
+
+
+class AssessmentShortAnswerResponse(ShortAnswerResponse):
+    """Response schema for short answer question in assessment context."""
+
+    order: int
+    added_at: datetime
+
+
+AssessmentQuestionResponse = (
+    AssessmentMCQResponse | AssessmentMRQResponse | AssessmentShortAnswerResponse
+)
 
 
 class AssessmentWithQuestionsResponse(BaseModel):

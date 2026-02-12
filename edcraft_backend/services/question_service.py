@@ -3,13 +3,26 @@ from uuid import UUID
 from edcraft_backend.exceptions import ResourceNotFoundError, UnauthorizedAccessError
 from edcraft_backend.models.assessment import Assessment
 from edcraft_backend.models.question import Question
+from edcraft_backend.models.question_data import MCQData, MRQData, ShortAnswerData
 from edcraft_backend.repositories.assessment_question_repository import (
     AssessmentQuestionRepository,
 )
 from edcraft_backend.repositories.question_repository import QuestionRepository
 from edcraft_backend.schemas.question import (
+    CreateMCQRequest,
+    CreateMRQRequest,
     CreateQuestionRequest,
+    CreateShortAnswerRequest,
     UpdateQuestionRequest,
+)
+from edcraft_backend.schemas.question import (
+    MCQData as MCQDataSchema,
+)
+from edcraft_backend.schemas.question import (
+    MRQData as MRQDataSchema,
+)
+from edcraft_backend.schemas.question import (
+    ShortAnswerData as ShortAnswerDataSchema,
 )
 
 
@@ -55,9 +68,31 @@ class QuestionService:
             question_data: Question creation data
 
         Returns:
-            Created question
+            Created question with related data
+
         """
-        question = Question(owner_id=user_id, **question_data.model_dump())
+        question = Question(
+            owner_id=user_id,
+            template_id=question_data.template_id,
+            question_type=question_data.question_type,
+            question_text=question_data.question_text,
+        )
+
+        if isinstance(question_data, CreateMCQRequest):
+            question.mcq_data = MCQData(
+                options=question_data.data.options,
+                correct_index=question_data.data.correct_index,
+            )
+        elif isinstance(question_data, CreateMRQRequest):
+            question.mrq_data = MRQData(
+                options=question_data.data.options,
+                correct_indices=question_data.data.correct_indices,
+            )
+        elif isinstance(question_data, CreateShortAnswerRequest):
+            question.short_answer_data = ShortAnswerData(
+                correct_answer=question_data.data.correct_answer,
+            )
+
         return await self.question_repo.create(question)
 
     async def list_questions(
@@ -118,10 +153,51 @@ class QuestionService:
             UnauthorizedAccessError: If user doesn't own the question
         """
         question = await self.get_owned_question(user_id, question_id)
-        update_data = question_data.model_dump(exclude_unset=True)
 
-        for key, value in update_data.items():
-            setattr(question, key, value)
+        if question_data.question_text is not None:
+            question.question_text = question_data.question_text
+
+        # If changing type, clear old data and update question_type
+        if (
+            question_data.question_type is not None
+            and question_data.question_type != question.question_type
+        ):
+            question.question_type = question_data.question_type
+            question.mcq_data = None
+            question.mrq_data = None
+            question.short_answer_data = None
+
+        # Update or create data
+        if question_data.data is not None:
+            if isinstance(question_data.data, MCQDataSchema):
+                if question.mcq_data:
+                    question.mcq_data.options = question_data.data.options
+                    question.mcq_data.correct_index = question_data.data.correct_index
+                else:
+                    question.mcq_data = MCQData(
+                        options=question_data.data.options,
+                        correct_index=question_data.data.correct_index,
+                    )
+            elif isinstance(question_data.data, MRQDataSchema):
+                if question.mrq_data:
+                    question.mrq_data.options = question_data.data.options
+                    question.mrq_data.correct_indices = (
+                        question_data.data.correct_indices
+                    )
+                else:
+                    question.mrq_data = MRQData(
+                        options=question_data.data.options,
+                        correct_indices=question_data.data.correct_indices,
+                    )
+            elif isinstance(question_data.data, ShortAnswerDataSchema):
+                if question.short_answer_data:
+                    question.short_answer_data.correct_answer = (
+                        question_data.data.correct_answer
+                    )
+                else:
+                    question.short_answer_data = ShortAnswerData(
+                        correct_answer=question_data.data.correct_answer,
+                    )
 
         return await self.question_repo.update(question)
 

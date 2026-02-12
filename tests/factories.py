@@ -15,6 +15,7 @@ from edcraft_backend.models.assessment_template_question_template import (
 )
 from edcraft_backend.models.folder import Folder
 from edcraft_backend.models.question import Question
+from edcraft_backend.models.question_data import MCQData, MRQData, ShortAnswerData
 from edcraft_backend.models.question_template import QuestionTemplate
 from edcraft_backend.models.user import User
 
@@ -154,25 +155,48 @@ async def create_test_question(
         db: Database session
         owner: User who owns the question
         template: Question template (optional)
-        **overrides: Field overrides (question_text, question_type, additional_data, etc.)
+        **overrides: Field overrides (question_text, question_type, etc.)
 
     Returns:
         Created Question instance
     """
     unique_id = str(uuid4())[:8]
-    defaults = {
-        "owner_id": owner.id,
-        "template_id": template.id if template else None,
-        "question_type": "mcq",
-        "question_text": f"Test question {unique_id}?",
-        "additional_data": {
-            "options": ["Option A", "Option B", "Option C", "Option D"],
-            "correct_indices": [0],
-        },
-    }
-    defaults.update(overrides)
 
-    question = Question(**defaults)
+    # Base question fields
+    question_type = overrides.pop("question_type", "mcq")
+    question_text = overrides.pop("question_text", f"Test question {unique_id}?")
+
+    # Extract type-specific data from overrides
+    options = overrides.pop("options", ["Option A", "Option B", "Option C", "Option D"])
+    correct_index = overrides.pop("correct_index", 0)
+    correct_indices = overrides.pop("correct_indices", [0])
+    correct_answer = overrides.pop("correct_answer", "Test answer")
+
+    # Create base question
+    question = Question(
+        owner_id=owner.id,
+        template_id=template.id if template else None,
+        question_type=question_type,
+        question_text=question_text,
+        **overrides
+    )
+
+    # Create type-specific data
+    if question_type == "mcq":
+        question.mcq_data = MCQData(
+            options=options,
+            correct_index=correct_index,
+        )
+    elif question_type == "mrq":
+        question.mrq_data = MRQData(
+            options=options,
+            correct_indices=correct_indices,
+        )
+    elif question_type == "short_answer":
+        question.short_answer_data = ShortAnswerData(
+            correct_answer=correct_answer,
+        )
+
     db.add(question)
     await db.flush()
     return question
