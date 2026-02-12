@@ -429,7 +429,7 @@ requires-dist = [
     { name = "argon2-cffi", specifier = ">=23.1.0" },
     { name = "asyncpg", specifier = ">=0.31.0" },
     { name = "authlib", specifier = ">=1.3.0" },
-    { name = "edcraft-engine", editable = "../edcraft-engine" },
+    { name = "edcraft-engine", git = "https://github.com/edcraft-org/edcraft-engine.git" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.125.0" },
     { name = "itsdangerous", specifier = ">=2.2.0" },
     { name = "jinja2", specifier = ">=3.1.6" },
@@ -454,26 +454,11 @@ dev = [
 [[package]]
 name = "edcraft-engine"
 version = "0.1.0"
-source = { editable = "../edcraft-engine" }
+source = { git = "https://github.com/edcraft-org/edcraft-engine.git#f2ca59e542017c9521480ce7e385e10985769a81" }
 dependencies = [
     { name = "pydantic" },
     { name = "query-engine" },
     { name = "step-tracer" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "pydantic", specifier = ">=2.12.3" },
-    { name = "query-engine", git = "https://github.com/edcraft-org/query-engine.git" },
-    { name = "step-tracer", git = "https://github.com/edcraft-org/step-tracer.git" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "mypy", specifier = ">=1.17.1" },
-    { name = "pre-commit", specifier = ">=4.3.0" },
-    { name = "pytest", specifier = ">=8.4.1" },
-    { name = "ruff", specifier = ">=0.12.8" },
 ]
 
 [[package]]

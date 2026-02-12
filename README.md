@@ -156,6 +156,22 @@ uv run ruff check --fix .
 uv run ruff format .
 ```
 
+## Docker Deployment
+
+For easy deployment, you can run the entire backend (including database) in Docker containers.
+
+### Quick Start
+
+```bash
+# Build and start all services (database + backend)
+make docker-up
+
+# Stop all services
+make docker-down
+```
+
+The backend will be available at http://localhost:8000 with automatic database migrations on startup.
+
 ## Project Structure
 
 ```

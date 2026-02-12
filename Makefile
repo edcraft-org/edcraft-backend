@@ -1,4 +1,4 @@
-.PHONY: install test lint type-check all-checks clean dev db-dev db-test db-all db-down db-status test-with-db
+.PHONY: install test lint type-check all-checks clean dev db-dev db-test docker-status docker-up docker-down
 
 install:
 	uv sync
@@ -39,25 +39,11 @@ db-test:
 	@echo "Starting test database..."
 	docker compose --profile test up -d postgres-test
 
-db-all:
-	@echo "Starting both development and test databases..."
-	docker compose --profile all up -d
-
-db-down:
-	@echo "Stopping all databases..."
-	docker compose --profile all down
-
-db-status:
-	@echo "Database container status:"
+docker-status:
 	@docker compose --profile all ps
 
-test-with-db:
-	@echo "Starting test database..."
-	docker compose --profile test up -d postgres-test
-	@echo "Waiting for test database to be ready..."
-	@sleep 3
-	@echo "Running tests..."
-	uv run pytest
-	@echo ""
-	@echo "Stopping test database..."
-	docker compose --profile test down
+docker-up:
+	docker compose --profile all up -d
+
+docker-down:
+	docker compose --profile all down

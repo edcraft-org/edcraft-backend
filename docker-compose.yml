@@ -1,4 +1,7 @@
 services:
+  # ============================================================================
+  # Database Services
+  # ============================================================================
   postgres:
     image: postgres:16-alpine
     container_name: edcraft-postgres
@@ -17,6 +20,8 @@ services:
     profiles:
       - default
       - all
+    networks:
+      - edcraft-network
 
   postgres-test:
     image: postgres:16-alpine
@@ -36,9 +41,51 @@ services:
     profiles:
       - test
       - all
+    networks:
+      - edcraft-network
+
+  # ============================================================================
+  # Backend Service
+  # ============================================================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: edcraft-backend
+    container_name: edcraft-backend
+    restart: unless-stopped
+    env_file:
+      - .env.development
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - edcraft-network
+    profiles:
+      - default
+      - all
+    command: >
+      sh -c "
+        echo 'Running database migrations...' &&
+        alembic upgrade head &&
+        echo 'Starting server...' &&
+        uvicorn edcraft_backend.main:app --host 0.0.0.0 --port 8000
+      "
 
 volumes:
   postgres_data:
     driver: local
   postgres_test_data:
     driver: local
+
+networks:
+  edcraft-network:
+    driver: bridge

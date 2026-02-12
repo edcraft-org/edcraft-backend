@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-edcraft-engine = { path = "../edcraft-engine", editable = true }
+edcraft-engine = { git = "https://github.com/edcraft-org/edcraft-engine.git" }
 
 [dependency-groups]
 dev = [
