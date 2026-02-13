@@ -134,24 +134,19 @@ class TestGetQuestionTemplate:
             user,
             question_type="mcq",
             question_text="What does the function return?",
-            template_config={
-                "code": "def calculate(x: int, y: int = 10, *args, z: str = 'test', **kwargs) -> int:\n    return x + y",  # noqa: E501
-                "question_spec": {
-                    "target": [
-                        {
-                            "type": "function",
-                            "id": [0],
-                            "name": "calculate",
-                            "line_number": 1,
-                            "modifier": "return_value",
-                        }
-                    ],
-                    "output_type": "first",
-                    "question_type": "mcq",
-                },
-                "generation_options": {"num_distractors": 3},
-                "entry_function": "calculate",
-            },
+            code="def calculate(x: int, y: int = 10, *args, z: str = 'test', **kwargs) -> int:\n    return x + y",  # noqa: E501
+            entry_function="calculate",
+            num_distractors=3,
+            output_type="first",
+            target_elements=[
+                {
+                    "element_type": "function",
+                    "id_list": [0],
+                    "name": "calculate",
+                    "line_number": 1,
+                    "modifier": "return_value",
+                }
+            ],
         )
         await db_session.commit()
 
@@ -262,50 +257,37 @@ class TestUpdateQuestionTemplate:
     async def test_update_question_template_config(
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
-        """Test updating template configuration successfully."""
+        """Test updating template fields successfully."""
         template = await create_test_question_template(
             db_session,
             user,
-            template_config={
-                "code": "def multiply(x, y):\n    return x * y",
-                "question_spec": {
-                    "target": [
-                        {
-                            "type": "function",
-                            "id": [0],
-                            "name": "multiply",
-                            "line_number": 1,
-                            "modifier": "return_value",
-                        }
-                    ],
-                    "output_type": "first",
-                    "question_type": "mcq",
-                },
-                "generation_options": {"num_distractors": 3},
-                "entry_function": "multiply",
-            },
+            code="def multiply(x, y):\n    return x * y",
+            entry_function="multiply",
+            num_distractors=3,
+            output_type="first",
+            target_elements=[
+                {
+                    "element_type": "function",
+                    "id_list": [0],
+                    "name": "multiply",
+                    "line_number": 1,
+                    "modifier": "return_value",
+                }
+            ],
         )
         await db_session.commit()
 
         update_data: dict[str, Any] = {
-            "template_config": {
-                "code": "def multiply(x, y):\n    return x * y",
-                "question_spec": {
-                    "target": [
-                        {
-                            "type": "function",
-                            "id": [0],
-                            "name": "multiply",
-                            "line_number": 1,
-                            "modifier": "return_value",
-                        }
-                    ],
-                    "output_type": "first",
-                    "question_type": "mcq",
-                },
-                "generation_options": {"num_distractors": 4},
-                "entry_function": "multiply",
-            }
+            "num_distractors": 4,
+            "target_elements": [
+                {
+                    "element_type": "function",
+                    "id_list": [0],
+                    "name": "multiply",
+                    "line_number": 1,
+                    "modifier": "return_value",
+                }
+            ],
         }
         response = await test_client.patch(
             f"/question-templates/{template.id}", json=update_data
@@ -313,7 +295,7 @@ class TestUpdateQuestionTemplate:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["template_config"]["generation_options"]["num_distractors"] == 4
+        assert data["num_distractors"] == 4
 
     @pytest.mark.asyncio
     async def test_update_question_template_not_found(

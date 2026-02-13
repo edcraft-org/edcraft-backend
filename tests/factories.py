@@ -178,7 +178,7 @@ async def create_test_question(
         template_id=template.id if template else None,
         question_type=question_type,
         question_text=question_text,
-        **overrides
+        **overrides,
     )
 
     # Create type-specific data
@@ -244,40 +244,69 @@ async def create_test_question_template(
     Args:
         db: Database session
         owner: User who owns the template
-        **overrides: Field overrides (question_text, question_type, template_config, etc.)
+        **overrides: Field overrides (question_text, question_type, code, etc.)
 
     Returns:
         Created QuestionTemplate instance
     """
+    from edcraft_backend.models.enums import OutputType, QuestionType
+    from edcraft_backend.models.target_element import TargetElement
+
     unique_id = str(uuid4())[:8]
     defaults = {
         "owner_id": owner.id,
         "question_type": "mcq",
         "question_text": f"Template question {unique_id}?",
         "description": f"Test question template {unique_id}",
-        "template_config": {
-            "code": "def example(n):\n    return n * 2",
-            "question_spec": {
-                "target": [
-                    {
-                        "type": "function",
-                        "id": [0],
-                        "name": "example",
-                        "line_number": 1,
-                        "modifier": "return_value",
-                    }
-                ],
-                "output_type": "first",
-                "question_type": "mcq",
-            },
-            "generation_options": {"num_distractors": 4},
-            "entry_function": "example",
-        },
+        "code": "def example(n):\n    return n * 2",
+        "entry_function": "example",
+        "num_distractors": 4,
+        "output_type": "first",
     }
     defaults.update(overrides)
 
+    target_elements_data = defaults.pop("target_elements", None)
+
+    # Convert string enum values to actual enum instances
+    if isinstance(defaults.get("question_type"), str):
+        defaults["question_type"] = QuestionType(defaults["question_type"])
+    if isinstance(defaults.get("output_type"), str):
+        defaults["output_type"] = OutputType(defaults["output_type"])
+
     template = QuestionTemplate(**defaults)
     db.add(template)
+    await db.flush()
+
+    # Create target elements if provided, otherwise use defaults
+    from edcraft_backend.models.enums import TargetElementType, TargetModifier
+
+    if target_elements_data is None:
+        target_element = TargetElement(
+            template_id=template.id,
+            order=0,
+            element_type=TargetElementType.FUNCTION,
+            id_list=[0],
+            name="example",
+            line_number=1,
+            modifier=TargetModifier.RETURN_VALUE,
+        )
+        db.add(target_element)
+    else:
+        elem_data: dict[str, Any]
+        for i, elem_data in enumerate(target_elements_data): # type: ignore
+            # Convert string enum values to actual enum instances
+            if isinstance(elem_data.get("element_type"), str):
+                elem_data["element_type"] = TargetElementType(elem_data["element_type"])
+            if isinstance(elem_data.get("modifier"), str):
+                elem_data["modifier"] = TargetModifier(elem_data["modifier"])
+
+            target_element = TargetElement(
+                template_id=template.id,
+                order=i,
+                **elem_data,
+            )
+            db.add(target_element)
+
     await db.flush()
     return template
 

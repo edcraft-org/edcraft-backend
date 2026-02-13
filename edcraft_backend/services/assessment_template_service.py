@@ -233,7 +233,22 @@ class AssessmentTemplateService:
                     "question_type": assoc.question_template.question_type,
                     "question_text": assoc.question_template.question_text,
                     "description": assoc.question_template.description,
-                    "template_config": assoc.question_template.template_config,
+                    "code": assoc.question_template.code,
+                    "entry_function": assoc.question_template.entry_function,
+                    "num_distractors": assoc.question_template.num_distractors,
+                    "output_type": assoc.question_template.output_type,
+                    "target_elements": [
+                        {
+                            "template_id": te.template_id,
+                            "order": te.order,
+                            "element_type": te.element_type,
+                            "id_list": te.id_list,
+                            "name": te.name,
+                            "line_number": te.line_number,
+                            "modifier": te.modifier,
+                        }
+                        for te in assoc.question_template.target_elements
+                    ],
                     "created_at": assoc.question_template.created_at,
                     "updated_at": assoc.question_template.updated_at,
                     "order": assoc.order,

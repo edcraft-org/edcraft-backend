@@ -3,10 +3,16 @@ from uuid import UUID
 from edcraft_backend.exceptions import ResourceNotFoundError, UnauthorizedAccessError
 from edcraft_backend.models.assessment_template import AssessmentTemplate
 from edcraft_backend.models.question_template import QuestionTemplate
+from edcraft_backend.models.target_element import TargetElement
 from edcraft_backend.repositories.assessment_template_question_template_repository import (
     AssessmentTemplateQuestionTemplateRepository,
 )
-from edcraft_backend.repositories.question_template_repository import QuestionTemplateRepository
+from edcraft_backend.repositories.question_template_repository import (
+    QuestionTemplateRepository,
+)
+from edcraft_backend.repositories.target_element_repository import (
+    TargetElementRepository,
+)
 from edcraft_backend.schemas.question_template import (
     CreateQuestionTemplateRequest,
     UpdateQuestionTemplateRequest,
@@ -20,9 +26,11 @@ class QuestionTemplateService:
         self,
         question_template_repository: QuestionTemplateRepository,
         assessment_template_ques_template_repository: AssessmentTemplateQuestionTemplateRepository,
+        target_element_repository: TargetElementRepository,
     ):
         self.template_repo = question_template_repository
         self.assoc_repo = assessment_template_ques_template_repository
+        self.target_element_repo = target_element_repository
 
     async def create_template(
         self,
@@ -39,10 +47,20 @@ class QuestionTemplateService:
             Created template
         """
         template = QuestionTemplate(
-            owner_id=user_id,
-            **template_data.model_dump()
+            owner_id=user_id, **template_data.model_dump(exclude={"target_elements"})
         )
-        return await self.template_repo.create(template)
+        created_template = await self.template_repo.create(template)
+
+        target_elements: list[TargetElement] = []
+        for idx, element_data in enumerate(template_data.target_elements):
+            element = TargetElement(
+                **element_data.model_dump(), template_id=created_template.id, order=idx
+            )
+            target_elements.append(element)
+        await self.target_element_repo.create_many(target_elements)
+
+        await self.template_repo.db.refresh(created_template)
+        return created_template
 
     async def list_templates(
         self,
@@ -66,7 +84,9 @@ class QuestionTemplateService:
             order_by=QuestionTemplate.created_at.desc(),
         )
 
-    async def get_owned_template(self, user_id: UUID, template_id: UUID) -> QuestionTemplate:
+    async def get_owned_template(
+        self, user_id: UUID, template_id: UUID
+    ) -> QuestionTemplate:
         """Get a question template by ID.
 
         Args:
@@ -127,10 +147,41 @@ class QuestionTemplateService:
             UnauthorizedAccessError: If user doesn't own the template
         """
         template = await self.get_owned_template(user_id, template_id)
-        update_data = template_data.model_dump(exclude_unset=True)
+        update_data = template_data.model_dump(
+            exclude={"target_elements"}, exclude_unset=True
+        )
 
         for key, value in update_data.items():
             setattr(template, key, value)
+
+        if template_data.target_elements is not None:
+            existing_elements = {te.order: te for te in template.target_elements}
+            new_elements = []
+
+            for idx, element_data in enumerate(template_data.target_elements):
+                if idx in existing_elements:
+                    # Update existing element
+                    element = existing_elements[idx]
+                    for key, value in element_data.model_dump(
+                        exclude_unset=True
+                    ).items():
+                        setattr(element, key, value)
+                else:
+                    # Create new element
+                    new_element = TargetElement(
+                        **element_data.model_dump(), template_id=template.id, order=idx
+                    )
+                    new_elements.append(new_element)
+
+            if new_elements:
+                await self.target_element_repo.create_many(new_elements)
+
+            if len(existing_elements) > len(template_data.target_elements):
+                # Remove extra elements
+                for idx in range(
+                    len(template_data.target_elements), len(existing_elements)
+                ):
+                    await self.target_element_repo.hard_delete(existing_elements[idx])
 
         return await self.template_repo.update(template)
 

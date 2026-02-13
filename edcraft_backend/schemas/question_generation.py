@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from edcraft_backend.schemas.code_info import CodeInfo
 from edcraft_backend.schemas.form_builder import FormElement
+from edcraft_backend.schemas.question_template import CreateTargetElementRequest
 
 
 class CodeAnalysisRequest(BaseModel):
@@ -121,9 +122,13 @@ class TemplatePreviewResponse(BaseModel):
 
     question_text: str = Field(..., description="Generated template question text")
     question_type: str = Field(..., description="Type of question")
-    template_config: dict[str, Any] = Field(
-        ..., description="Template configuration for future use"
+    code: str = Field(..., description="Code for the question template")
+    entry_function: str = Field(..., description="Entry function name")
+    output_type: str = Field(..., description="Output type for the question")
+    num_distractors: int = Field(
+        ..., description="Number of distractors for the question"
     )
-    preview_question: Question = Field(
-        ..., description="Preview with placeholders"
+    target_elements: list[CreateTargetElementRequest] = Field(
+        ..., description="Target elements for the question"
     )
+    preview_question: Question = Field(..., description="Preview with placeholders")

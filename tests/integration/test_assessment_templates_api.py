@@ -441,24 +441,19 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
             "question_template": {
                 "question_type": "mcq",
                 "question_text": "What is 2+2?",
-                "template_config": {
-                    "code": "def example():\n    return 2 + 2",
-                    "question_spec": {
-                        "target": [
-                            {
-                                "type": "function",
-                                "id": [0],
-                                "name": "example",
-                                "line_number": 1,
-                                "modifier": "return_value",
-                            }
-                        ],
-                        "output_type": "first",
-                        "question_type": "mcq",
-                    },
-                    "generation_options": {"num_distractors": 4},
-                    "entry_function": "example",
-                },
+                "code": "def example():\n    return 2 + 2",
+                "entry_function": "example",
+                "num_distractors": 4,
+                "output_type": "first",
+                "target_elements": [
+                    {
+                        "element_type": "function",
+                        "id_list": [0],
+                        "name": "example",
+                        "line_number": 1,
+                        "modifier": "return_value",
+                    }
+                ],
             },
             "order": 0,
         }
@@ -486,24 +481,19 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
                 "question_template": {
                     "question_type": "mcq",
                     "question_text": "Question 1?",
-                    "template_config": {
-                        "code": "def example1(n):\n    return n * 2",
-                        "question_spec": {
-                            "target": [
-                                {
-                                    "type": "function",
-                                    "id": [0],
-                                    "name": "example1",
-                                    "line_number": 1,
-                                    "modifier": "return_value",
-                                }
-                            ],
-                            "output_type": "first",
-                            "question_type": "mcq",
-                        },
-                        "generation_options": {"num_distractors": 4},
-                        "entry_function": "example1",
-                    },
+                    "code": "def example1(n):\n    return n * 2",
+                    "entry_function": "example1",
+                    "num_distractors": 4,
+                    "output_type": "first",
+                    "target_elements": [
+                        {
+                            "element_type": "function",
+                            "id_list": [0],
+                            "name": "example1",
+                            "line_number": 1,
+                            "modifier": "return_value",
+                        }
+                    ],
                 },
                 "order": 0,
             }
@@ -516,24 +506,19 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
                 "question_template": {
                     "question_type": "mcq",
                     "question_text": "Question 2?",
-                    "template_config": {
-                        "code": "def example2(n):\n    return n * 3",
-                        "question_spec": {
-                            "target": [
-                                {
-                                    "type": "function",
-                                    "id": [0],
-                                    "name": "example2",
-                                    "line_number": 1,
-                                    "modifier": "return_value",
-                                }
-                            ],
-                            "output_type": "first",
-                            "question_type": "mcq",
-                        },
-                        "generation_options": {"num_distractors": 4},
-                        "entry_function": "example2",
-                    },
+                    "code": "def example2(n):\n    return n * 3",
+                    "entry_function": "example2",
+                    "num_distractors": 4,
+                    "output_type": "first",
+                    "target_elements": [
+                        {
+                            "element_type": "function",
+                            "id_list": [0],
+                            "name": "example2",
+                            "line_number": 1,
+                            "modifier": "return_value",
+                        }
+                    ],
                 },
                 "order": 1,
             }
@@ -546,24 +531,19 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
                 "question_template": {
                     "question_type": "mcq",
                     "question_text": "Question 3?",
-                    "template_config": {
-                        "code": "def example3(n):\n    return n * 4",
-                        "question_spec": {
-                            "target": [
-                                {
-                                    "type": "function",
-                                    "id": [0],
-                                    "name": "example3",
-                                    "line_number": 1,
-                                    "modifier": "return_value",
-                                }
-                            ],
-                            "output_type": "first",
-                            "question_type": "mcq",
-                        },
-                        "generation_options": {"num_distractors": 4},
-                        "entry_function": "example3",
-                    },
+                    "code": "def example3(n):\n    return n * 4",
+                    "entry_function": "example3",
+                    "num_distractors": 4,
+                    "output_type": "first",
+                    "target_elements": [
+                        {
+                            "element_type": "function",
+                            "id_list": [0],
+                            "name": "example3",
+                            "line_number": 1,
+                            "modifier": "return_value",
+                        }
+                    ],
                 },
                 "order": 2,
             }
@@ -591,24 +571,19 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
             "question_template": {
                 "question_type": "mcq",
                 "question_text": "Test question?",
-                "template_config": {
-                    "code": "def example(n):\n    return n * 2",
-                    "question_spec": {
-                        "target": [
-                            {
-                                "type": "function",
-                                "id": [0],
-                                "name": "example",
-                                "line_number": 1,
-                                "modifier": "return_value",
-                            }
-                        ],
-                        "output_type": "first",
-                        "question_type": "mcq",
-                    },
-                    "generation_options": {"num_distractors": 4},
-                    "entry_function": "example",
-                },
+                "code": "def example(n):\n    return n * 2",
+                "entry_function": "example",
+                "num_distractors": 4,
+                "output_type": "first",
+                "target_elements": [
+                    {
+                        "element_type": "function",
+                        "id_list": [0],
+                        "name": "example",
+                        "line_number": 1,
+                        "modifier": "return_value",
+                    }
+                ],
             }
         }
         response = await test_client.post(
@@ -631,24 +606,19 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
             "question_template": {
                 "question_type": "mcq",
                 "question_text": "Test question?",
-                "template_config": {
-                    "code": "def example(n):\n    return n * 2",
-                    "question_spec": {
-                        "target": [
-                            {
-                                "type": "function",
-                                "id": [0],
-                                "name": "example",
-                                "line_number": 1,
-                                "modifier": "return_value",
-                            }
-                        ],
-                        "output_type": "first",
-                        "question_type": "mcq",
-                    },
-                    "generation_options": {"num_distractors": 4},
-                    "entry_function": "example",
-                },
+                "code": "def example(n):\n    return n * 2",
+                "entry_function": "example",
+                "num_distractors": 4,
+                "output_type": "first",
+                "target_elements": [
+                    {
+                        "element_type": "function",
+                        "id_list": [0],
+                        "name": "example",
+                        "line_number": 1,
+                        "modifier": "return_value",
+                    }
+                ],
             },
             "order": 0,
         }
@@ -671,24 +641,19 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
             "question_template": {
                 "question_type": "mcq",
                 "question_text": "Question Template 1?",
-                "template_config": {
-                    "code": "def example1():\n    return 1",
-                    "question_spec": {
-                        "target": [
-                            {
-                                "type": "function",
-                                "id": [0],
-                                "name": "example1",
-                                "line_number": 1,
-                                "modifier": "return_value",
-                            }
-                        ],
-                        "output_type": "first",
-                        "question_type": "mcq",
-                    },
-                    "generation_options": {"num_distractors": 4},
-                    "entry_function": "example1",
-                },
+                "code": "def example1():\n    return 1",
+                "entry_function": "example1",
+                "num_distractors": 4,
+                "output_type": "first",
+                "target_elements": [
+                    {
+                        "element_type": "function",
+                        "id_list": [0],
+                        "name": "example1",
+                        "line_number": 1,
+                        "modifier": "return_value",
+                    }
+                ],
             },
             "order": 0,
         }
@@ -700,24 +665,19 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
             "question_template": {
                 "question_type": "mcq",
                 "question_text": "Question Template 2?",
-                "template_config": {
-                    "code": "def example2():\n    return 2",
-                    "question_spec": {
-                        "target": [
-                            {
-                                "type": "function",
-                                "id": [0],
-                                "name": "example2",
-                                "line_number": 1,
-                                "modifier": "return_value",
-                            }
-                        ],
-                        "output_type": "first",
-                        "question_type": "mcq",
-                    },
-                    "generation_options": {"num_distractors": 4},
-                    "entry_function": "example2",
-                },
+                "code": "def example2():\n    return 2",
+                "entry_function": "example2",
+                "num_distractors": 4,
+                "output_type": "first",
+                "target_elements": [
+                    {
+                        "element_type": "function",
+                        "id_list": [0],
+                        "name": "example2",
+                        "line_number": 1,
+                        "modifier": "return_value",
+                    }
+                ],
             },
             "order": 0,
         }

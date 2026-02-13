@@ -93,24 +93,19 @@ class TestGenerateQuestionFromTemplate:
             db_session,
             user,
             question_type="mcq",
-            template_config={
-                "code": "def example(n):\n    return n * 2",
-                "entry_function": "example",
-                "question_spec": {
-                    "target": [
-                        {
-                            "type": "function",
-                            "id": [0],
-                            "name": "example",
-                            "line_number": 1,
-                            "modifier": "return_value",
-                        }
-                    ],
-                    "output_type": "first",
-                    "question_type": "mcq",
-                },
-                "generation_options": {"num_distractors": 4},
-            },
+            code="def example(n):\n    return n * 2",
+            entry_function="example",
+            num_distractors=4,
+            output_type="first",
+            target_elements=[
+                {
+                    "element_type": "function",
+                    "id_list": [0],
+                    "name": "example",
+                    "line_number": 1,
+                    "modifier": "return_value",
+                }
+            ],
         )
         await db_session.commit()
 
@@ -147,33 +142,6 @@ class TestGenerateQuestionFromTemplate:
         )
 
         assert response.status_code == 404
-
-    @pytest.mark.asyncio
-    async def test_generate_question_from_template_missing_field(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test template with missing 'code' field raises ValidationError."""
-        template = await create_test_question_template(
-            db_session,
-            user,
-            template_config={
-                # Missing 'code' field
-                "entry_function": "example",
-                "question_spec": {"question_type": "mcq"},
-                "generation_options": {"num_distractors": 4},
-            },
-        )
-        await db_session.commit()
-
-        request_data = {"input_data": {"n": 5}}
-        response = await test_client.post(
-            f"/question-generation/from-template/{template.id}",
-            json=request_data,
-        )
-
-        assert response.status_code == 400
-        assert "code" in response.json()["detail"].lower()
-
 
 @pytest.mark.integration
 @pytest.mark.question_generation
@@ -467,7 +435,6 @@ class TestGenerateTemplatePreview:
         # Verify response structure
         assert "question_text" in data
         assert "question_type" in data
-        assert "template_config" in data
         assert "preview_question" in data
 
         # Verify question_type
@@ -476,13 +443,12 @@ class TestGenerateTemplatePreview:
         # Verify question_text does NOT contain "Given input:"
         assert "Given input:" not in data["question_text"]
 
-        # Verify template_config structure
-        config = data["template_config"]
-        assert config["code"] == "def example(n):\n    return n * 2"
-        assert config["entry_function"] == "example"
-        assert "question_spec" in config
-        assert "generation_options" in config
-        assert config["generation_options"]["num_distractors"] == 4
+        # Verify template_config fields in response
+        assert data["code"] == "def example(n):\n    return n * 2"
+        assert data["entry_function"] == "example"
+        assert data["num_distractors"] == 4
+        assert data["output_type"] == "first"
+        assert len(data["target_elements"]) == 1
 
         # Verify preview_question structure
         preview = data["preview_question"]
@@ -531,7 +497,7 @@ class TestGenerateTemplatePreview:
     async def test_generate_template_preview_preserves_all_config(
         self, test_client: AsyncClient
     ) -> None:
-        """Test that template_config preserves all input configuration."""
+        """Test that response preserves all input configuration."""
         request_data: dict[str, Any] = {
             "code": "def example(x, y):\\n    return x + y",
             "entry_function": "example",
@@ -559,9 +525,8 @@ class TestGenerateTemplatePreview:
         data = response.json()
 
         # Verify all config is preserved
-        config = data["template_config"]
-        assert config["entry_function"] == "example"
-        assert config["question_spec"]["output_type"] == "list"
-        assert config["question_spec"]["question_type"] == "mrq"
-        assert config["question_spec"]["target"][0]["modifier"] == "arguments"
-        assert config["generation_options"]["num_distractors"] == 3
+        assert data["entry_function"] == "example"
+        assert data["output_type"] == "list"
+        assert data["question_type"] == "mrq"
+        assert data["target_elements"][0]["modifier"] == "arguments"
+        assert data["num_distractors"] == 3

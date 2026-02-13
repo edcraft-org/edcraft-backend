@@ -8,6 +8,7 @@ from edcraft_backend.repositories.base import AssociationRepository, EntityRepos
 from edcraft_backend.repositories.folder_repository import FolderRepository
 from edcraft_backend.repositories.question_repository import QuestionRepository
 from edcraft_backend.repositories.question_template_repository import QuestionTemplateRepository
+from edcraft_backend.repositories.target_element_repository import TargetElementRepository
 from edcraft_backend.repositories.user_repository import UserRepository
 
 __all__ = [
@@ -21,4 +22,5 @@ __all__ = [
     "AssessmentTemplateRepository",
     "AssessmentQuestionRepository",
     "AssessmentTemplateQuestionTemplateRepository",
+    "TargetElementRepository",
 ]

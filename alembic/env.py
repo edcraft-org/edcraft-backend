@@ -21,6 +21,7 @@ from edcraft_backend.models import (  # noqa: F401
     Question,
     QuestionTemplate,
     RefreshToken,
+    TargetElement,
     User,
 )
 from edcraft_backend.models.base import Base

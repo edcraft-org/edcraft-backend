@@ -172,6 +172,25 @@ make docker-down
 
 The backend will be available at http://localhost:8000 with automatic database migrations on startup.
 
+### Building the Image
+
+```bash
+# Build the Docker image
+docker compose build backend
+
+### Viewing Logs
+
+```bash
+# View logs
+docker logs edcraft-backend
+
+# Follow logs in real-time
+docker logs -f edcraft-backend
+
+# Or using docker-compose
+docker compose logs -f backend
+```
+
 ## Project Structure
 
 ```

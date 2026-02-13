@@ -28,6 +28,9 @@ from edcraft_backend.repositories.question_template_repository import (
     QuestionTemplateRepository,
 )
 from edcraft_backend.repositories.refresh_token_repository import RefreshTokenRepository
+from edcraft_backend.repositories.target_element_repository import (
+    TargetElementRepository,
+)
 from edcraft_backend.repositories.user_repository import UserRepository
 from edcraft_backend.security import decode_token
 from edcraft_backend.services.assessment_service import AssessmentService
@@ -97,6 +100,13 @@ def get_assessment_template_question_template_repository(
     return AssessmentTemplateQuestionTemplateRepository(db)
 
 
+def get_target_element_repository(
+    db: AsyncSession = Depends(get_db),
+) -> TargetElementRepository:
+    """Get TargetElementRepository instance."""
+    return TargetElementRepository(db)
+
+
 def get_refresh_token_repository(
     db: AsyncSession = Depends(get_db),
 ) -> RefreshTokenRepository:
@@ -141,10 +151,13 @@ def get_question_template_service(
     assessment_template_ques_template_repo: AssessmentTemplateQuestionTemplateRepository = Depends(
         get_assessment_template_question_template_repository
     ),
+    target_element_repo: TargetElementRepository = Depends(
+        get_target_element_repository
+    ),
 ) -> QuestionTemplateService:
     """Get QuestionTemplateService instance."""
     return QuestionTemplateService(
-        template_repo, assessment_template_ques_template_repo
+        template_repo, assessment_template_ques_template_repo, target_element_repo
     )
 
 

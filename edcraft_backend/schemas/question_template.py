@@ -1,28 +1,38 @@
 """Question template schemas for request/response validation."""
 
 from datetime import datetime
-from typing import Any
 from uuid import UUID
 
-from edcraft_engine.question_generator.models import (
-    GenerationOptions,
-    QuestionSpec,
-)
 from pydantic import BaseModel, ConfigDict, model_validator
 
+from edcraft_backend.models.enums import TargetElementType, TargetModifier
 from edcraft_backend.utils.code_parser import (
     EntryFunctionParams,
     parse_function_parameters,
 )
 
 
-class QuestionTemplateConfig(BaseModel):
-    """Schema for question template configuration."""
+class CreateTargetElementRequest(BaseModel):
+    """Schema for creating a target element associated with a question template."""
 
-    code: str
-    question_spec: QuestionSpec
-    generation_options: GenerationOptions
-    entry_function: str
+    element_type: TargetElementType
+    id_list: list[int]
+    name: str | None = None
+    line_number: int | None = None
+    modifier: TargetModifier | None = None
+
+
+class TargetElementResponse(BaseModel):
+    """Schema for target element responses."""
+
+    order: int
+    element_type: TargetElementType
+    id_list: list[int]
+    name: str | None = None
+    line_number: int | None = None
+    modifier: TargetModifier | None = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CreateQuestionTemplateRequest(BaseModel):
@@ -31,7 +41,11 @@ class CreateQuestionTemplateRequest(BaseModel):
     question_type: str
     question_text: str
     description: str | None = None
-    template_config: QuestionTemplateConfig
+    code: str
+    entry_function: str
+    num_distractors: int
+    output_type: str
+    target_elements: list[CreateTargetElementRequest]
 
 
 class UpdateQuestionTemplateRequest(BaseModel):
@@ -40,7 +54,11 @@ class UpdateQuestionTemplateRequest(BaseModel):
     question_type: str | None = None
     question_text: str | None = None
     description: str | None = None
-    template_config: QuestionTemplateConfig | None = None
+    code: str | None = None
+    entry_function: str | None = None
+    num_distractors: int | None = None
+    output_type: str | None = None
+    target_elements: list[CreateTargetElementRequest] | None = None
 
 
 class QuestionTemplateSummaryResponse(BaseModel):
@@ -65,7 +83,11 @@ class QuestionTemplateResponse(BaseModel):
     question_type: str
     question_text: str
     description: str | None = None
-    template_config: dict[str, Any]
+    code: str
+    entry_function: str
+    num_distractors: int
+    output_type: str
+    target_elements: list[TargetElementResponse]
     entry_function_params: EntryFunctionParams = EntryFunctionParams(parameters=[])
     created_at: datetime
     updated_at: datetime
@@ -75,7 +97,7 @@ class QuestionTemplateResponse(BaseModel):
     @model_validator(mode="after")
     def parse_entry_function_params(self) -> "QuestionTemplateResponse":
         """Parse and populate entry_function_params from template_config."""
-        code = self.template_config.get("code", "")
-        entry_function = self.template_config.get("entry_function", "")
-        self.entry_function_params = parse_function_parameters(code, entry_function)
+        self.entry_function_params = parse_function_parameters(
+            self.code, self.entry_function
+        )
         return self

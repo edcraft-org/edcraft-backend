@@ -14,6 +14,7 @@ from edcraft_backend.models.question import Question
 from edcraft_backend.models.question_data import MCQData, MRQData, ShortAnswerData
 from edcraft_backend.models.question_template import QuestionTemplate
 from edcraft_backend.models.refresh_token import RefreshToken
+from edcraft_backend.models.target_element import TargetElement
 from edcraft_backend.models.user import User
 
 __all__ = [
@@ -28,6 +29,7 @@ __all__ = [
     "AssessmentTemplate",
     "AssessmentTemplateQuestionTemplate",
     "QuestionTemplate",
+    "TargetElement",
     "OAuthAccount",
     "RefreshToken",
     "OneTimeToken",

@@ -1,3 +1,4 @@
+import json
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -6,6 +7,7 @@ from edcraft_engine.question_generator.models import (
     GenerationOptions,
     Question,
     QuestionSpec,
+    TargetElement,
 )
 from edcraft_engine.question_generator.question_generator import QuestionGenerator
 
@@ -82,40 +84,31 @@ class QuestionGenerationService:
         """
         template = await self.question_template_svc.get_template(user_id, template_id)
 
-        # Extract configuration from template
-        config = template.template_config
-
-        code = config.get("code")
-        if not code:
-            raise ValidationError("Template configuration missing 'code' field.")
-
-        question_spec_dict = config.get("question_spec")
-        if not question_spec_dict:
-            raise ValidationError(
-                "Template configuration missing 'question_spec' field."
-            )
-
-        generation_options_dict = config.get("generation_options")
-        if not generation_options_dict:
-            raise ValidationError(
-                "Template configuration missing 'generation_options' field."
-            )
-
-        entry_function = config.get("entry_function")
-        if not entry_function:
-            raise ValidationError(
-                "Template configuration missing 'entry_function' field."
-            )
-
         # Create configurations
-        question_spec = QuestionSpec(**question_spec_dict)
-        execution_spec = ExecutionSpec(
-            entry_function=entry_function, input_data=input_data
+        target_elements = [
+            TargetElement(
+                type=element.element_type.value,
+                id=element.id_list,
+                name=element.name,
+                line_number=element.line_number,
+                modifier=element.modifier.value if element.modifier else None,
+            )
+            for element in template.target_elements
+        ]
+        question_spec = QuestionSpec(
+            question_type=template.question_type.value,
+            target=target_elements,
+            output_type=template.output_type.value,
         )
-        generation_options = GenerationOptions(**generation_options_dict)
+        execution_spec = ExecutionSpec(
+            entry_function=template.entry_function, input_data=input_data
+        )
+        generation_options = GenerationOptions(
+            num_distractors=template.num_distractors,
+        )
 
         return await self.generate_question(
-            code=code,
+            code=template.code,
             question_spec=question_spec,
             execution_spec=execution_spec,
             generation_options=generation_options,
@@ -123,35 +116,22 @@ class QuestionGenerationService:
 
     async def create_template_preview(
         self,
-        code: str,
-        entry_function: str,
         question_spec: QuestionSpec,
         generation_options: GenerationOptions,
-    ) -> tuple[Question, dict[str, Any]]:
+    ) -> Question:
         """Create template preview without database persistence.
 
         Args:
-            code: Python source code
-            entry_function: Name of the entry function
             question_spec: Question specifications
             generation_options: Generation options
 
         Returns:
-            Tuple of (preview_question, template_config)
+            Question preview
         """
-        preview_question = self.question_generator.generate_template_preview(
+        return self.question_generator.generate_template_preview(
             question_spec=question_spec,
             generation_options=generation_options,
         )
-
-        template_config: dict[str, Any] = {
-            "code": code,
-            "entry_function": entry_function,
-            "question_spec": question_spec.model_dump(),
-            "generation_options": generation_options.model_dump(),
-        }
-
-        return preview_question, template_config
 
     async def generate_assessment_from_template(
         self,
@@ -222,20 +202,30 @@ class QuestionGenerationService:
                 # Create the appropriate request type based on question_type
                 question_create: CreateQuestionRequest
                 if question_type == "mcq":
+                    # Serialize options to JSON strings for storage
+                    serialized_options = [
+                        json.dumps(opt) if not isinstance(opt, str) else opt
+                        for opt in question_data["options"]
+                    ]
                     question_create = CreateMCQRequest(
                         template_id=question_template.id,
                         question_text=question_text,
                         data=MCQData(
-                            options=question_data["options"],
+                            options=serialized_options,
                             correct_index=question_data["correct_indices"][0],
                         ),
                     )
                 elif question_type == "mrq":
+                    # Serialize options to JSON strings for storage
+                    serialized_options = [
+                        json.dumps(opt) if not isinstance(opt, str) else opt
+                        for opt in question_data["options"]
+                    ]
                     question_create = CreateMRQRequest(
                         template_id=question_template.id,
                         question_text=question_text,
                         data=MRQData(
-                            options=question_data["options"],
+                            options=serialized_options,
                             correct_indices=question_data["correct_indices"],
                         ),
                     )

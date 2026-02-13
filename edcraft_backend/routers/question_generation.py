@@ -10,6 +10,7 @@ from edcraft_backend.exceptions import (
     CodeDecodingError,
     QuestionGenerationError,
 )
+from edcraft_backend.models.enums import TargetElementType, TargetModifier
 from edcraft_backend.schemas.assessment import AssessmentWithQuestionsResponse
 from edcraft_backend.schemas.question_generation import (
     CodeAnalysisRequest,
@@ -20,6 +21,7 @@ from edcraft_backend.schemas.question_generation import (
     QuestionGenerationRequest,
     TemplatePreviewResponse,
 )
+from edcraft_backend.schemas.question_template import CreateTargetElementRequest
 from edcraft_backend.services.code_analysis_service import CodeAnalysisService
 from edcraft_backend.services.form_builder_service import FormBuilderService
 
@@ -122,9 +124,7 @@ async def generate_template_preview(
         raise CodeDecodingError(f"Invalid code format: {str(e)}") from e
 
     try:
-        preview_question, template_config = await service.create_template_preview(
-            code=decoded_code,
-            entry_function=request.entry_function,
+        preview_question = await service.create_template_preview(
             question_spec=request.question_spec,
             generation_options=request.generation_options,
         )
@@ -136,8 +136,21 @@ async def generate_template_preview(
     return TemplatePreviewResponse(
         question_text=preview_question.text,
         question_type=preview_question.question_type,
-        template_config=template_config,
         preview_question=preview_question,
+        code=decoded_code,
+        entry_function=request.entry_function,
+        output_type=request.question_spec.output_type,
+        num_distractors=request.generation_options.num_distractors,
+        target_elements=[
+            CreateTargetElementRequest(
+                element_type=TargetElementType(element.type),
+                id_list=element.id,
+                name=element.name,
+                line_number=element.line_number,
+                modifier=TargetModifier(element.modifier) if element.modifier else None,
+            )
+            for element in request.question_spec.target
+        ],
     )
 
 
