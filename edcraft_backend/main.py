@@ -14,6 +14,7 @@ from edcraft_backend.routers import (
     assessments,
     auth,
     folders,
+    question_bank,
     question_generation,
     question_templates,
     questions,
@@ -70,6 +71,7 @@ app.include_router(questions.router)
 app.include_router(assessments.router)
 app.include_router(question_templates.router)
 app.include_router(assessment_templates.router)
+app.include_router(question_bank.router)
 
 
 @app.get("/")

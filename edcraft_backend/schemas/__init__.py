@@ -43,6 +43,9 @@ from edcraft_backend.schemas.question import (
     UpdateQuestionRequest,
 )
 
+# Question Bank schemas
+from edcraft_backend.schemas.question_bank import QuestionBankResponse
+
 # Question Generation schemas
 from edcraft_backend.schemas.question_generation import (
     CodeAnalysisRequest,
@@ -80,6 +83,8 @@ __all__ = [
     "CreateQuestionRequest",
     "QuestionResponse",
     "UpdateQuestionRequest",
+    # Question Bank
+    "QuestionBankResponse",
     # Assessment
     "InsertQuestionIntoAssessmentRequest",
     "CreateAssessmentRequest",
@@ -110,3 +115,8 @@ __all__ = [
     "GenerateIntoAssessmentRequest",
     "QuestionGenerationRequest",
 ]
+
+# Rebuild models with forward references to resolve them after all schemas are loaded
+from edcraft_backend.schemas.question import QuestionUsageResponse
+
+QuestionUsageResponse.model_rebuild()

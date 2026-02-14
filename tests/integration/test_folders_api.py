@@ -10,6 +10,7 @@ from tests.factories import (
     create_test_assessment_template,
     create_test_folder,
     create_test_folder_tree,
+    create_test_question_bank,
     get_user_root_folder,
 )
 
@@ -612,6 +613,12 @@ class TestGetFolderContents:
         template2 = await create_test_assessment_template(
             db_session, user, folder=folder, title="Template 2"
         )
+        question_bank1 = await create_test_question_bank(
+            db_session, user, folder=folder, title="Question Bank 1"
+        )
+        question_bank2 = await create_test_question_bank(
+            db_session, user, folder=folder, title="Question Bank 2"
+        )
         await db_session.commit()
 
         response = await test_client.get(f"/folders/{folder.id}/contents")
@@ -638,6 +645,13 @@ class TestGetFolderContents:
         template_ids = [t["id"] for t in data["assessment_templates"]]
         assert str(template1.id) in template_ids
         assert str(template2.id) in template_ids
+
+        # Verify question banks are included
+        assert "question_banks" in data
+        assert len(data["question_banks"]) == 2
+        question_bank_ids = [qb["id"] for qb in data["question_banks"]]
+        assert str(question_bank1.id) in question_bank_ids
+        assert str(question_bank2.id) in question_bank_ids
 
         # Verify child folders are included
         assert "folders" in data
@@ -739,6 +753,31 @@ class TestGetFolderContents:
         assert str(deleted_template.id) not in template_ids
 
     @pytest.mark.asyncio
+    async def test_get_folder_contents_excludes_soft_deleted_question_banks(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test soft-deleted question banks are not included in contents."""
+        folder = await create_test_folder(db_session, user)
+        active_qb = await create_test_question_bank(
+            db_session, user, folder=folder, title="Active QB"
+        )
+        deleted_qb = await create_test_question_bank(
+            db_session, user, folder=folder, title="Deleted QB"
+        )
+        await db_session.commit()
+
+        # Soft delete one question bank
+        await test_client.delete(f"/question-banks/{deleted_qb.id}")
+
+        response = await test_client.get(f"/folders/{folder.id}/contents")
+
+        assert response.status_code == 200
+        data = response.json()
+        qb_ids = [qb["id"] for qb in data["question_banks"]]
+        assert str(active_qb.id) in qb_ids
+        assert str(deleted_qb.id) not in qb_ids
+
+    @pytest.mark.asyncio
     async def test_get_folder_contents_excludes_soft_deleted_child_folders(
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
@@ -793,6 +832,36 @@ class TestGetFolderContents:
         assert assessment_data["folder_id"] == str(folder.id)
         assert "created_at" in assessment_data
         assert "updated_at" in assessment_data
+
+    @pytest.mark.asyncio
+    async def test_get_folder_contents_returns_complete_question_bank_objects(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test question banks have complete fields."""
+        folder = await create_test_folder(db_session, user)
+        question_bank = await create_test_question_bank(
+            db_session,
+            user,
+            folder=folder,
+            title="Test Question Bank",
+            description="QB description",
+        )
+        await db_session.commit()
+
+        response = await test_client.get(f"/folders/{folder.id}/contents")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify question bank has all required fields
+        qb_data = data["question_banks"][0]
+        assert qb_data["id"] == str(question_bank.id)
+        assert qb_data["title"] == "Test Question Bank"
+        assert qb_data["description"] == "QB description"
+        assert qb_data["owner_id"] == str(user.id)
+        assert qb_data["folder_id"] == str(folder.id)
+        assert "created_at" in qb_data
+        assert "updated_at" in qb_data
 
     @pytest.mark.asyncio
     async def test_get_folder_contents_returns_complete_assessment_template_objects(

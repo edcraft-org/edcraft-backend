@@ -13,6 +13,7 @@ from edcraft_backend.repositories.assessment_template_repository import (
     AssessmentTemplateRepository,
 )
 from edcraft_backend.repositories.folder_repository import FolderRepository
+from edcraft_backend.repositories.question_bank_repository import QuestionBankRepository
 from edcraft_backend.schemas.folder import (
     CreateFolderRequest,
     FolderResponse,
@@ -32,12 +33,14 @@ class FolderService:
         self,
         folder_repository: FolderRepository,
         assessment_repository: AssessmentRepository,
+        question_bank_repository: QuestionBankRepository,
         assessment_template_repository: AssessmentTemplateRepository,
         question_service: QuestionService,
         question_template_service: QuestionTemplateService,
     ):
         self.folder_repo = folder_repository
         self.assessment_repo = assessment_repository
+        self.question_bank_repo = question_bank_repository
         self.assessment_template_repo = assessment_template_repository
         self.question_svc = question_service
         self.question_template_svc = question_template_service
@@ -170,14 +173,16 @@ class FolderService:
     async def get_folder_with_contents(
         self, user_id: UUID, folder_id: UUID
     ) -> FolderWithContentsResponse:
-        """Get a folder with its complete contents (assessments, templates, and child folders).
+        """Get a folder with its complete contents
+           (assessments, templates, question banks, and child folders).
 
         Args:
             user_id: User UUID requesting resources
             folder_id: Folder UUID
 
         Returns:
-            Folder with complete Assessment, AssessmentTemplate, and child Folder objects
+            Folder with complete Assessment, AssessmentTemplate, QuestionBank,
+            and child Folder objects
 
         Raises:
             ResourceNotFoundError: If folder not found
@@ -187,6 +192,7 @@ class FolderService:
         from edcraft_backend.schemas.assessment_template import (
             AssessmentTemplateResponse,
         )
+        from edcraft_backend.schemas.question_bank import QuestionBankResponse
 
         folder = await self.get_owned_folder(user_id, folder_id)
 
@@ -202,6 +208,12 @@ class FolderService:
             if template.deleted_at is None
         ]
 
+        question_bank_responses = [
+            QuestionBankResponse.model_validate(question_bank)
+            for question_bank in folder.question_banks
+            if question_bank.deleted_at is None
+        ]
+
         children = await self.folder_repo.get_children(folder_id)
         folder_responses = [FolderResponse.model_validate(child) for child in children]
 
@@ -215,6 +227,7 @@ class FolderService:
             updated_at=folder.updated_at,
             assessments=assessment_responses,
             assessment_templates=template_responses,
+            question_banks=question_bank_responses,
             folders=folder_responses,
         )
 
@@ -429,6 +442,7 @@ class FolderService:
 
         await self.folder_repo.bulk_soft_delete_by_ids(all_folder_ids)
         await self.assessment_repo.bulk_soft_delete_by_folder_ids(all_folder_ids)
+        await self.question_bank_repo.bulk_soft_delete_by_folder_ids(all_folder_ids)
         await self.assessment_template_repo.bulk_soft_delete_by_folder_ids(
             all_folder_ids
         )

@@ -7,15 +7,15 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from edcraft_backend.models.base import EntityBase
 
 if TYPE_CHECKING:
-    from edcraft_backend.models.assessment_question import AssessmentQuestion
     from edcraft_backend.models.folder import Folder
+    from edcraft_backend.models.question_bank_question import QuestionBankQuestion
     from edcraft_backend.models.user import User
 
 
-class Assessment(EntityBase):
-    """Assessment model - an ordered collection of questions."""
+class QuestionBank(EntityBase):
+    """Question Bank - collection of reusable questions for storage."""
 
-    __tablename__ = "assessments"
+    __tablename__ = "question_banks"
 
     # Foreign Keys
     owner_id: Mapped[UUID] = mapped_column(
@@ -30,16 +30,15 @@ class Assessment(EntityBase):
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
     # Relationships
-    owner: Mapped["User"] = relationship(back_populates="assessments")
-    folder: Mapped["Folder"] = relationship(back_populates="assessments")
+    owner: Mapped["User"] = relationship(back_populates="question_banks")
+    folder: Mapped["Folder"] = relationship(back_populates="question_banks")
 
-    # Many-to-many relationship with questions, ordered by order field
-    question_associations: Mapped[list["AssessmentQuestion"]] = relationship(
-        back_populates="assessment",
+    # Many-to-many relationship with questions
+    question_associations: Mapped[list["QuestionBankQuestion"]] = relationship(
+        back_populates="question_bank",
         cascade="all, delete-orphan",
         lazy="selectin",
-        order_by="AssessmentQuestion.order",
     )
 
     def __repr__(self) -> str:
-        return f"<Assessment(id={self.id}, title={self.title})>"
+        return f"<QuestionBank(id={self.id}, title={self.title})>"

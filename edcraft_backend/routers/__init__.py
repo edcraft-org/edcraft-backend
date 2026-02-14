@@ -4,6 +4,7 @@ from edcraft_backend.routers import (
     assessment_templates,
     assessments,
     folders,
+    question_bank,
     question_generation,
     question_templates,
     questions,
@@ -18,4 +19,5 @@ __all__ = [
     "question_templates",
     "questions",
     "users",
+    "question_bank",
 ]

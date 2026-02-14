@@ -11,6 +11,8 @@ from edcraft_backend.models.folder import Folder
 from edcraft_backend.models.oauth_account import OAuthAccount
 from edcraft_backend.models.one_time_token import OneTimeToken, TokenType
 from edcraft_backend.models.question import Question
+from edcraft_backend.models.question_bank import QuestionBank
+from edcraft_backend.models.question_bank_question import QuestionBankQuestion
 from edcraft_backend.models.question_data import MCQData, MRQData, ShortAnswerData
 from edcraft_backend.models.question_template import QuestionTemplate
 from edcraft_backend.models.refresh_token import RefreshToken
@@ -37,4 +39,6 @@ __all__ = [
     "Base",
     "AssociationBase",
     "EntityBase",
+    "QuestionBank",
+    "QuestionBankQuestion",
 ]

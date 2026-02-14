@@ -1,10 +1,16 @@
 """Question schemas for request/response validation."""
 
+from __future__ import annotations
+
 from datetime import datetime
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
+
+if TYPE_CHECKING:
+    from edcraft_backend.schemas.assessment import AssessmentResponse
+    from edcraft_backend.schemas.question_bank import QuestionBankResponse
 
 
 # Data schemas for different question types
@@ -129,3 +135,12 @@ class ShortAnswerResponse(BaseQuestionResponse):
 
 
 QuestionResponse = MCQResponse | MRQResponse | ShortAnswerResponse
+
+
+class QuestionUsageResponse(BaseModel):
+    """Response schema for question usage information."""
+
+    assessments: list[AssessmentResponse] = []
+    question_banks: list[QuestionBankResponse] = []
+
+    model_config = ConfigDict(from_attributes=True)

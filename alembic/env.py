@@ -19,6 +19,8 @@ from edcraft_backend.models import (  # noqa: F401
     Folder,
     OAuthAccount,
     Question,
+    QuestionBank,
+    QuestionBankQuestion,
     QuestionTemplate,
     RefreshToken,
     TargetElement,

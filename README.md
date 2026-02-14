@@ -213,6 +213,8 @@ edcraft-backend/
 │   │   ├── folder.py
 │   │   ├── assessment.py
 │   │   ├── assessment_question.py
+│   │   ├── question_bank.py
+│   │   ├── question_bank_question.py
 │   │   ├── question.py
 │   │   ├── assessment_template.py
 │   │   ├── assessment_template_question_template.py
@@ -222,6 +224,7 @@ edcraft-backend/
 │   │   ├── users.py
 │   │   ├── folders.py
 │   │   ├── assessments.py
+│   │   ├── question_banks.py
 │   │   ├── questions.py
 │   │   ├── assessment_templates.py
 │   │   ├── question_templates.py
@@ -231,6 +234,7 @@ edcraft-backend/
 │   │   ├── auth.py
 │   │   ├── folder.py
 │   │   ├── assessment.py
+│   │   ├── question_bank.py
 │   │   ├── question.py
 │   │   ├── assessment_template.py
 │   │   ├── question_template.py
@@ -243,6 +247,7 @@ edcraft-backend/
 │   │   ├── user_service.py
 │   │   ├── folder_service.py
 │   │   ├── assessment_service.py
+│   │   ├── question_bank_service.py
 │   │   ├── question_service.py
 │   │   ├── assessment_template_service.py
 │   │   ├── question_template_service.py
@@ -370,9 +375,13 @@ erDiagram
     folders ||--o{ folders : "contains (parent-child)"
     folders ||--o{ assessments : "contains"
     folders ||--o{ assessment_templates : "contains"
+    folders ||--o{ question_banks : "contains"
 
     assessments ||--o{ assessment_questions : "has"
     questions ||--o{ assessment_questions : "belongs to"
+
+    question_banks ||--o{ question_bank_questions : "has"
+    questions ||--o{ question_bank_questions : "belongs to"
 
     assessment_templates ||--o{ assessment_template_question_templates : "has"
     question_templates ||--o{ assessment_template_question_templates : "belongs to"
@@ -431,6 +440,17 @@ erDiagram
         datetime deleted_at "soft delete"
     }
 
+    question_banks {
+        uuid id PK
+        uuid owner_id FK
+        uuid folder_id FK "nullable"
+        string title
+        text description "nullable"
+        datetime created_at
+        datetime updated_at
+        datetime deleted_at "soft delete"
+    }
+
     questions {
         uuid id PK
         uuid owner_id FK
@@ -447,7 +467,13 @@ erDiagram
         uuid assessment_id FK,PK
         uuid question_id FK,PK
         int order "unique per assessment"
-        datetime created_at
+        datetime added_at
+    }
+
+    question_bank_questions {
+        uuid question_bank_id FK,PK
+        uuid question_id FK,PK
+        datetime added_at
     }
 
     assessment_templates {
@@ -498,7 +524,7 @@ The application uses a comprehensive database schema for managing assessments, q
 
 - **Folder** ([folder.py](edcraft_backend/models/folder.py)) - Hierarchical folder organization using tree structure
   - Self-referential parent-child relationship
-  - Contains sub-folders, assessments and assessment templates
+  - Contains sub-folders, assessments, question banks, and assessment templates
   - Unique constraint: folder names must be unique per parent and user
   - Unique constraint: users can only have one root folder (parent_id=NULL)
   - CASCADE delete:
@@ -511,14 +537,17 @@ The application uses a comprehensive database schema for managing assessments, q
   - Root folders can be renamed by the user
   - The root folder is accessible via `GET /users/me/root-folder`
 
-- **Assessment** ([assessment.py](edcraft_backend/models/assessment.py)) - Collection of questions, also serves as question bank
+- **Assessment** ([assessment.py](edcraft_backend/models/assessment.py)) - Ordered collection of questions
   - Many-to-many relationship with questions
+  - Maintains ordering for question presentation
+
+- **QuestionBank** ([question_bank.py](edcraft_backend/models/question_bank.py)) - Reusable storage for questions
+  - Many-to-many relationship with questions
+  - No ordering
 
 - **Question** ([question.py](edcraft_backend/models/question.py)) - Individual question instances
-  - Hybrid structure: fixed columns + JSON for flexibility
   - Can be created from a QuestionTemplate
-  - Reusable across multiple assessments
-  - Questions must belong to an assessment
+  - Reusable across multiple assessments and question banks
 
 - **AssessmentQuestion** ([assessment_question.py](edcraft_backend/models/assessment_question.py)) - Association table for assessments and questions
   - Tracks question ordering within assessments (0-indexed)
@@ -531,6 +560,10 @@ The application uses a comprehensive database schema for managing assessments, q
     - Valid order range: 0 to current question count (inclusive)
     - Omit order parameter to append to the end
     - Automatic normalization after deletions to maintain consecutive ordering
+
+- **QuestionBankQuestion** ([question_bank_question.py](edcraft_backend/models/question_bank_question.py)) - Association table for question banks and questions
+  - Links questions to question banks (no ordering)
+  - Unique constraint: Each question can only be added once per bank
 
 - **AssessmentTemplate** ([assessment_template.py](edcraft_backend/models/assessment_template.py)) - Collection of question templates, serves as question template bank
   - Many-to-many relationship with question templates
@@ -721,10 +754,19 @@ Full endpoint reference is auto-generated at http://127.0.0.1:8000/docs. Key non
 - Root folders (`parent_id=null`) cannot be deleted — returns 403
 - Move (`PATCH /folders/{folder_id}/move`) validates against circular references
 
-**Assessments & Assessment Templates** (all require auth)
-- Questions/question templates support ordered insertion: omit `order` to append, or specify to insert at position (others shift down)
+**Assessments** (`/assessments`, all require auth)
+- Questions support ordered insertion: omit `order` to append, or specify to insert at position (others shift down)
+- Reorder endpoint requires all questions to be included with unique orders
+- Deleting an assessment preserves its questions; orphaned questions (no longer in any assessment OR question bank) are cleaned up automatically
+
+**Question Banks** (`/question-banks`, all require auth)
+- Reusable collections of questions without ordering
+- Questions can be added, linked, or removed from banks
+- Deleting a question bank preserves its questions if they're still used in assessments or other banks
+
+**Assessment Templates** (`/assessment-templates`, all require auth)
+- Question templates support ordered insertion: omit `order` to append, or specify to insert at position (others shift down)
 - Reorder endpoints require all items to be included with unique orders
-- Deleting an assessment preserves its questions; orphaned questions (no longer in any assessment) are cleaned up automatically
 
 **Question Templates**
 - `template_config` structure: `{code, question_spec, generation_options, entry_function}`

@@ -57,6 +57,7 @@ markers = [
     "users: User router tests",
     "folders: Folder router tests",
     "questions: Question router tests",
+    "question_banks: Question bank router tests",
     "assessments: Assessment router tests",
     "question_templates: Question template router tests",
     "assessment_templates: Assessment template router tests",

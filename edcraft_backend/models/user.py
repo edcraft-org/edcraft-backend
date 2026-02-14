@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from edcraft_backend.models.folder import Folder
     from edcraft_backend.models.oauth_account import OAuthAccount
     from edcraft_backend.models.question import Question
+    from edcraft_backend.models.question_bank import QuestionBank
     from edcraft_backend.models.question_template import QuestionTemplate
 
 
@@ -55,6 +56,9 @@ class User(EntityBase):
     )
     oauth_accounts: Mapped[list["OAuthAccount"]] = relationship(
         back_populates="user", cascade="all, delete-orphan", lazy="selectin"
+    )
+    question_banks: Mapped[list["QuestionBank"]] = relationship(
+        back_populates="owner", cascade="all, delete-orphan", lazy="selectin"
     )
 
     def __repr__(self) -> str:

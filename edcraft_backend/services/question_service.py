@@ -1,11 +1,16 @@
+from typing import TypedDict
 from uuid import UUID
 
 from edcraft_backend.exceptions import ResourceNotFoundError, UnauthorizedAccessError
 from edcraft_backend.models.assessment import Assessment
 from edcraft_backend.models.question import Question
+from edcraft_backend.models.question_bank import QuestionBank
 from edcraft_backend.models.question_data import MCQData, MRQData, ShortAnswerData
 from edcraft_backend.repositories.assessment_question_repository import (
     AssessmentQuestionRepository,
+)
+from edcraft_backend.repositories.question_bank_question_repository import (
+    QuestionBankQuestionRepository,
 )
 from edcraft_backend.repositories.question_repository import QuestionRepository
 from edcraft_backend.schemas.question import (
@@ -26,6 +31,13 @@ from edcraft_backend.schemas.question import (
 )
 
 
+class QuestionUsageDict(TypedDict):
+    """Dict type for question usage."""
+
+    assessments: list[Assessment]
+    question_banks: list[QuestionBank]
+
+
 class QuestionService:
     """Service layer for Question business logic."""
 
@@ -33,9 +45,11 @@ class QuestionService:
         self,
         question_repository: QuestionRepository,
         assessment_question_repository: AssessmentQuestionRepository,
+        question_bank_question_repository: QuestionBankQuestionRepository,
     ):
         self.question_repo = question_repository
-        self.assoc_repo = assessment_question_repository
+        self.assessment_assoc_repo = assessment_question_repository
+        self.question_bank_assoc_repo = question_bank_question_repository
 
     async def get_owned_question(self, user_id: UUID, question_id: UUID) -> Question:
         """Get question and verify ownership.
@@ -236,11 +250,11 @@ class QuestionService:
 
         return count
 
-    async def get_assessments_for_question(
+    async def get_question_usage(
         self,
         user_id: UUID,
         question_id: UUID,
-    ) -> list[Assessment]:
+    ) -> QuestionUsageDict:
         """Get all assessments that include this question.
 
         Args:
@@ -248,11 +262,19 @@ class QuestionService:
             question_id: Question UUID
 
         Returns:
-            List of assessments that include this question
+            Dict containing lists of associated resources
 
         Raises:
             ResourceNotFoundError: If question not found
             UnauthorizedAccessError: If user doesn't own the question
         """
         await self.get_owned_question(user_id, question_id)
-        return await self.assoc_repo.get_assessments_by_question_id(question_id)
+        assessments = await self.assessment_assoc_repo.get_assessments_by_question_id(
+            question_id
+        )
+        question_banks = (
+            await self.question_bank_assoc_repo.get_question_banks_by_question_id(
+                question_id
+            )
+        )
+        return {"assessments": assessments, "question_banks": question_banks}

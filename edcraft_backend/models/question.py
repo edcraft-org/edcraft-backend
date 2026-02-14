@@ -11,6 +11,7 @@ from edcraft_backend.models.base import EntityBase
 
 if TYPE_CHECKING:
     from edcraft_backend.models.assessment_question import AssessmentQuestion
+    from edcraft_backend.models.question_bank_question import QuestionBankQuestion
     from edcraft_backend.models.question_data import MCQData, MRQData, ShortAnswerData
     from edcraft_backend.models.question_template import QuestionTemplate
     from edcraft_backend.models.user import User
@@ -72,8 +73,11 @@ class Question(EntityBase):
         lazy="selectin",
     )
 
-    # Many-to-many relationship with assessments
+    # Many-to-many relationship with assessments and question banks
     assessment_associations: Mapped[list["AssessmentQuestion"]] = relationship(
+        back_populates="question", cascade="all, delete-orphan", lazy="selectin"
+    )
+    question_bank_associations: Mapped[list["QuestionBankQuestion"]] = relationship(
         back_populates="question", cascade="all, delete-orphan", lazy="selectin"
     )
 

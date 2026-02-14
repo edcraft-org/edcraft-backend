@@ -1,7 +1,7 @@
 """Factory functions for creating test data."""
 
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -15,6 +15,8 @@ from edcraft_backend.models.assessment_template_question_template import (
 )
 from edcraft_backend.models.folder import Folder
 from edcraft_backend.models.question import Question
+from edcraft_backend.models.question_bank import QuestionBank
+from edcraft_backend.models.question_bank_question import QuestionBankQuestion
 from edcraft_backend.models.question_data import MCQData, MRQData, ShortAnswerData
 from edcraft_backend.models.question_template import QuestionTemplate
 from edcraft_backend.models.user import User
@@ -235,6 +237,40 @@ async def create_test_assessment(
     return assessment
 
 
+async def create_test_question_bank(
+    db: AsyncSession, owner: User, folder: Folder | None = None, **overrides: Any
+) -> QuestionBank:
+    """
+    Create a test question bank with sensible defaults.
+
+    Args:
+        db: Database session
+        owner: User who owns the question bank
+        folder: Folder containing the bank (if None, uses owner's root folder)
+        **overrides: Field overrides (title, description, etc.)
+
+    Returns:
+        Created QuestionBank instance
+    """
+
+    if folder is None:
+        folder = await get_user_root_folder(db, owner)
+
+    unique_id = str(uuid4())[:8]
+    defaults = {
+        "owner_id": owner.id,
+        "folder_id": folder.id,
+        "title": f"Test Question Bank {unique_id}",
+        "description": "Test question bank description",
+    }
+    defaults.update(overrides)
+
+    question_bank = QuestionBank(**defaults)
+    db.add(question_bank)
+    await db.flush()
+    return question_bank
+
+
 async def create_test_question_template(
     db: AsyncSession, owner: User, **overrides: Any
 ) -> QuestionTemplate:
@@ -293,7 +329,7 @@ async def create_test_question_template(
         db.add(target_element)
     else:
         elem_data: dict[str, Any]
-        for i, elem_data in enumerate(target_elements_data): # type: ignore
+        for i, elem_data in enumerate(target_elements_data):  # type: ignore
             # Convert string enum values to actual enum instances
             if isinstance(elem_data.get("element_type"), str):
                 elem_data["element_type"] = TargetElementType(elem_data["element_type"])
@@ -348,24 +384,48 @@ async def create_test_assessment_template(
 
 
 async def link_question_to_assessment(
-    db: AsyncSession, assessment: Assessment, question: Question, order: int = 0
+    db: AsyncSession, assessment_id: UUID, question_id: UUID, order: int = 0
 ) -> AssessmentQuestion:
     """
     Create AssessmentQuestion association linking a question to an assessment.
 
     Args:
         db: Database session
-        assessment: Assessment to link to
-        question: Question to link
+        assessment_id: ID of the assessment to link to
+        question_id: ID of the question to link
         order: Display order of the question in the assessment
 
     Returns:
         Created AssessmentQuestion instance
     """
     assoc = AssessmentQuestion(
-        assessment_id=assessment.id,
-        question_id=question.id,
+        assessment_id=assessment_id,
+        question_id=question_id,
         order=order,
+    )
+    db.add(assoc)
+    await db.flush()
+    return assoc
+
+
+async def link_question_to_question_bank(
+    db: AsyncSession, question_bank_id: UUID, question_id: UUID
+) -> QuestionBankQuestion:
+    """
+    Create QuestionBankQuestion association linking a question to a question bank.
+
+    Args:
+        db: Database session
+        question_bank_id: ID of the question bank to link to
+        question_id: ID of the question to link
+
+    Returns:
+        Created QuestionBankQuestion instance
+    """
+
+    assoc = QuestionBankQuestion(
+        question_bank_id=question_bank_id,
+        question_id=question_id,
     )
     db.add(assoc)
     await db.flush()
@@ -374,8 +434,8 @@ async def link_question_to_assessment(
 
 async def link_question_template_to_assessment_template(
     db: AsyncSession,
-    assessment_template: AssessmentTemplate,
-    question_template: QuestionTemplate,
+    assessment_template_id: UUID,
+    question_template_id: UUID,
     order: int = 0,
 ) -> AssessmentTemplateQuestionTemplate:
     """
@@ -383,16 +443,16 @@ async def link_question_template_to_assessment_template(
 
     Args:
         db: Database session
-        assessment_template: Assessment template to link to
-        question_template: Question template to link
+        assessment_template_id: ID of the assessment template to link to
+        question_template_id: ID of the question template to link
         order: Display order of the question template in the assessment template
 
     Returns:
         Created AssessmentTemplateQuestionTemplate instance
     """
     assoc = AssessmentTemplateQuestionTemplate(
-        assessment_template_id=assessment_template.id,
-        question_template_id=question_template.id,
+        assessment_template_id=assessment_template_id,
+        question_template_id=question_template_id,
         order=order,
     )
     db.add(assoc)
@@ -484,7 +544,7 @@ async def create_assessment_with_questions(
             db, owner, question_text=f"Question {i + 1} in assessment?"
         )
         questions.append(question)
-        await link_question_to_assessment(db, assessment, question, order=i)
+        await link_question_to_assessment(db, assessment.id, question.id, order=i)
 
     return assessment, questions
 
@@ -512,7 +572,7 @@ async def create_assessment_template_with_question_templates(
         )
         question_templates.append(question_template)
         await link_question_template_to_assessment_template(
-            db, assessment_template, question_template, order=i
+            db, assessment_template.id, question_template.id, order=i
         )
 
     return assessment_template, question_templates

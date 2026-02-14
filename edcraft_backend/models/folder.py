@@ -11,13 +11,14 @@ from edcraft_backend.models.base import EntityBase
 if TYPE_CHECKING:
     from edcraft_backend.models.assessment import Assessment
     from edcraft_backend.models.assessment_template import AssessmentTemplate
+    from edcraft_backend.models.question_bank import QuestionBank
     from edcraft_backend.models.user import User
 
 
 class Folder(EntityBase):
     """
     Folder model with tree structure.
-    Can contain: sub-folders, assessments, assessment_templates
+    Can contain: sub-folders, assessments, assessment_templates, question_banks
     """
 
     __tablename__ = "folders"
@@ -50,6 +51,9 @@ class Folder(EntityBase):
         back_populates="folder", cascade="all, delete-orphan", lazy="selectin"
     )
     assessment_templates: Mapped[list["AssessmentTemplate"]] = relationship(
+        back_populates="folder", cascade="all, delete-orphan", lazy="selectin"
+    )
+    question_banks: Mapped[list["QuestionBank"]] = relationship(
         back_populates="folder", cascade="all, delete-orphan", lazy="selectin"
     )
 

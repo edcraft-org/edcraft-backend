@@ -4,16 +4,15 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from edcraft_backend.models.assessment_question import AssessmentQuestion
 from edcraft_backend.models.user import User
-from edcraft_backend.repositories.assessment_question_repository import (
-    AssessmentQuestionRepository,
-)
 from tests.factories import (
     create_test_assessment,
     create_test_question,
+    create_test_question_bank,
     create_test_question_template,
     create_test_user,
+    link_question_to_assessment,
+    link_question_to_question_bank,
 )
 
 
@@ -204,12 +203,7 @@ class TestUpdateQuestion:
         )
         await db_session.commit()
 
-        update_data = {
-            "data": {
-                "options": ["A", "B", "C", "D"],
-                "correct_index": 2
-            }
-        }
+        update_data = {"data": {"options": ["A", "B", "C", "D"], "correct_index": 2}}
         response = await test_client.patch(
             f"/questions/{question.id}", json=update_data
         )
@@ -341,67 +335,61 @@ class TestSoftDeleteQuestion:
 
 @pytest.mark.integration
 @pytest.mark.questions
-class TestGetAssessmentsForQuestion:
-    """Tests for GET /questions/{question_id}/assessments endpoint."""
+class TestGetUsageForQuestion:
+    """Tests for GET /questions/{question_id}/usage endpoint."""
 
     @pytest.mark.asyncio
-    async def test_get_assessments_for_question_success(
+    async def test_get_question_usage_success(
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
-        """Test getting assessments that include a question."""
+        """Test getting question usage returns both assessments and banks."""
         question = await create_test_question(db_session, user)
-        assessment1 = await create_test_assessment(
-            db_session, user, title="Assessment 1"
+        assessment = await create_test_assessment(
+            db_session, user, title="Test Assessment"
         )
-        assessment2 = await create_test_assessment(
-            db_session, user, title="Assessment 2"
+        question_bank = await create_test_question_bank(
+            db_session, user, title="Test Bank"
         )
         await db_session.commit()
 
-        # Link question to both assessments
-        assoc_repo = AssessmentQuestionRepository(db_session)
-        assoc1 = AssessmentQuestion(
-            assessment_id=assessment1.id, question_id=question.id, order=0
-        )
-        assoc2 = AssessmentQuestion(
-            assessment_id=assessment2.id, question_id=question.id, order=0
-        )
-        await assoc_repo.create(assoc1)
-        await assoc_repo.create(assoc2)
+        await link_question_to_assessment(db_session, assessment.id, question.id)
+        await link_question_to_question_bank(db_session, question_bank.id, question.id)
         await db_session.commit()
 
-        # Get assessments for question
-        response = await test_client.get(f"/questions/{question.id}/assessments")
+        response = await test_client.get(f"/questions/{question.id}/usage")
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 2
-        assessment_ids = [a["id"] for a in data]
-        assert str(assessment1.id) in assessment_ids
-        assert str(assessment2.id) in assessment_ids
-        assert "title" in data[0]
+
+        assert "assessments" in data
+        assert "question_banks" in data
+
+        assert len(data["assessments"]) == 1
+        assert len(data["question_banks"]) == 1
+        assert data["assessments"][0]["id"] == str(assessment.id)
+        assert data["question_banks"][0]["id"] == str(question_bank.id)
 
     @pytest.mark.asyncio
-    async def test_get_assessments_for_question_unauthorized(
+    async def test_get_question_usage_unauthorized(
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
-        """Test accessing assessments for question not owned by current user."""
+        """Test accessing question usage for question not owned by current user."""
         other_user = await create_test_user(db_session, email="other@test.com")
         question = await create_test_question(db_session, other_user)
         await db_session.commit()
 
-        response = await test_client.get(f"/questions/{question.id}/assessments")
+        response = await test_client.get(f"/questions/{question.id}/usage")
 
         assert response.status_code == 403
 
     @pytest.mark.asyncio
-    async def test_get_assessments_for_question_not_found(
+    async def test_get_question_usage_not_found(
         self, test_client: AsyncClient, user: User
     ) -> None:
-        """Test getting assessments for non-existent question."""
+        """Test getting question usage for non-existent question."""
         import uuid
 
         non_existent_id = uuid.uuid4()
-        response = await test_client.get(f"/questions/{non_existent_id}/assessments")
+        response = await test_client.get(f"/questions/{non_existent_id}/usage")
 
         assert response.status_code == 404
