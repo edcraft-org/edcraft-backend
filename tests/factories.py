@@ -19,6 +19,10 @@ from edcraft_backend.models.question_bank import QuestionBank
 from edcraft_backend.models.question_bank_question import QuestionBankQuestion
 from edcraft_backend.models.question_data import MCQData, MRQData, ShortAnswerData
 from edcraft_backend.models.question_template import QuestionTemplate
+from edcraft_backend.models.question_template_bank import QuestionTemplateBank
+from edcraft_backend.models.question_template_bank_question_template import (
+    QuestionTemplateBankQuestionTemplate,
+)
 from edcraft_backend.models.user import User
 
 # Auth Helpers
@@ -380,6 +384,39 @@ async def create_test_assessment_template(
     return template
 
 
+async def create_test_question_template_bank(
+    db: AsyncSession, owner: User, folder: Folder | None = None, **overrides: Any
+) -> QuestionTemplateBank:
+    """
+    Create a test question template bank with sensible defaults.
+
+    Args:
+        db: Database session
+        owner: User who owns the question template bank
+        folder: Folder containing the bank (if None, uses owner's root folder)
+        **overrides: Field overrides (title, description, etc.)
+
+    Returns:
+        Created QuestionTemplateBank instance
+    """
+    if folder is None:
+        folder = await get_user_root_folder(db, owner)
+
+    unique_id = str(uuid4())[:8]
+    defaults = {
+        "owner_id": owner.id,
+        "folder_id": folder.id,
+        "title": f"Test Question Template Bank {unique_id}",
+        "description": "Test question template bank description",
+    }
+    defaults.update(overrides)
+
+    question_template_bank = QuestionTemplateBank(**defaults)
+    db.add(question_template_bank)
+    await db.flush()
+    return question_template_bank
+
+
 # Relationship Factories
 
 
@@ -454,6 +491,29 @@ async def link_question_template_to_assessment_template(
         assessment_template_id=assessment_template_id,
         question_template_id=question_template_id,
         order=order,
+    )
+    db.add(assoc)
+    await db.flush()
+    return assoc
+
+
+async def link_question_template_to_question_template_bank(
+    db: AsyncSession, question_template_bank_id: UUID, question_template_id: UUID
+) -> QuestionTemplateBankQuestionTemplate:
+    """
+    Create association linking a question template to a question template bank.
+
+    Args:
+        db: Database session
+        question_template_bank_id: ID of the question template bank to link to
+        question_template_id: ID of the question template to link
+
+    Returns:
+        Created QuestionTemplateBankQuestionTemplate instance
+    """
+    assoc = QuestionTemplateBankQuestionTemplate(
+        question_template_bank_id=question_template_bank_id,
+        question_template_id=question_template_id,
     )
     db.add(assoc)
     await db.flush()
@@ -576,3 +636,32 @@ async def create_assessment_template_with_question_templates(
         )
 
     return assessment_template, question_templates
+
+
+async def create_question_template_bank_with_templates(
+    db: AsyncSession, owner: User, num_templates: int = 3
+) -> tuple[QuestionTemplateBank, list[QuestionTemplate]]:
+    """
+    Create a question template bank with linked question templates.
+
+    Args:
+        db: Database session
+        owner: User who owns the templates
+        num_templates: Number of question templates to create and link
+
+    Returns:
+        Tuple of (QuestionTemplateBank, list of QuestionTemplates)
+    """
+    question_template_bank = await create_test_question_template_bank(db, owner)
+    question_templates = []
+
+    for i in range(num_templates):
+        question_template = await create_test_question_template(
+            db, owner, question_text=f"Bank template question {i + 1}?"
+        )
+        question_templates.append(question_template)
+        await link_question_template_to_question_template_bank(
+            db, question_template_bank.id, question_template.id
+        )
+
+    return question_template_bank, question_templates

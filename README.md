@@ -193,78 +193,21 @@ docker compose logs -f backend
 
 ## Project Structure
 
-```
-edcraft-backend/
-├── edcraft_backend/
-│   ├── __init__.py
-│   ├── main.py                  # FastAPI app initialization
-│   ├── database.py              # Database session management
-│   ├── dependencies.py          # Shared FastAPI dependencies (auth, db)
-│   ├── exceptions.py            # Custom exception classes
-│   ├── forms_config.json        # Form configuration (JSON)
-│   ├── config/                  # Configuration management
-│   │   ├── __init__.py
-│   │   ├── environments.py      # Environment enum
-│   │   └── settings.py          # Pydantic settings
-│   ├── models/                  # SQLAlchemy database models
-│   │   ├── user.py
-│   │   ├── refresh_token.py
-│   │   ├── oauth_account.py
-│   │   ├── folder.py
-│   │   ├── assessment.py
-│   │   ├── assessment_question.py
-│   │   ├── question_bank.py
-│   │   ├── question_bank_question.py
-│   │   ├── question.py
-│   │   ├── assessment_template.py
-│   │   ├── assessment_template_question_template.py
-│   │   └── question_template.py
-│   ├── routers/                 # API route handlers
-│   │   ├── auth.py
-│   │   ├── users.py
-│   │   ├── folders.py
-│   │   ├── assessments.py
-│   │   ├── question_banks.py
-│   │   ├── questions.py
-│   │   ├── assessment_templates.py
-│   │   ├── question_templates.py
-│   │   └── question_generation.py
-│   ├── schemas/                 # Pydantic models for validation
-│   │   ├── user.py
-│   │   ├── auth.py
-│   │   ├── folder.py
-│   │   ├── assessment.py
-│   │   ├── question_bank.py
-│   │   ├── question.py
-│   │   ├── assessment_template.py
-│   │   ├── question_template.py
-│   │   ├── code_info.py
-│   │   ├── form_builder.py
-│   │   └── question_generation.py
-│   ├── services/                # Business logic
-│   │   ├── auth_service.py
-│   │   ├── oauth_service.py
-│   │   ├── user_service.py
-│   │   ├── folder_service.py
-│   │   ├── assessment_service.py
-│   │   ├── question_bank_service.py
-│   │   ├── question_service.py
-│   │   ├── assessment_template_service.py
-│   │   ├── question_template_service.py
-│   │   ├── code_analysis_service.py
-│   │   ├── form_builder_service.py
-│   │   └── question_generation_service.py
-│   ├── security/                # JWT and password utilities
-│   └── oauth/                   # OAuth provider configuration
-├── alembic/                     # Database migrations
-│   └── versions/
-├── tests/                       # Test suite
-│   └── __init__.py
-├── docker-compose.yml           # PostgreSQL container
-├── Makefile                     # Development commands
-├── pyproject.toml               # Project configuration
-└── README.md
-```
+The application follows a layered architecture pattern:
+
+- **`edcraft_backend/`** - Main application package
+  - **`config/`** - Environment-based configuration management using Pydantic settings
+  - **`models/`** - SQLAlchemy ORM models for database entities (users, assessments, questions, templates, etc.)
+  - **`routers/`** - FastAPI route handlers organized by resource (auth, users, assessments, questions, etc.)
+  - **`schemas/`** - Pydantic models for request/response validation and serialization
+  - **`services/`** - Business logic layer separating concerns from route handlers
+  - **`security/`** - JWT authentication and password hashing utilities
+  - **`oauth/`** - OAuth 2.0 provider integrations
+  - Core files: `main.py` (app initialization), `database.py` (session management), `dependencies.py` (shared dependencies)
+
+- **`alembic/`** - Database migration scripts managed by Alembic
+- **`tests/`** - Test suite
+- **Configuration files**: `docker-compose.yml`, `Makefile`, `pyproject.toml`
 
 ## Database
 
@@ -371,11 +314,13 @@ erDiagram
     users ||--o{ assessment_templates : "owns"
     users ||--o{ questions : "owns"
     users ||--o{ question_templates : "owns"
+    users ||--o{ question_template_banks : "owns"
 
     folders ||--o{ folders : "contains (parent-child)"
     folders ||--o{ assessments : "contains"
     folders ||--o{ assessment_templates : "contains"
     folders ||--o{ question_banks : "contains"
+    folders ||--o{ question_template_banks : "contains"
 
     assessments ||--o{ assessment_questions : "has"
     questions ||--o{ assessment_questions : "belongs to"
@@ -385,6 +330,9 @@ erDiagram
 
     assessment_templates ||--o{ assessment_template_question_templates : "has"
     question_templates ||--o{ assessment_template_question_templates : "belongs to"
+
+    question_template_banks ||--o{ question_template_bank_question_templates : "has"
+    question_templates ||--o{ question_template_bank_question_templates : "belongs to"
 
     question_templates ||--o{ questions : "generates"
 
@@ -476,6 +424,17 @@ erDiagram
         datetime added_at
     }
 
+    question_template_banks {
+        uuid id PK
+        uuid owner_id FK
+        uuid folder_id FK "nullable"
+        string title
+        text description "nullable"
+        datetime created_at
+        datetime updated_at
+        datetime deleted_at "soft delete"
+    }
+
     assessment_templates {
         uuid id PK
         uuid owner_id FK
@@ -503,6 +462,12 @@ erDiagram
         uuid question_template_id FK,PK
         int order
         datetime created_at
+    }
+
+    question_template_bank_question_templates {
+        uuid question_template_bank_id FK,PK
+        uuid question_template_id FK,PK
+        datetime added_at
     }
 ```
 
@@ -568,10 +533,15 @@ The application uses a comprehensive database schema for managing assessments, q
 - **AssessmentTemplate** ([assessment_template.py](edcraft_backend/models/assessment_template.py)) - Collection of question templates, serves as question template bank
   - Many-to-many relationship with question templates
 
+- **QuestionTemplateBank** ([question_template_bank.py](edcraft_backend/models/question_template_bank.py)) - Reusable storage for question templates
+  - Many-to-many relationship with question templates
+  - Templates can be shared across multiple banks and assessment templates
+
 - **QuestionTemplate** ([question_template.py](edcraft_backend/models/question_template.py)) - Blueprint for creating questions
   - Hybrid structure: fixed columns + JSON for flexibility
   - Used to generate Question instances
-  - Questions templates must belong to an assessment template
+  - Can belong to assessment templates and/or question template banks
+  - **Orphan Cleanup:** Templates are automatically soft-deleted when removed from ALL assessment templates AND question template banks
 
 - **AssessmentTemplateQuestionTemplate** ([assessment_template_question_template.py](edcraft_backend/models/assessment_template_question_template.py)) - Association table
   - Tracks template ordering within assessment templates (0-indexed)
@@ -584,6 +554,10 @@ The application uses a comprehensive database schema for managing assessments, q
     - Valid order range: 0 to current question template count (inclusive)
     - Omit order parameter to append to the end
     - Automatic normalization after deletions to maintain consecutive ordering
+
+- **QuestionTemplateBankQuestionTemplate** ([question_template_bank_question_template.py](edcraft_backend/models/question_template_bank_question_template.py)) - Association table for question template banks
+  - Links question templates to question template banks (no ordering)
+  - Unique constraint: Each question template can only be added once per bank
 
 **Working with Models:**
 
@@ -768,25 +742,19 @@ Full endpoint reference is auto-generated at http://127.0.0.1:8000/docs. Key non
 - Question templates support ordered insertion: omit `order` to append, or specify to insert at position (others shift down)
 - Reorder endpoints require all items to be included with unique orders
 
+**Question Template Banks** (`/question-template-banks`, all require auth)
+- Reusable collections of question templates without ordering
+- Question templates can be added, linked, or removed from banks
+- Templates can be shared across multiple banks and assessment templates
+- Deleting a question template bank preserves its templates if they're still used in assessment templates or other banks
+- **Orphan Cleanup:** Templates are automatically soft-deleted only when removed from ALL banks and assessment templates
+
 **Question Templates**
 - `template_config` structure: `{code, question_spec, generation_options, entry_function}`
 
 **Question Generation**
 - `generate-template` returns a preview with placeholder values (e.g. `<option_1>`) and `template_config` for future template creation
 - `assessment-from-template`: `question_inputs` array length must match the number of question templates in the assessment template; `title`/`description` default to template values if omitted
-
-## Architecture
-
-The codebase follows a clean layered architecture:
-
-1. **Routers Layer** (`routers/`) - HTTP request/response handling
-2. **Services Layer** (`services/`) - Business logic and orchestration
-3. **Schemas Layer** (`schemas/`) - Data models and validation
-4. **Models Layer** (`models/`) - Database models and ORM mappings
-5. **Repositories Layer** (`repositories/`) - Data access and database operations
-6. **Security** (`security/`) - JWT creation/validation and password hashing
-7. **OAuth** (`oauth/`) - OAuth provider configuration and user info fetching
-8. **Exceptions** - Custom error handling
 
 ## License
 

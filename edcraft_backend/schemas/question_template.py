@@ -1,6 +1,9 @@
 """Question template schemas for request/response validation."""
 
+from __future__ import annotations
+
 from datetime import datetime
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, model_validator
@@ -10,6 +13,12 @@ from edcraft_backend.utils.code_parser import (
     EntryFunctionParams,
     parse_function_parameters,
 )
+
+if TYPE_CHECKING:
+    from edcraft_backend.schemas.assessment_template import AssessmentTemplateResponse
+    from edcraft_backend.schemas.question_template_bank import (
+        QuestionTemplateBankResponse,
+    )
 
 
 class CreateTargetElementRequest(BaseModel):
@@ -95,9 +104,18 @@ class QuestionTemplateResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     @model_validator(mode="after")
-    def parse_entry_function_params(self) -> "QuestionTemplateResponse":
+    def parse_entry_function_params(self) -> QuestionTemplateResponse:
         """Parse and populate entry_function_params from template_config."""
         self.entry_function_params = parse_function_parameters(
             self.code, self.entry_function
         )
         return self
+
+
+class QuestionTemplateUsageResponse(BaseModel):
+    """Schema for question template usage information."""
+
+    assessment_templates: list[AssessmentTemplateResponse] = []
+    question_template_banks: list[QuestionTemplateBankResponse] = []
+
+    model_config = ConfigDict(from_attributes=True)

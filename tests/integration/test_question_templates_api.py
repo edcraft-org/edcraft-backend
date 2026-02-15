@@ -6,17 +6,14 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from edcraft_backend.models.assessment_template_question_template import (
-    AssessmentTemplateQuestionTemplate,
-)
 from edcraft_backend.models.user import User
-from edcraft_backend.repositories.assessment_template_question_template_repository import (
-    AssessmentTemplateQuestionTemplateRepository,
-)
 from tests.factories import (
     create_test_assessment_template,
     create_test_question_template,
+    create_test_question_template_bank,
     create_test_user,
+    link_question_template_to_assessment_template,
+    link_question_template_to_question_template_bank,
 )
 
 
@@ -368,14 +365,14 @@ class TestSoftDeleteQuestionTemplate:
 
 @pytest.mark.integration
 @pytest.mark.question_templates
-class TestGetAssessmentTemplatesForQuestionTemplate:
-    """Tests for GET /question-templates/{id}/assessment-templates endpoint."""
+class TestGetQuestionTemplateUsage:
+    """Tests for GET /question-templates/{id}/usage endpoint."""
 
     @pytest.mark.asyncio
-    async def test_get_assessment_templates_for_question_template_success(
+    async def test_get_question_template_usage_success(
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
-        """Test getting assessment templates that include a question template."""
+        """Test getting usage information for a question template."""
         question_template = await create_test_question_template(db_session, user)
         assessment_template1 = await create_test_assessment_template(
             db_session, user, title="Assessment Template 1"
@@ -383,62 +380,75 @@ class TestGetAssessmentTemplatesForQuestionTemplate:
         assessment_template2 = await create_test_assessment_template(
             db_session, user, title="Assessment Template 2"
         )
+        question_template_bank1 = await create_test_question_template_bank(
+            db_session, user, title="Question Template Bank 1"
+        )
+        question_template_bank2 = await create_test_question_template_bank(
+            db_session, user, title="Question Template Bank 2"
+        )
         await db_session.commit()
 
         # Link question template to both assessment templates
-        assoc_repo = AssessmentTemplateQuestionTemplateRepository(db_session)
-        assoc1 = AssessmentTemplateQuestionTemplate(
-            assessment_template_id=assessment_template1.id,
-            question_template_id=question_template.id,
-            order=0,
+        await link_question_template_to_assessment_template(
+            db_session, assessment_template1.id, question_template.id
         )
-        assoc2 = AssessmentTemplateQuestionTemplate(
-            assessment_template_id=assessment_template2.id,
-            question_template_id=question_template.id,
-            order=0,
+        await link_question_template_to_assessment_template(
+            db_session, assessment_template2.id, question_template.id
         )
-        await assoc_repo.create(assoc1)
-        await assoc_repo.create(assoc2)
+        await link_question_template_to_question_template_bank(
+            db_session, question_template_bank1.id, question_template.id
+        )
+        await link_question_template_to_question_template_bank(
+            db_session, question_template_bank2.id, question_template.id
+        )
         await db_session.commit()
 
-        # Get assessment templates for question template
+        # Get usage information for question template
         response = await test_client.get(
-            f"/question-templates/{question_template.id}/assessment-templates",
+            f"/question-templates/{question_template.id}/usage",
         )
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 2
-        template_ids = [t["id"] for t in data]
+
+        assert "assessment_templates" in data
+        assert "question_template_banks" in data
+
+        assert len(data["assessment_templates"]) == 2
+        template_ids = [t["id"] for t in data["assessment_templates"]]
         assert str(assessment_template1.id) in template_ids
         assert str(assessment_template2.id) in template_ids
-        assert "title" in data[0]
+
+        assert len(data["question_template_banks"]) == 2
+        bank_ids = [b["id"] for b in data["question_template_banks"]]
+        assert str(question_template_bank1.id) in bank_ids
+        assert str(question_template_bank2.id) in bank_ids
 
     @pytest.mark.asyncio
-    async def test_get_assessment_templates_for_question_template_unauthorized(
+    async def test_get_question_template_usage_unauthorized(
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
-        """Test accessing assessment templates for question template not owned by current user."""
+        """Test accessing usage information for question template not owned by current user."""
         other_user = await create_test_user(db_session, email="other@test.com")
         question_template = await create_test_question_template(db_session, other_user)
         await db_session.commit()
 
         response = await test_client.get(
-            f"/question-templates/{question_template.id}/assessment-templates",
+            f"/question-templates/{question_template.id}/usage",
         )
 
         assert response.status_code == 403
 
     @pytest.mark.asyncio
-    async def test_get_assessment_templates_for_question_template_not_found(
+    async def test_get_question_template_usage_not_found(
         self, test_client: AsyncClient, user: User
     ) -> None:
-        """Test getting assessment templates for non-existent question template."""
+        """Test getting usage information for non-existent question template."""
         import uuid
 
         non_existent_id = uuid.uuid4()
         response = await test_client.get(
-            f"/question-templates/{non_existent_id}/assessment-templates",
+            f"/question-templates/{non_existent_id}/usage",
         )
 
         assert response.status_code == 404

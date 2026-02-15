@@ -16,6 +16,7 @@ from edcraft_backend.routers import (
     folders,
     question_bank,
     question_generation,
+    question_template_banks,
     question_templates,
     questions,
     users,
@@ -72,6 +73,7 @@ app.include_router(assessments.router)
 app.include_router(question_templates.router)
 app.include_router(assessment_templates.router)
 app.include_router(question_bank.router)
+app.include_router(question_template_banks.router)
 
 
 @app.get("/")

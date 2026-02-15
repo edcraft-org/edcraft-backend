@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict
 from edcraft_backend.schemas.assessment import AssessmentResponse
 from edcraft_backend.schemas.assessment_template import AssessmentTemplateResponse
 from edcraft_backend.schemas.question_bank import QuestionBankResponse
+from edcraft_backend.schemas.question_template_bank import QuestionTemplateBankResponse
 
 
 class CreateFolderRequest(BaseModel):
@@ -80,6 +81,7 @@ class FolderWithContentsResponse(BaseModel):
     assessments: list["AssessmentResponse"] = []
     assessment_templates: list["AssessmentTemplateResponse"] = []
     question_banks: list["QuestionBankResponse"] = []
+    question_template_banks: list["QuestionTemplateBankResponse"] = []
     folders: list["FolderResponse"] = []
 
     model_config = ConfigDict(from_attributes=True)

@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from edcraft_backend.models.assessment import Assessment
     from edcraft_backend.models.assessment_template import AssessmentTemplate
     from edcraft_backend.models.question_bank import QuestionBank
+    from edcraft_backend.models.question_template_bank import QuestionTemplateBank
     from edcraft_backend.models.user import User
 
 
@@ -54,6 +55,9 @@ class Folder(EntityBase):
         back_populates="folder", cascade="all, delete-orphan", lazy="selectin"
     )
     question_banks: Mapped[list["QuestionBank"]] = relationship(
+        back_populates="folder", cascade="all, delete-orphan", lazy="selectin"
+    )
+    question_template_banks: Mapped[list["QuestionTemplateBank"]] = relationship(
         back_populates="folder", cascade="all, delete-orphan", lazy="selectin"
     )
 

@@ -6,11 +6,14 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from edcraft_backend.models.question_template import QuestionTemplate
 from edcraft_backend.models.user import User
 from tests.factories import (
     create_test_assessment_template,
     create_test_folder,
     create_test_question_template,
+    create_test_question_template_bank,
+    link_question_template_to_question_template_bank,
 )
 
 
@@ -423,6 +426,55 @@ class TestSoftDeleteAssessmentTemplate:
             shared_qt_db.deleted_at is None
         ), "Shared question template should still be active"
 
+    @pytest.mark.asyncio
+    async def test_delete_template_preserves_question_template_still_in_use(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that deleting assessment template doesn't delete question template still used."""
+        from sqlalchemy import select
+
+
+        # Create assessment template and question template bank
+        assessment = await create_test_assessment_template(db_session, user)
+        question_bank = await create_test_question_template_bank(
+            db_session, user, title="Test Question Template Bank"
+        )
+
+        # Create a question used in both assessment template and question template bank
+        shared_question = await create_test_question_template(
+            db_session,
+            user,
+            question_text="Question in both assessment template and bank",
+        )
+        await db_session.commit()
+
+        # Link question to both assessment template and question template bank
+        await test_client.post(
+            f"/assessment-templates/{assessment.id}/question-templates/link",
+            json={"question_template_id": str(shared_question.id)},
+        )
+        await link_question_template_to_question_template_bank(
+            db_session, question_bank.id, shared_question.id
+        )
+        await db_session.commit()
+
+        # Delete the assessment
+        response = await test_client.delete(f"/assessment-templates/{assessment.id}")
+        assert response.status_code == 204
+
+        # Verify the question is still active (not deleted)
+        shared_q_id = shared_question.id
+        db_session.expire_all()
+
+        result = await db_session.execute(
+            select(QuestionTemplate).where(QuestionTemplate.id == shared_q_id)
+        )
+        question = result.scalar_one_or_none()
+        assert question is not None
+        assert (
+            question.deleted_at is None
+        ), "Question template should remain active when still used in question template bank"
+
 
 @pytest.mark.integration
 @pytest.mark.assessment_templates
@@ -478,78 +530,75 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
 
         # Insert question templates with specific order
         qt_data_1: dict[str, Any] = {
-                "question_template": {
-                    "question_type": "mcq",
-                    "question_text": "Question 1?",
-                    "code": "def example1(n):\n    return n * 2",
-                    "entry_function": "example1",
-                    "num_distractors": 4,
-                    "output_type": "first",
-                    "target_elements": [
-                        {
-                            "element_type": "function",
-                            "id_list": [0],
-                            "name": "example1",
-                            "line_number": 1,
-                            "modifier": "return_value",
-                        }
-                    ],
-                },
-                "order": 0,
-            }
+            "question_template": {
+                "question_type": "mcq",
+                "question_text": "Question 1?",
+                "code": "def example1(n):\n    return n * 2",
+                "entry_function": "example1",
+                "num_distractors": 4,
+                "output_type": "first",
+                "target_elements": [
+                    {
+                        "element_type": "function",
+                        "id_list": [0],
+                        "name": "example1",
+                        "line_number": 1,
+                        "modifier": "return_value",
+                    }
+                ],
+            },
+            "order": 0,
+        }
         await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates",
-            json=qt_data_1
+            f"/assessment-templates/{template.id}/question-templates", json=qt_data_1
         )
 
         qt_data_2: dict[str, Any] = {
-                "question_template": {
-                    "question_type": "mcq",
-                    "question_text": "Question 2?",
-                    "code": "def example2(n):\n    return n * 3",
-                    "entry_function": "example2",
-                    "num_distractors": 4,
-                    "output_type": "first",
-                    "target_elements": [
-                        {
-                            "element_type": "function",
-                            "id_list": [0],
-                            "name": "example2",
-                            "line_number": 1,
-                            "modifier": "return_value",
-                        }
-                    ],
-                },
-                "order": 1,
-            }
+            "question_template": {
+                "question_type": "mcq",
+                "question_text": "Question 2?",
+                "code": "def example2(n):\n    return n * 3",
+                "entry_function": "example2",
+                "num_distractors": 4,
+                "output_type": "first",
+                "target_elements": [
+                    {
+                        "element_type": "function",
+                        "id_list": [0],
+                        "name": "example2",
+                        "line_number": 1,
+                        "modifier": "return_value",
+                    }
+                ],
+            },
+            "order": 1,
+        }
         await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates",
-            json=qt_data_2
+            f"/assessment-templates/{template.id}/question-templates", json=qt_data_2
         )
 
         qt_data_3: dict[str, Any] = {
-                "question_template": {
-                    "question_type": "mcq",
-                    "question_text": "Question 3?",
-                    "code": "def example3(n):\n    return n * 4",
-                    "entry_function": "example3",
-                    "num_distractors": 4,
-                    "output_type": "first",
-                    "target_elements": [
-                        {
-                            "element_type": "function",
-                            "id_list": [0],
-                            "name": "example3",
-                            "line_number": 1,
-                            "modifier": "return_value",
-                        }
-                    ],
-                },
-                "order": 2,
-            }
+            "question_template": {
+                "question_type": "mcq",
+                "question_text": "Question 3?",
+                "code": "def example3(n):\n    return n * 4",
+                "entry_function": "example3",
+                "num_distractors": 4,
+                "output_type": "first",
+                "target_elements": [
+                    {
+                        "element_type": "function",
+                        "id_list": [0],
+                        "name": "example3",
+                        "line_number": 1,
+                        "modifier": "return_value",
+                    }
+                ],
+            },
+            "order": 2,
+        }
         response = await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates",
-            json=qt_data_3
+            f"/assessment-templates/{template.id}/question-templates", json=qt_data_3
         )
 
         assert response.status_code == 201
@@ -779,7 +828,10 @@ class TestLinkQuestionTemplateToAssessmentTemplate:
         import uuid
 
         non_existent_template_id = uuid.uuid4()
-        qt_data: dict[str, Any] = {"question_template_id": str(uuid.uuid4()), "order": 0}
+        qt_data: dict[str, Any] = {
+            "question_template_id": str(uuid.uuid4()),
+            "order": 0,
+        }
         response = await test_client.post(
             f"/assessment-templates/{non_existent_template_id}/question-templates/link",
             json=qt_data,
@@ -798,7 +850,10 @@ class TestLinkQuestionTemplateToAssessmentTemplate:
         await db_session.commit()
 
         non_existent_qt_id = uuid.uuid4()
-        qt_data: dict[str, Any] = {"question_template_id": str(non_existent_qt_id), "order": 0}
+        qt_data: dict[str, Any] = {
+            "question_template_id": str(non_existent_qt_id),
+            "order": 0,
+        }
         response = await test_client.post(
             f"/assessment-templates/{template.id}/question-templates/link", json=qt_data
         )
@@ -811,8 +866,12 @@ class TestLinkQuestionTemplateToAssessmentTemplate:
     ) -> None:
         """Test that linking question template at existing order shifts other templates down."""
         template = await create_test_assessment_template(db_session, user)
-        qt1 = await create_test_question_template(db_session, user, question_text="QT1?")
-        qt2 = await create_test_question_template(db_session, user, question_text="QT2?")
+        qt1 = await create_test_question_template(
+            db_session, user, question_text="QT1?"
+        )
+        qt2 = await create_test_question_template(
+            db_session, user, question_text="QT2?"
+        )
         await db_session.commit()
 
         await test_client.post(
@@ -841,11 +900,21 @@ class TestLinkQuestionTemplateToAssessmentTemplate:
     ) -> None:
         """Test linking question template in middle shifts templates at/after position down."""
         template = await create_test_assessment_template(db_session, user)
-        qt1 = await create_test_question_template(db_session, user, question_text="QT1?")
-        qt2 = await create_test_question_template(db_session, user, question_text="QT2?")
-        qt3 = await create_test_question_template(db_session, user, question_text="QT3?")
-        qt4 = await create_test_question_template(db_session, user, question_text="QT4?")
-        qt_new = await create_test_question_template(db_session, user, question_text="QT_NEW?")
+        qt1 = await create_test_question_template(
+            db_session, user, question_text="QT1?"
+        )
+        qt2 = await create_test_question_template(
+            db_session, user, question_text="QT2?"
+        )
+        qt3 = await create_test_question_template(
+            db_session, user, question_text="QT3?"
+        )
+        qt4 = await create_test_question_template(
+            db_session, user, question_text="QT4?"
+        )
+        qt_new = await create_test_question_template(
+            db_session, user, question_text="QT_NEW?"
+        )
         await db_session.commit()
 
         # Add initial question templates
@@ -884,9 +953,15 @@ class TestLinkQuestionTemplateToAssessmentTemplate:
     ) -> None:
         """Test linking with order > count fails with validation error."""
         template = await create_test_assessment_template(db_session, user)
-        qt1 = await create_test_question_template(db_session, user, question_text="QT1?")
-        qt2 = await create_test_question_template(db_session, user, question_text="QT2?")
-        qt_new = await create_test_question_template(db_session, user, question_text="QT_NEW?")
+        qt1 = await create_test_question_template(
+            db_session, user, question_text="QT1?"
+        )
+        qt2 = await create_test_question_template(
+            db_session, user, question_text="QT2?"
+        )
+        qt_new = await create_test_question_template(
+            db_session, user, question_text="QT_NEW?"
+        )
         await db_session.commit()
 
         # Add two question templates (count=2)
@@ -1009,9 +1084,15 @@ class TestRemoveQuestionTemplateFromAssessmentTemplate:
     ) -> None:
         """Test that removing a question template normalizes remaining orders."""
         template = await create_test_assessment_template(db_session, user)
-        qt1 = await create_test_question_template(db_session, user, question_text="QT1?")
-        qt2 = await create_test_question_template(db_session, user, question_text="QT2?")
-        qt3 = await create_test_question_template(db_session, user, question_text="QT3?")
+        qt1 = await create_test_question_template(
+            db_session, user, question_text="QT1?"
+        )
+        qt2 = await create_test_question_template(
+            db_session, user, question_text="QT2?"
+        )
+        qt3 = await create_test_question_template(
+            db_session, user, question_text="QT3?"
+        )
         await db_session.commit()
 
         await test_client.post(
@@ -1205,7 +1286,9 @@ class TestReorderQuestionTemplates:
         )
 
         assert response.status_code == 400
-        assert "must include all question templates" in response.json()["detail"].lower()
+        assert (
+            "must include all question templates" in response.json()["detail"].lower()
+        )
 
     @pytest.mark.asyncio
     async def test_reorder_question_templates_nonexistent_assessment_template(
@@ -1233,9 +1316,15 @@ class TestReorderQuestionTemplates:
     ) -> None:
         """Test that reorder normalizes orders to 0, 1, 2, 3..."""
         template = await create_test_assessment_template(db_session, user)
-        qt1 = await create_test_question_template(db_session, user, question_text="QT1?")
-        qt2 = await create_test_question_template(db_session, user, question_text="QT2?")
-        qt3 = await create_test_question_template(db_session, user, question_text="QT3?")
+        qt1 = await create_test_question_template(
+            db_session, user, question_text="QT1?"
+        )
+        qt2 = await create_test_question_template(
+            db_session, user, question_text="QT2?"
+        )
+        qt3 = await create_test_question_template(
+            db_session, user, question_text="QT3?"
+        )
         await db_session.commit()
 
         # Add question templates

@@ -1,11 +1,16 @@
+from typing import TypedDict
 from uuid import UUID
 
 from edcraft_backend.exceptions import ResourceNotFoundError, UnauthorizedAccessError
 from edcraft_backend.models.assessment_template import AssessmentTemplate
 from edcraft_backend.models.question_template import QuestionTemplate
+from edcraft_backend.models.question_template_bank import QuestionTemplateBank
 from edcraft_backend.models.target_element import TargetElement
 from edcraft_backend.repositories.assessment_template_question_template_repository import (
     AssessmentTemplateQuestionTemplateRepository,
+)
+from edcraft_backend.repositories.question_template_bank_question_template_repository import (
+    QuestionTemplateBankQuestionTemplateRepository,
 )
 from edcraft_backend.repositories.question_template_repository import (
     QuestionTemplateRepository,
@@ -19,18 +24,27 @@ from edcraft_backend.schemas.question_template import (
 )
 
 
+class QuestionTemplateUsageDict(TypedDict):
+    """Dict type for question template usage."""
+
+    assessment_templates: list[AssessmentTemplate]
+    question_template_banks: list[QuestionTemplateBank]
+
+
 class QuestionTemplateService:
     """Service layer for QuestionTemplate business logic."""
 
     def __init__(
         self,
         question_template_repository: QuestionTemplateRepository,
-        assessment_template_ques_template_repository: AssessmentTemplateQuestionTemplateRepository,
+        assessment_template_qt_repository: AssessmentTemplateQuestionTemplateRepository,
         target_element_repository: TargetElementRepository,
+        qt_bank_qt_repository: QuestionTemplateBankQuestionTemplateRepository,
     ):
         self.template_repo = question_template_repository
-        self.assoc_repo = assessment_template_ques_template_repository
+        self.assessment_template_assoc_repo = assessment_template_qt_repository
         self.target_element_repo = target_element_repository
+        self.qt_bank_assoc_repo = qt_bank_qt_repository
 
     async def create_template(
         self,
@@ -222,25 +236,34 @@ class QuestionTemplateService:
 
         return count
 
-    async def get_assessment_templates_for_question_template(
+    async def get_question_template_usage(
         self,
         user_id: UUID,
         question_template_id: UUID,
-    ) -> list[AssessmentTemplate]:
-        """Get all assessment templates that include this question template.
+    ) -> QuestionTemplateUsageDict:
+        """Get all resources that include this question template.
 
         Args:
             user_id: User UUID requesting resources
             question_template_id: QuestionTemplate UUID
 
         Returns:
-            List of assessment templates that include this question template
+            Dict containing lists of associated resources
 
         Raises:
             ResourceNotFoundError: If question template not found
             UnauthorizedAccessError: If user doesn't own the question template
         """
         await self.get_owned_template(user_id, question_template_id)
-        return await self.assoc_repo.get_assessment_templates_by_question_template_id(
-            question_template_id
+        assessment_templates = await (
+            self.assessment_template_assoc_repo
+            .get_assessment_templates_by_question_template_id(question_template_id)
         )
+        question_template_banks = await (
+            self.qt_bank_assoc_repo
+            .get_question_template_banks_by_question_template_id(question_template_id)
+        )
+        return {
+            "assessment_templates": assessment_templates,
+            "question_template_banks": question_template_banks,
+        }

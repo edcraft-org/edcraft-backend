@@ -62,6 +62,11 @@ from edcraft_backend.schemas.question_template import (
     QuestionTemplateSummaryResponse,
     UpdateQuestionTemplateRequest,
 )
+
+# Question Template Bank schemas
+from edcraft_backend.schemas.question_template_bank import (
+    QuestionTemplateBankResponse,
+)
 from edcraft_backend.schemas.user import (
     UpdateUserRequest,
     UserResponse,
@@ -85,6 +90,8 @@ __all__ = [
     "UpdateQuestionRequest",
     # Question Bank
     "QuestionBankResponse",
+    # Question Template Bank
+    "QuestionTemplateBankResponse",
     # Assessment
     "InsertQuestionIntoAssessmentRequest",
     "CreateAssessmentRequest",
@@ -118,5 +125,7 @@ __all__ = [
 
 # Rebuild models with forward references to resolve them after all schemas are loaded
 from edcraft_backend.schemas.question import QuestionUsageResponse
+from edcraft_backend.schemas.question_template import QuestionTemplateUsageResponse
 
 QuestionUsageResponse.model_rebuild()
+QuestionTemplateUsageResponse.model_rebuild()

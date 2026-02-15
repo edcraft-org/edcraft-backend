@@ -6,16 +6,14 @@ from fastapi import APIRouter, HTTPException, status
 
 from edcraft_backend.dependencies import CurrentUserDep, QuestionTemplateServiceDep
 from edcraft_backend.exceptions import EdCraftBaseException
-from edcraft_backend.models.assessment_template import AssessmentTemplate
 from edcraft_backend.models.question_template import QuestionTemplate
-from edcraft_backend.schemas.assessment_template import (
-    AssessmentTemplateResponse,
-)
 from edcraft_backend.schemas.question_template import (
     QuestionTemplateResponse,
     QuestionTemplateSummaryResponse,
+    QuestionTemplateUsageResponse,
     UpdateQuestionTemplateRequest,
 )
+from edcraft_backend.services.question_template_service import QuestionTemplateUsageDict
 
 router = APIRouter(prefix="/question-templates", tags=["question-templates"])
 
@@ -54,7 +52,9 @@ async def update_question_template(
 ) -> QuestionTemplate:
     """Update a question template."""
     try:
-        return await service.update_template(current_user.id, template_id, template_data)
+        return await service.update_template(
+            current_user.id, template_id, template_data
+        )
     except EdCraftBaseException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
@@ -73,17 +73,17 @@ async def soft_delete_question_template(
 
 
 @router.get(
-    "/{question_template_id}/assessment-templates",
-    response_model=list[AssessmentTemplateResponse],
+    "/{question_template_id}/usage",
+    response_model=QuestionTemplateUsageResponse,
 )
-async def get_assessment_templates_for_question_template(
+async def get_question_template_usage(
     current_user: CurrentUserDep,
     question_template_id: UUID,
     service: QuestionTemplateServiceDep,
-) -> list[AssessmentTemplate]:
-    """Get all assessment templates that include this question template."""
+) -> QuestionTemplateUsageDict:
+    """Get all resources that include this question template."""
     try:
-        return await service.get_assessment_templates_for_question_template(
+        return await service.get_question_template_usage(
             current_user.id, question_template_id
         )
     except EdCraftBaseException as e:

@@ -60,6 +60,7 @@ markers = [
     "question_banks: Question bank router tests",
     "assessments: Assessment router tests",
     "question_templates: Question template router tests",
+    "question_template_banks: Question template bank router tests",
     "assessment_templates: Assessment template router tests",
     "question_generation: Question generation router tests",
 ]

@@ -14,6 +14,9 @@ if TYPE_CHECKING:
         AssessmentTemplateQuestionTemplate,
     )
     from edcraft_backend.models.question import Question
+    from edcraft_backend.models.question_template_bank_question_template import (
+        QuestionTemplateBankQuestionTemplate,
+    )
     from edcraft_backend.models.target_element import TargetElement
     from edcraft_backend.models.user import User
 
@@ -81,6 +84,15 @@ class QuestionTemplate(EntityBase):
             cascade="all, delete-orphan",
             lazy="selectin",
         )
+    )
+
+    # Many-to-many relationship with question template banks
+    question_template_bank_associations: Mapped[
+        list["QuestionTemplateBankQuestionTemplate"]
+    ] = relationship(
+        back_populates="question_template",
+        cascade="all, delete-orphan",
+        lazy="selectin",
     )
 
     def __repr__(self) -> str:

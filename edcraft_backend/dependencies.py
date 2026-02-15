@@ -28,6 +28,12 @@ from edcraft_backend.repositories.question_bank_question_repository import (
 )
 from edcraft_backend.repositories.question_bank_repository import QuestionBankRepository
 from edcraft_backend.repositories.question_repository import QuestionRepository
+from edcraft_backend.repositories.question_template_bank_question_template_repository import (
+    QuestionTemplateBankQuestionTemplateRepository,
+)
+from edcraft_backend.repositories.question_template_bank_repository import (
+    QuestionTemplateBankRepository,
+)
 from edcraft_backend.repositories.question_template_repository import (
     QuestionTemplateRepository,
 )
@@ -50,6 +56,9 @@ from edcraft_backend.services.question_generation_service import (
     QuestionGenerationService,
 )
 from edcraft_backend.services.question_service import QuestionService
+from edcraft_backend.services.question_template_bank_service import (
+    QuestionTemplateBankService,
+)
 from edcraft_backend.services.question_template_service import QuestionTemplateService
 from edcraft_backend.services.user_service import UserService
 
@@ -91,6 +100,13 @@ def get_question_bank_repository(
     return QuestionBankRepository(db)
 
 
+def get_question_template_bank_repository(
+    db: AsyncSession = Depends(get_db),
+) -> QuestionTemplateBankRepository:
+    """Get QuestionTemplateBankRepository instance."""
+    return QuestionTemplateBankRepository(db)
+
+
 def get_assessment_template_repository(
     db: AsyncSession = Depends(get_db),
 ) -> AssessmentTemplateRepository:
@@ -110,6 +126,13 @@ def get_question_bank_question_repository(
 ) -> QuestionBankQuestionRepository:
     """Get QuestionBankQuestionRepository instance."""
     return QuestionBankQuestionRepository(db)
+
+
+def get_question_template_bank_question_template_repository(
+    db: AsyncSession = Depends(get_db),
+) -> QuestionTemplateBankQuestionTemplateRepository:
+    """Get QuestionTemplateBankQuestionTemplateRepository instance."""
+    return QuestionTemplateBankQuestionTemplateRepository(db)
 
 
 def get_assessment_template_question_template_repository(
@@ -178,10 +201,16 @@ def get_question_template_service(
     target_element_repo: TargetElementRepository = Depends(
         get_target_element_repository
     ),
+    qt_bank_qt_repo: QuestionTemplateBankQuestionTemplateRepository = Depends(
+        get_question_template_bank_question_template_repository
+    ),
 ) -> QuestionTemplateService:
     """Get QuestionTemplateService instance."""
     return QuestionTemplateService(
-        template_repo, assessment_template_ques_template_repo, target_element_repo
+        template_repo,
+        assessment_template_ques_template_repo,
+        target_element_repo,
+        qt_bank_qt_repo,
     )
 
 
@@ -196,6 +225,9 @@ def get_folder_service(
     question_template_svc: QuestionTemplateService = Depends(
         get_question_template_service
     ),
+    qt_bank_repo: QuestionTemplateBankRepository = Depends(
+        get_question_template_bank_repository
+    ),
 ) -> FolderService:
     """Get FolderService instance."""
     return FolderService(
@@ -203,6 +235,7 @@ def get_folder_service(
         assessment_repo,
         question_bank_repo,
         assessment_template_repo,
+        qt_bank_repo,
         question_svc,
         question_template_svc,
     )
@@ -241,6 +274,24 @@ def get_question_bank_service(
     """Get QuestionBankService instance."""
     return QuestionBankService(
         question_bank_repo, folder_svc, question_bank_question_repo, question_svc
+    )
+
+
+def get_question_template_bank_service(
+    qt_bank_repo: QuestionTemplateBankRepository = Depends(
+        get_question_template_bank_repository
+    ),
+    folder_svc: FolderService = Depends(get_folder_service),
+    qt_bank_qt_repo: QuestionTemplateBankQuestionTemplateRepository = Depends(
+        get_question_template_bank_question_template_repository
+    ),
+    question_template_svc: QuestionTemplateService = Depends(
+        get_question_template_service
+    ),
+) -> QuestionTemplateBankService:
+    """Get QuestionTemplateBankService instance."""
+    return QuestionTemplateBankService(
+        qt_bank_repo, folder_svc, qt_bank_qt_repo, question_template_svc
     )
 
 
@@ -349,6 +400,10 @@ AssessmentServiceDep = Annotated[AssessmentService, Depends(get_assessment_servi
 QuestionBankServiceDep = Annotated[
     QuestionBankService, Depends(get_question_bank_service)
 ]
+QuestionTemplateBankServiceDep = Annotated[
+    QuestionTemplateBankService,
+    Depends(get_question_template_bank_service),
+]
 AssessmentTemplateServiceDep = Annotated[
     AssessmentTemplateService,
     Depends(get_assessment_template_service),
@@ -376,6 +431,10 @@ AssessmentRepositoryDep = Annotated[
 ]
 QuestionBankRepositoryDep = Annotated[
     QuestionBankRepository, Depends(get_question_bank_repository)
+]
+QuestionTemplateBankRepositoryDep = Annotated[
+    QuestionTemplateBankRepository,
+    Depends(get_question_template_bank_repository),
 ]
 AssessmentTemplateRepositoryDep = Annotated[
     AssessmentTemplateRepository,

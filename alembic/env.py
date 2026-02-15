@@ -22,6 +22,8 @@ from edcraft_backend.models import (  # noqa: F401
     QuestionBank,
     QuestionBankQuestion,
     QuestionTemplate,
+    QuestionTemplateBank,
+    QuestionTemplateBankQuestionTemplate,
     RefreshToken,
     TargetElement,
     User,

@@ -15,6 +15,10 @@ from edcraft_backend.models.question_bank import QuestionBank
 from edcraft_backend.models.question_bank_question import QuestionBankQuestion
 from edcraft_backend.models.question_data import MCQData, MRQData, ShortAnswerData
 from edcraft_backend.models.question_template import QuestionTemplate
+from edcraft_backend.models.question_template_bank import QuestionTemplateBank
+from edcraft_backend.models.question_template_bank_question_template import (
+    QuestionTemplateBankQuestionTemplate,
+)
 from edcraft_backend.models.refresh_token import RefreshToken
 from edcraft_backend.models.target_element import TargetElement
 from edcraft_backend.models.user import User
@@ -41,4 +45,6 @@ __all__ = [
     "EntityBase",
     "QuestionBank",
     "QuestionBankQuestion",
+    "QuestionTemplateBank",
+    "QuestionTemplateBankQuestionTemplate",
 ]
