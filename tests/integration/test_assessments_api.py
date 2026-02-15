@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from edcraft_backend.models.user import User
 from tests.factories import (
+    create_and_login_user,
     create_test_assessment,
     create_test_folder,
     create_test_question,
@@ -40,6 +41,7 @@ class TestCreateAssessment:
         assert response.status_code == 201
         data = response.json()
         assert data["folder_id"] == str(folder.id)
+        assert data["visibility"] == "private"
 
     @pytest.mark.asyncio
     async def test_create_assessment_nonexistent_folder(
@@ -222,6 +224,27 @@ class TestGetAssessment:
 
         assert response.status_code == 404
 
+    @pytest.mark.asyncio
+    async def test_get_public_assessment_by_unauthenticated_user(
+        self, unauth_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that unauthenticated users can access public assessments."""
+        from edcraft_backend.models.enums import AssessmentVisibility
+
+        # Create public assessment
+        assessment = await create_test_assessment(
+            db_session, user, title="Public Assessment"
+        )
+        assessment.visibility = AssessmentVisibility.PUBLIC
+        await db_session.commit()
+
+        response = await unauth_client.get(f"/assessments/{assessment.id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == str(assessment.id)
+        assert data["visibility"] == "public"
+
 
 @pytest.mark.integration
 @pytest.mark.assessments
@@ -297,6 +320,112 @@ class TestUpdateAssessment:
         )
 
         assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_update_assessment_visibility(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that owner can update assessment visibility."""
+        assessment = await create_test_assessment(
+            db_session, user, title="Private Assessment"
+        )
+        await db_session.commit()
+
+        update_data = {"visibility": "public"}
+        response = await test_client.patch(
+            f"/assessments/{assessment.id}", json=update_data
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["visibility"] == "public"
+
+    @pytest.mark.asyncio
+    async def test_get_private_assessment_by_unauthenticated_user_fails(
+        self, unauth_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that unauthenticated users cannot access private assessments."""
+        # Create private assessment
+        assessment = await create_test_assessment(
+            db_session, user, title="Private Assessment"
+        )
+        await db_session.commit()
+
+        response = await unauth_client.get(f"/assessments/{assessment.id}")
+
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    async def test_get_public_assessment_by_non_owner(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that authenticated non-owners can access public assessments."""
+        from edcraft_backend.models.enums import AssessmentVisibility
+
+        # Create public assessment owned by first user
+        assessment = await create_test_assessment(
+            db_session, user, title="Public Assessment"
+        )
+        assessment.visibility = AssessmentVisibility.PUBLIC
+        await db_session.commit()
+
+        # Create and login as second user
+        from tests.conftest import _create_test_client
+
+        async with _create_test_client(db_session) as client2:
+            _ = await create_and_login_user(
+                client2, db_session, email="user2@test.com"
+            )
+
+            response = await client2.get(f"/assessments/{assessment.id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == str(assessment.id)
+        assert data["owner_id"] == str(user.id)  # Owned by first user
+        assert data["visibility"] == "public"
+
+    @pytest.mark.asyncio
+    async def test_get_private_assessment_by_non_owner_fails(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that authenticated non-owners cannot access private assessments."""
+        # Create private assessment owned by first user
+        assessment = await create_test_assessment(
+            db_session, user, title="Private Assessment"
+        )
+        await db_session.commit()
+
+        # Create and login as second user
+        from tests.conftest import _create_test_client
+
+        async with _create_test_client(db_session) as client2:
+            _ = await create_and_login_user(
+                client2, db_session, email="user2@test.com"
+            )
+
+            response = await client2.get(f"/assessments/{assessment.id}")
+
+        assert response.status_code == 404  # Returns 404, not 403, for security
+        assert "not found" in response.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    async def test_get_private_assessment_by_owner_succeeds(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that owners can access their private assessments."""
+        assessment = await create_test_assessment(
+            db_session, user, title="Private Assessment"
+        )
+        await db_session.commit()
+
+        response = await test_client.get(f"/assessments/{assessment.id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == str(assessment.id)
+        assert data["visibility"] == "private"
 
 
 @pytest.mark.integration

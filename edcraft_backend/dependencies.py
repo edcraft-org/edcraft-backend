@@ -388,6 +388,29 @@ async def get_current_user(
         ) from e
 
 
+async def get_current_user_optional(
+    user_repo: UserRepository = Depends(get_user_repository),
+    access_token: str | None = Cookie(None),
+) -> User | None:
+    """Resolve authenticated user from cookie, or None if not authenticated.
+
+    For endpoints accessible to both authenticated and unauthenticated users.
+    """
+    if not access_token:
+        return None
+
+    try:
+        payload = decode_token(access_token)
+        if payload.get("type") != "access":
+            return None
+        user = await user_repo.get_by_id(UUID(payload["sub"]))
+        if not user or not user.is_active:
+            return None
+        return user
+    except Exception:
+        return None
+
+
 # Type aliases for cleaner router signatures
 UserServiceDep = Annotated[UserService, Depends(get_user_service)]
 FolderServiceDep = Annotated[FolderService, Depends(get_folder_service)]
@@ -417,6 +440,7 @@ QuestionGenerationServiceDep = Annotated[
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 OAuthServiceDep = Annotated[OAuthService, Depends(get_oauth_service)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
+CurrentUserOptionalDep = Annotated[User | None, Depends(get_current_user_optional)]
 
 # Repository type aliases
 UserRepositoryDep = Annotated[UserRepository, Depends(get_user_repository)]

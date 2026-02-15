@@ -4,7 +4,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from edcraft_backend.dependencies import AssessmentServiceDep, CurrentUserDep
+from edcraft_backend.dependencies import (
+    AssessmentServiceDep,
+    CurrentUserDep,
+    CurrentUserOptionalDep,
+)
 from edcraft_backend.exceptions import EdCraftBaseException
 from edcraft_backend.models.assessment import Assessment
 from edcraft_backend.schemas.assessment import (
@@ -50,14 +54,20 @@ async def list_assessments(
 
 @router.get("/{assessment_id}", response_model=AssessmentWithQuestionsResponse)
 async def get_assessment(
-    current_user: CurrentUserDep,
+    current_user: CurrentUserOptionalDep,
     assessment_id: UUID,
     service: AssessmentServiceDep,
 ) -> AssessmentWithQuestionsResponse:
-    """Get assessment with questions in order."""
+    """Get assessment with questions.
+
+    - Owners can access any of their assessments (private or public)
+    - Non-owners and unauthenticated users can only access public assessments
+    - Returns 404 for private assessments accessed by non-owners
+    """
     try:
+        user_id = current_user.id if current_user else None
         return await service.get_assessment_with_questions(
-            user_id=current_user.id, assessment_id=assessment_id
+            user_id=user_id, assessment_id=assessment_id
         )
     except EdCraftBaseException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e

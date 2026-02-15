@@ -2,6 +2,7 @@
 
 import os
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
 # Load test environment BEFORE any app imports
 os.environ["APP_ENV"] = "test"
@@ -157,3 +158,83 @@ async def user(
     from tests.factories import create_and_login_user
 
     return await create_and_login_user(test_client, db_session)
+
+
+@pytest_asyncio.fixture
+async def unauth_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+    """
+    Unauthenticated AsyncClient for testing public endpoints (function scope).
+
+    Unlike test_client, this client has no auth cookies set.
+    Shares the same db_session and mocked services as test_client.
+    """
+    # Use the shared client factory
+    async with _create_test_client(db_session) as client:
+        yield client
+
+
+@asynccontextmanager
+async def _create_test_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+    """
+    Internal helper to create a test client with db and service overrides.
+
+    This is used by both unauth_client fixture and can be imported for creating
+    additional test clients (e.g., for testing with multiple users).
+    """
+    # Override get_db dependency to use test session
+    async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
+        yield db_session
+
+    # Use same mocks as test_client
+    from fastapi import Depends
+
+    from edcraft_backend.dependencies import (
+        get_assessment_service,
+        get_assessment_template_service,
+        get_question_generation_service,
+        get_question_template_service,
+    )
+    from edcraft_backend.services.assessment_service import AssessmentService
+    from edcraft_backend.services.assessment_template_service import (
+        AssessmentTemplateService,
+    )
+    from edcraft_backend.services.code_analysis_service import CodeAnalysisService
+    from edcraft_backend.services.question_generation_service import QuestionGenerationService
+    from edcraft_backend.services.question_template_service import QuestionTemplateService
+
+    def override_question_generation_service(
+        question_template_svc: QuestionTemplateService = Depends(
+            get_question_template_service
+        ),
+        assessment_template_svc: AssessmentTemplateService = Depends(
+            get_assessment_template_service
+        ),
+        assessment_svc: AssessmentService = Depends(get_assessment_service),
+    ) -> QuestionGenerationService:
+        service = QuestionGenerationService(
+            question_template_svc,
+            assessment_template_svc,
+            assessment_svc,
+        )
+        service.question_generator = MockQuestionGenerator()
+        return service
+
+    def override_code_analysis_service() -> CodeAnalysisService:
+        service = CodeAnalysisService()
+        service.static_analyser = MockStaticAnalyser()
+        return service
+
+    # Apply dependency overrides
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_question_generation_service] = (
+        override_question_generation_service
+    )
+    app.dependency_overrides[CodeAnalysisService] = override_code_analysis_service
+
+    # Create async test client
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
+
+    # Clear dependency overrides after test
+    app.dependency_overrides.clear()

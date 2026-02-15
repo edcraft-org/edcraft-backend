@@ -5,6 +5,7 @@ from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from edcraft_backend.models.base import EntityBase
+from edcraft_backend.models.enums import AssessmentVisibility
 
 if TYPE_CHECKING:
     from edcraft_backend.models.assessment_question import AssessmentQuestion
@@ -28,6 +29,12 @@ class Assessment(EntityBase):
     # Basic Fields
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    visibility: Mapped[AssessmentVisibility] = mapped_column(
+        String(50),
+        nullable=False,
+        default=AssessmentVisibility.PRIVATE,
+        server_default="private",
+    )
 
     # Relationships
     owner: Mapped["User"] = relationship(back_populates="assessments")

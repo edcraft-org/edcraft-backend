@@ -49,3 +49,13 @@ class TargetModifier(str, Enum):
 
     def __str__(self) -> str:
         return self.value
+
+
+class AssessmentVisibility(str, Enum):
+    """Visibility settings for assessments."""
+
+    PRIVATE = "private"
+    PUBLIC = "public"
+
+    def __str__(self) -> str:
+        return self.value

@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from edcraft_backend.models.enums import AssessmentVisibility
 from edcraft_backend.schemas.question import (
     CreateQuestionRequest,
     MCQResponse,
@@ -27,6 +28,7 @@ class UpdateAssessmentRequest(BaseModel):
     title: str | None = None
     description: str | None = None
     folder_id: UUID | None = None
+    visibility: AssessmentVisibility | None = None
 
 
 class AssessmentResponse(BaseModel):
@@ -37,6 +39,7 @@ class AssessmentResponse(BaseModel):
     folder_id: UUID
     title: str
     description: str
+    visibility: AssessmentVisibility
     created_at: datetime
     updated_at: datetime
 
@@ -77,6 +80,7 @@ class AssessmentWithQuestionsResponse(BaseModel):
     folder_id: UUID
     title: str
     description: str | None
+    visibility: AssessmentVisibility
     created_at: datetime
     updated_at: datetime
     questions: list[AssessmentQuestionResponse] = []

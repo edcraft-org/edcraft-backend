@@ -9,6 +9,7 @@ from edcraft_backend.exceptions import (
 )
 from edcraft_backend.models.assessment import Assessment
 from edcraft_backend.models.assessment_question import AssessmentQuestion
+from edcraft_backend.models.enums import AssessmentVisibility
 from edcraft_backend.repositories.assessment_question_repository import (
     AssessmentQuestionRepository,
 )
@@ -228,26 +229,29 @@ class AssessmentService:
             raise DataIntegrityError(f"Unknown question type: {q.question_type}")
 
     async def get_assessment_with_questions(
-        self, user_id: UUID, assessment_id: UUID
+        self, user_id: UUID | None, assessment_id: UUID
     ) -> AssessmentWithQuestionsResponse:
         """Get assessment with all questions loaded.
 
         Args:
-            user_id: User UUID
+            user_id: User UUID (None for unauthenticated users)
             assessment_id: Assessment UUID
 
         Returns:
             Assessment with questions
 
         Raises:
-            ResourceNotFoundError: If assessment not found
-            UnauthorizedAccessError: If user doesn't own the assessment
+            ResourceNotFoundError: If assessment not found or access denied
         """
         assessment = await self.assessment_repo.get_by_id_with_questions(assessment_id)
         if not assessment:
             raise ResourceNotFoundError("Assessment", str(assessment_id))
-        if assessment.owner_id != user_id:
-            raise UnauthorizedAccessError("Assessment", str(assessment_id))
+
+        is_owner = user_id and assessment.owner_id == user_id
+        is_public = assessment.visibility == AssessmentVisibility.PUBLIC
+
+        if not (is_owner or is_public):
+            raise ResourceNotFoundError("Assessment", str(assessment_id))
 
         # Filter out soft-deleted questions
         questions: list[AssessmentQuestionResponse] = []
@@ -262,6 +266,7 @@ class AssessmentService:
             folder_id=assessment.folder_id,
             title=assessment.title,
             description=assessment.description,
+            visibility=assessment.visibility,
             created_at=assessment.created_at,
             updated_at=assessment.updated_at,
             questions=questions,

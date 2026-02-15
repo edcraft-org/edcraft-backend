@@ -29,19 +29,20 @@ from edcraft_backend.models.user import User
 
 
 async def create_and_login_user(
-    test_client: AsyncClient, db_session: AsyncSession
+    test_client: AsyncClient, db_session: AsyncSession, email: str | None = None
 ) -> User:
     """Create a user via signup API and login to set auth cookies on the client.
 
     Args:
         test_client: HTTP test client \\
         db_session: Database session to retrieve the created user
+        email: Optional email address for the user (auto-generated if not provided)
 
     Returns:
         Created User instance
     """
     unique_id = str(uuid4())[:8]
-    email = f"test_{unique_id}@example.com"
+    email = email or f"test_{unique_id}@example.com"
     password = "TestPassword123!"  # noqa S106
 
     await test_client.post("/auth/signup", json={"email": email, "password": password})
