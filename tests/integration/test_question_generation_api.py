@@ -93,6 +93,8 @@ class TestGenerateQuestionFromTemplate:
             db_session,
             user,
             question_type="mcq",
+            question_text_template="Template question 1? Given input: n = {n}",
+            text_template_type="basic",
             code="def example(n):\n    return n * 2",
             entry_function="example",
             num_distractors=4,
@@ -127,6 +129,9 @@ class TestGenerateQuestionFromTemplate:
         assert "options" in data
         assert "correct_indices" in data
         assert len(data["options"]) > 0
+
+        # Verify question text correctly incorporates input data
+        assert data["text"] == "Template question 1? Given input: n = 5"
 
     @pytest.mark.asyncio
     async def test_generate_question_from_template_not_found(
@@ -433,15 +438,17 @@ class TestGenerateTemplatePreview:
         data = response.json()
 
         # Verify response structure
-        assert "question_text" in data
+        assert "question_text_template" in data
+        assert "text_template_type" in data
         assert "question_type" in data
         assert "preview_question" in data
 
-        # Verify question_type
+        # Verify question_type and template type
         assert data["question_type"] == "mcq"
+        assert data["text_template_type"] == "basic"
 
-        # Verify question_text does NOT contain "Given input:"
-        assert "Given input:" not in data["question_text"]
+        # Verify question_text_template contains input param placeholders
+        assert "Given input: n = {n}" in data["question_text_template"]
 
         # Verify template_config fields in response
         assert data["code"] == "def example(n):\n    return n * 2"
@@ -452,7 +459,6 @@ class TestGenerateTemplatePreview:
 
         # Verify preview_question structure
         preview = data["preview_question"]
-        assert preview["text"] == data["question_text"]
         assert preview["question_type"] == "mcq"
         assert preview["answer"] == "<placeholder_answer>"
         assert preview["options"] is not None
@@ -462,6 +468,41 @@ class TestGenerateTemplatePreview:
         # Verify placeholder options format
         for i, option in enumerate(preview["options"]):
             assert option == f"<option_{i+1}>"
+
+    @pytest.mark.asyncio
+    async def test_generate_template_preview_with_custom_template(
+        self, test_client: AsyncClient
+    ) -> None:
+        """Test that a user-provided question_text_template is echoed back."""
+        request_data: dict[str, Any] = {
+            "code": "def example(n):\\n    return n * 2",
+            "entry_function": "example",
+            "question_spec": {
+                "target": [
+                    {
+                        "type": "function",
+                        "id": [0],
+                        "name": "example",
+                        "line_number": 1,
+                        "modifier": "return_value",
+                    }
+                ],
+                "output_type": "first",
+                "question_type": "mcq",
+            },
+            "generation_options": {"num_distractors": 4},
+            "question_text_template": "Custom template: n = {n}",
+            "text_template_type": "basic",
+        }
+
+        response = await test_client.post(
+            "/question-generation/generate-template", json=request_data
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["question_text_template"] == "Custom template: n = {n}"
+        assert data["text_template_type"] == "basic"
 
     @pytest.mark.asyncio
     async def test_generate_template_preview_invalid_code_encoding(

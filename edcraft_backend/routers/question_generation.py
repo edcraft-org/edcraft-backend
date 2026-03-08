@@ -24,6 +24,7 @@ from edcraft_backend.schemas.question_generation import (
 from edcraft_backend.schemas.question_template import CreateTargetElementRequest
 from edcraft_backend.services.code_analysis_service import CodeAnalysisService
 from edcraft_backend.services.form_builder_service import FormBuilderService
+from edcraft_backend.utils.code_parser import parse_function_parameters
 
 router = APIRouter(prefix="/question-generation", tags=["question-generation"])
 
@@ -112,7 +113,7 @@ async def generate_template_preview(
         service: Question generation service
 
     Returns:
-        TemplatePreviewResponse with question text and config
+        TemplatePreviewResponse with question text template and config
 
     Raises:
         CodeDecodingError: If code cannot be decoded
@@ -133,8 +134,21 @@ async def generate_template_preview(
             f"Template preview generation failed: {str(e)}"
         ) from e
 
+    if request.question_text_template is not None:
+        question_text_template = request.question_text_template
+    else:
+        params = parse_function_parameters(decoded_code, request.entry_function)
+        if params.parameters:
+            input_fmt = ", ".join(f"{p} = {{{p}}}" for p in params.parameters)
+            question_text_template = (
+                f"{preview_question.text}\nGiven input: {input_fmt}"
+            )
+        else:
+            question_text_template = preview_question.text
+
     return TemplatePreviewResponse(
-        question_text=preview_question.text,
+        question_text_template=question_text_template,
+        text_template_type=request.text_template_type,
         question_type=preview_question.question_type,
         preview_question=preview_question,
         code=decoded_code,

@@ -7,7 +7,7 @@ from sqlalchemy import Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from edcraft_backend.models.base import EntityBase
-from edcraft_backend.models.enums import OutputType, QuestionType
+from edcraft_backend.models.enums import OutputType, QuestionType, TextTemplateType
 
 if TYPE_CHECKING:
     from edcraft_backend.models.assessment_template_question_template import (
@@ -45,7 +45,16 @@ class QuestionTemplate(EntityBase):
         nullable=False,
         index=True,
     )
-    question_text: Mapped[str] = mapped_column(Text, nullable=False)
+    question_text_template: Mapped[str] = mapped_column(Text, nullable=False)
+    text_template_type: Mapped[TextTemplateType] = mapped_column(
+        Enum(
+            TextTemplateType,
+            name="text_template_type",
+            native_enum=True,
+            values_callable=lambda x: [e.value for e in x],
+        ),
+        nullable=False,
+    )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Structured template configuration fields
@@ -67,7 +76,9 @@ class QuestionTemplate(EntityBase):
     owner: Mapped["User"] = relationship(back_populates="question_templates")
 
     # One-to-many: A template can create many questions
-    questions: Mapped[list["Question"]] = relationship(back_populates="template", lazy="selectin")
+    questions: Mapped[list["Question"]] = relationship(
+        back_populates="template", lazy="selectin"
+    )
 
     # One-to-many: Target elements for this template
     target_elements: Mapped[list["TargetElement"]] = relationship(
@@ -78,12 +89,12 @@ class QuestionTemplate(EntityBase):
     )
 
     # Many-to-many relationship with assessment templates
-    assessment_template_associations: Mapped[list["AssessmentTemplateQuestionTemplate"]] = (
-        relationship(
-            back_populates="question_template",
-            cascade="all, delete-orphan",
-            lazy="selectin",
-        )
+    assessment_template_associations: Mapped[
+        list["AssessmentTemplateQuestionTemplate"]
+    ] = relationship(
+        back_populates="question_template",
+        cascade="all, delete-orphan",
+        lazy="selectin",
     )
 
     # Many-to-many relationship with question template banks
@@ -98,5 +109,5 @@ class QuestionTemplate(EntityBase):
     def __repr__(self) -> str:
         return (
             f"<QuestionTemplate(id={self.id}, "
-            f"text={self.question_text[:30]}..., type={self.question_type})>"
+            f"text={self.question_text_template[:30]}..., type={self.question_type})>"
         )

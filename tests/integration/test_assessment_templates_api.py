@@ -165,13 +165,13 @@ class TestGetAssessmentTemplate:
         """Test getting assessment template includes question templates in correct order."""
         template = await create_test_assessment_template(db_session, user)
         qt1 = await create_test_question_template(
-            db_session, user, question_text="QT1?"
+            db_session, user, question_text_template="QT1?"
         )
         qt2 = await create_test_question_template(
-            db_session, user, question_text="QT2?"
+            db_session, user, question_text_template="QT2?"
         )
         qt3 = await create_test_question_template(
-            db_session, user, question_text="QT3?"
+            db_session, user, question_text_template="QT3?"
         )
         await db_session.commit()
 
@@ -195,11 +195,11 @@ class TestGetAssessmentTemplate:
         data = response.json()
         assert len(data["question_templates"]) == 3
         # Verify order
-        assert data["question_templates"][0]["question_text"] == "QT1?"
+        assert data["question_templates"][0]["question_text_template"] == "QT1?"
         assert data["question_templates"][0]["order"] == 0
-        assert data["question_templates"][1]["question_text"] == "QT2?"
+        assert data["question_templates"][1]["question_text_template"] == "QT2?"
         assert data["question_templates"][1]["order"] == 1
-        assert data["question_templates"][2]["question_text"] == "QT3?"
+        assert data["question_templates"][2]["question_text_template"] == "QT3?"
         assert data["question_templates"][2]["order"] == 2
 
     @pytest.mark.asyncio
@@ -376,11 +376,11 @@ class TestSoftDeleteAssessmentTemplate:
         template = await create_test_assessment_template(db_session, user)
 
         orphaned_qt = await create_test_question_template(
-            db_session, user, question_text="Orphaned QT"
+            db_session, user, question_text_template="Orphaned QT"
         )
 
         shared_qt = await create_test_question_template(
-            db_session, user, question_text="Shared QT"
+            db_session, user, question_text_template="Shared QT"
         )
         other_template = await create_test_assessment_template(
             db_session, user, title="Other Template"
@@ -444,7 +444,7 @@ class TestSoftDeleteAssessmentTemplate:
         shared_question = await create_test_question_template(
             db_session,
             user,
-            question_text="Question in both assessment template and bank",
+            question_text_template="Question in both assessment template and bank",
         )
         await db_session.commit()
 
@@ -492,7 +492,8 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
         qt_data: dict[str, Any] = {
             "question_template": {
                 "question_type": "mcq",
-                "question_text": "What is 2+2?",
+                "question_text_template": "What is 2+2?",
+                "text_template_type": "basic",
                 "code": "def example():\n    return 2 + 2",
                 "entry_function": "example",
                 "num_distractors": 4,
@@ -516,7 +517,7 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
         assert response.status_code == 201
         data = response.json()
         assert len(data["question_templates"]) == 1
-        assert data["question_templates"][0]["question_text"] == "What is 2+2?"
+        assert data["question_templates"][0]["question_text_template"] == "What is 2+2?"
         assert data["question_templates"][0]["question_type"] == "mcq"
         assert data["question_templates"][0]["order"] == 0
 
@@ -532,7 +533,8 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
         qt_data_1: dict[str, Any] = {
             "question_template": {
                 "question_type": "mcq",
-                "question_text": "Question 1?",
+                "question_text_template": "Question 1?",
+                "text_template_type": "basic",
                 "code": "def example1(n):\n    return n * 2",
                 "entry_function": "example1",
                 "num_distractors": 4,
@@ -556,7 +558,8 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
         qt_data_2: dict[str, Any] = {
             "question_template": {
                 "question_type": "mcq",
-                "question_text": "Question 2?",
+                "question_text_template": "Question 2?",
+                "text_template_type": "basic",
                 "code": "def example2(n):\n    return n * 3",
                 "entry_function": "example2",
                 "num_distractors": 4,
@@ -580,7 +583,8 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
         qt_data_3: dict[str, Any] = {
             "question_template": {
                 "question_type": "mcq",
-                "question_text": "Question 3?",
+                "question_text_template": "Question 3?",
+                "text_template_type": "basic",
                 "code": "def example3(n):\n    return n * 4",
                 "entry_function": "example3",
                 "num_distractors": 4,
@@ -604,9 +608,9 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
         assert response.status_code == 201
         data = response.json()
         assert len(data["question_templates"]) == 3
-        assert data["question_templates"][0]["question_text"] == "Question 1?"
-        assert data["question_templates"][1]["question_text"] == "Question 2?"
-        assert data["question_templates"][2]["question_text"] == "Question 3?"
+        assert data["question_templates"][0]["question_text_template"] == "Question 1?"
+        assert data["question_templates"][1]["question_text_template"] == "Question 2?"
+        assert data["question_templates"][2]["question_text_template"] == "Question 3?"
 
     @pytest.mark.asyncio
     async def test_insert_question_template_default_order(
@@ -619,7 +623,8 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
         qt_data: dict[str, Any] = {
             "question_template": {
                 "question_type": "mcq",
-                "question_text": "Test question?",
+                "question_text_template": "Test question?",
+                "text_template_type": "basic",
                 "code": "def example(n):\n    return n * 2",
                 "entry_function": "example",
                 "num_distractors": 4,
@@ -654,7 +659,8 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
         qt_data: dict[str, Any] = {
             "question_template": {
                 "question_type": "mcq",
-                "question_text": "Test question?",
+                "question_text_template": "Test question?",
+                "text_template_type": "basic",
                 "code": "def example(n):\n    return n * 2",
                 "entry_function": "example",
                 "num_distractors": 4,
@@ -689,7 +695,8 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
         qt1_data: dict[str, Any] = {
             "question_template": {
                 "question_type": "mcq",
-                "question_text": "Question Template 1?",
+                "question_text_template": "Question Template 1?",
+                "text_template_type": "basic",
                 "code": "def example1():\n    return 1",
                 "entry_function": "example1",
                 "num_distractors": 4,
@@ -713,7 +720,8 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
         qt2_data: dict[str, Any] = {
             "question_template": {
                 "question_type": "mcq",
-                "question_text": "Question Template 2?",
+                "question_text_template": "Question Template 2?",
+                "text_template_type": "basic",
                 "code": "def example2():\n    return 2",
                 "entry_function": "example2",
                 "num_distractors": 4,
@@ -739,9 +747,9 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
         templates = data["question_templates"]
 
         assert len(templates) == 2
-        assert templates[0]["question_text"] == "Question Template 2?"
+        assert templates[0]["question_text_template"] == "Question Template 2?"
         assert templates[0]["order"] == 0
-        assert templates[1]["question_text"] == "Question Template 1?"
+        assert templates[1]["question_text_template"] == "Question Template 1?"
         assert templates[1]["order"] == 1
 
 
@@ -867,10 +875,10 @@ class TestLinkQuestionTemplateToAssessmentTemplate:
         """Test that linking question template at existing order shifts other templates down."""
         template = await create_test_assessment_template(db_session, user)
         qt1 = await create_test_question_template(
-            db_session, user, question_text="QT1?"
+            db_session, user, question_text_template="QT1?"
         )
         qt2 = await create_test_question_template(
-            db_session, user, question_text="QT2?"
+            db_session, user, question_text_template="QT2?"
         )
         await db_session.commit()
 
@@ -889,9 +897,9 @@ class TestLinkQuestionTemplateToAssessmentTemplate:
         templates = data["question_templates"]
 
         assert len(templates) == 2
-        assert templates[0]["question_text"] == "QT2?"
+        assert templates[0]["question_text_template"] == "QT2?"
         assert templates[0]["order"] == 0
-        assert templates[1]["question_text"] == "QT1?"
+        assert templates[1]["question_text_template"] == "QT1?"
         assert templates[1]["order"] == 1
 
     @pytest.mark.asyncio
@@ -901,19 +909,19 @@ class TestLinkQuestionTemplateToAssessmentTemplate:
         """Test linking question template in middle shifts templates at/after position down."""
         template = await create_test_assessment_template(db_session, user)
         qt1 = await create_test_question_template(
-            db_session, user, question_text="QT1?"
+            db_session, user, question_text_template="QT1?"
         )
         qt2 = await create_test_question_template(
-            db_session, user, question_text="QT2?"
+            db_session, user, question_text_template="QT2?"
         )
         qt3 = await create_test_question_template(
-            db_session, user, question_text="QT3?"
+            db_session, user, question_text_template="QT3?"
         )
         qt4 = await create_test_question_template(
-            db_session, user, question_text="QT4?"
+            db_session, user, question_text_template="QT4?"
         )
         qt_new = await create_test_question_template(
-            db_session, user, question_text="QT_NEW?"
+            db_session, user, question_text_template="QT_NEW?"
         )
         await db_session.commit()
 
@@ -936,15 +944,15 @@ class TestLinkQuestionTemplateToAssessmentTemplate:
 
         # Verify order: QT1, QT2, QT_NEW, QT3, QT4
         assert len(templates) == 5
-        assert templates[0]["question_text"] == "QT1?"
+        assert templates[0]["question_text_template"] == "QT1?"
         assert templates[0]["order"] == 0
-        assert templates[1]["question_text"] == "QT2?"
+        assert templates[1]["question_text_template"] == "QT2?"
         assert templates[1]["order"] == 1
-        assert templates[2]["question_text"] == "QT_NEW?"
+        assert templates[2]["question_text_template"] == "QT_NEW?"
         assert templates[2]["order"] == 2
-        assert templates[3]["question_text"] == "QT3?"
+        assert templates[3]["question_text_template"] == "QT3?"
         assert templates[3]["order"] == 3
-        assert templates[4]["question_text"] == "QT4?"
+        assert templates[4]["question_text_template"] == "QT4?"
         assert templates[4]["order"] == 4
 
     @pytest.mark.asyncio
@@ -954,13 +962,13 @@ class TestLinkQuestionTemplateToAssessmentTemplate:
         """Test linking with order > count fails with validation error."""
         template = await create_test_assessment_template(db_session, user)
         qt1 = await create_test_question_template(
-            db_session, user, question_text="QT1?"
+            db_session, user, question_text_template="QT1?"
         )
         qt2 = await create_test_question_template(
-            db_session, user, question_text="QT2?"
+            db_session, user, question_text_template="QT2?"
         )
         qt_new = await create_test_question_template(
-            db_session, user, question_text="QT_NEW?"
+            db_session, user, question_text_template="QT_NEW?"
         )
         await db_session.commit()
 
@@ -1085,13 +1093,13 @@ class TestRemoveQuestionTemplateFromAssessmentTemplate:
         """Test that removing a question template normalizes remaining orders."""
         template = await create_test_assessment_template(db_session, user)
         qt1 = await create_test_question_template(
-            db_session, user, question_text="QT1?"
+            db_session, user, question_text_template="QT1?"
         )
         qt2 = await create_test_question_template(
-            db_session, user, question_text="QT2?"
+            db_session, user, question_text_template="QT2?"
         )
         qt3 = await create_test_question_template(
-            db_session, user, question_text="QT3?"
+            db_session, user, question_text_template="QT3?"
         )
         await db_session.commit()
 
@@ -1116,9 +1124,9 @@ class TestRemoveQuestionTemplateFromAssessmentTemplate:
         data = response.json()
 
         assert len(data["question_templates"]) == 2
-        assert data["question_templates"][0]["question_text"] == "QT1?"
+        assert data["question_templates"][0]["question_text_template"] == "QT1?"
         assert data["question_templates"][0]["order"] == 0
-        assert data["question_templates"][1]["question_text"] == "QT3?"
+        assert data["question_templates"][1]["question_text_template"] == "QT3?"
         assert data["question_templates"][1]["order"] == 1
 
     @pytest.mark.asyncio
@@ -1133,11 +1141,11 @@ class TestRemoveQuestionTemplateFromAssessmentTemplate:
         template = await create_test_assessment_template(db_session, user)
 
         orphaned_qt = await create_test_question_template(
-            db_session, user, question_text="Will be orphaned"
+            db_session, user, question_text_template="Will be orphaned"
         )
 
         shared_qt = await create_test_question_template(
-            db_session, user, question_text="Shared"
+            db_session, user, question_text_template="Shared"
         )
         other_template = await create_test_assessment_template(
             db_session, user, title="Other Template"
@@ -1204,13 +1212,13 @@ class TestReorderQuestionTemplates:
         """Test reordering question templates successfully."""
         template = await create_test_assessment_template(db_session, user)
         qt1 = await create_test_question_template(
-            db_session, user, question_text="QT1?"
+            db_session, user, question_text_template="QT1?"
         )
         qt2 = await create_test_question_template(
-            db_session, user, question_text="QT2?"
+            db_session, user, question_text_template="QT2?"
         )
         qt3 = await create_test_question_template(
-            db_session, user, question_text="QT3?"
+            db_session, user, question_text_template="QT3?"
         )
         await db_session.commit()
 
@@ -1244,9 +1252,9 @@ class TestReorderQuestionTemplates:
         assert response.status_code == 200
         data = response.json()
         assert len(data["question_templates"]) == 3
-        assert data["question_templates"][0]["question_text"] == "QT3?"
-        assert data["question_templates"][1]["question_text"] == "QT2?"
-        assert data["question_templates"][2]["question_text"] == "QT1?"
+        assert data["question_templates"][0]["question_text_template"] == "QT3?"
+        assert data["question_templates"][1]["question_text_template"] == "QT2?"
+        assert data["question_templates"][2]["question_text_template"] == "QT1?"
 
     @pytest.mark.asyncio
     async def test_reorder_question_templates_requires_all_questions(
@@ -1317,13 +1325,13 @@ class TestReorderQuestionTemplates:
         """Test that reorder normalizes orders to 0, 1, 2, 3..."""
         template = await create_test_assessment_template(db_session, user)
         qt1 = await create_test_question_template(
-            db_session, user, question_text="QT1?"
+            db_session, user, question_text_template="QT1?"
         )
         qt2 = await create_test_question_template(
-            db_session, user, question_text="QT2?"
+            db_session, user, question_text_template="QT2?"
         )
         qt3 = await create_test_question_template(
-            db_session, user, question_text="QT3?"
+            db_session, user, question_text_template="QT3?"
         )
         await db_session.commit()
 
@@ -1357,9 +1365,9 @@ class TestReorderQuestionTemplates:
         assert response.status_code == 200
         data = response.json()
 
-        assert data["question_templates"][0]["question_text"] == "QT2?"
+        assert data["question_templates"][0]["question_text_template"] == "QT2?"
         assert data["question_templates"][0]["order"] == 0
-        assert data["question_templates"][1]["question_text"] == "QT3?"
+        assert data["question_templates"][1]["question_text_template"] == "QT3?"
         assert data["question_templates"][1]["order"] == 1
-        assert data["question_templates"][2]["question_text"] == "QT1?"
+        assert data["question_templates"][2]["question_text_template"] == "QT1?"
         assert data["question_templates"][2]["order"] == 2

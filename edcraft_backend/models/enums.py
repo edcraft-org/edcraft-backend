@@ -51,6 +51,16 @@ class TargetModifier(str, Enum):
         return self.value
 
 
+class TextTemplateType(str, Enum):
+    """Template types for question text templates."""
+
+    BASIC = "basic"
+    MUSTACHE = "mustache"
+
+    def __str__(self) -> str:
+        return self.value
+
+
 class AssessmentVisibility(str, Enum):
     """Visibility settings for assessments."""
 

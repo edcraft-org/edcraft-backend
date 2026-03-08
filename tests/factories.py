@@ -285,19 +285,20 @@ async def create_test_question_template(
     Args:
         db: Database session
         owner: User who owns the template
-        **overrides: Field overrides (question_text, question_type, code, etc.)
+        **overrides: Field overrides (question_text_template, question_type, code, etc.)
 
     Returns:
         Created QuestionTemplate instance
     """
-    from edcraft_backend.models.enums import OutputType, QuestionType
+    from edcraft_backend.models.enums import OutputType, QuestionType, TextTemplateType
     from edcraft_backend.models.target_element import TargetElement
 
     unique_id = str(uuid4())[:8]
     defaults = {
         "owner_id": owner.id,
         "question_type": "mcq",
-        "question_text": f"Template question {unique_id}?",
+        "question_text_template": f"Template question {unique_id}? Given input: n = {{n}}",
+        "text_template_type": TextTemplateType.BASIC,
         "description": f"Test question template {unique_id}",
         "code": "def example(n):\n    return n * 2",
         "entry_function": "example",
@@ -313,6 +314,10 @@ async def create_test_question_template(
         defaults["question_type"] = QuestionType(defaults["question_type"])
     if isinstance(defaults.get("output_type"), str):
         defaults["output_type"] = OutputType(defaults["output_type"])
+    if isinstance(defaults.get("text_template_type"), str):
+        defaults["text_template_type"] = TextTemplateType(
+            defaults["text_template_type"]
+        )
 
     template = QuestionTemplate(**defaults)
     db.add(template)
@@ -629,7 +634,9 @@ async def create_assessment_template_with_question_templates(
 
     for i in range(num_templates):
         question_template = await create_test_question_template(
-            db, owner, question_text=f"Template question {i + 1}?"
+            db,
+            owner,
+            question_text_template=f"Template question {i + 1}? Given input: n = {{n}}",
         )
         question_templates.append(question_template)
         await link_question_template_to_assessment_template(
@@ -658,7 +665,9 @@ async def create_question_template_bank_with_templates(
 
     for i in range(num_templates):
         question_template = await create_test_question_template(
-            db, owner, question_text=f"Bank template question {i + 1}?"
+            db,
+            owner,
+            question_text_template=f"Bank template question {i + 1}? Given input: n = {{n}}",
         )
         question_templates.append(question_template)
         await link_question_template_to_question_template_bank(

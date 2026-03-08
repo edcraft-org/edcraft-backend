@@ -450,7 +450,8 @@ erDiagram
         uuid id PK
         uuid owner_id FK
         string question_type
-        text question_text
+        string question_text_template
+        string text_template_type
         json template_config
         datetime created_at
         datetime updated_at

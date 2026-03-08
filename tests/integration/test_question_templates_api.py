@@ -50,10 +50,10 @@ class TestListQuestionTemplates:
     ) -> None:
         """Test that soft-deleted templates are not in list."""
         active_template = await create_test_question_template(
-            db_session, user, question_text="Active template"
+            db_session, user, question_text_template="Active template. Given input: n = {n}"
         )
         deleted_template = await create_test_question_template(
-            db_session, user, question_text="Deleted template"
+            db_session, user, question_text_template="Deleted template. Given input: n = {n}"
         )
         await db_session.commit()
 
@@ -84,7 +84,7 @@ class TestGetQuestionTemplate:
             db_session,
             user,
             question_type="mcq",
-            question_text="Test question?",
+            question_text_template="Test question? Given input: n = {n}",
         )
         await db_session.commit()
 
@@ -94,7 +94,8 @@ class TestGetQuestionTemplate:
         data = response.json()
         assert data["id"] == str(template.id)
         assert data["question_type"] == "mcq"
-        assert data["question_text"] == "Test question?"
+        assert data["question_text_template"] == "Test question? Given input: n = {n}"
+        assert data["text_template_type"] == "basic"
         assert "description" in data
         assert "entry_function_params" in data
         assert "parameters" in data["entry_function_params"]
@@ -110,7 +111,7 @@ class TestGetQuestionTemplate:
             db_session,
             user,
             question_type="mcq",
-            question_text="Test question?",
+            question_text_template="Test question? Given input: n = {n}",
             description="Test description for template",
         )
         await db_session.commit()
@@ -130,7 +131,7 @@ class TestGetQuestionTemplate:
             db_session,
             user,
             question_type="mcq",
-            question_text="What does the function return?",
+            question_text_template="What does the function return? Given input: x = {x}",
             code="def calculate(x: int, y: int = 10, *args, z: str = 'test', **kwargs) -> int:\n    return x + y",  # noqa: E501
             entry_function="calculate",
             num_distractors=3,
@@ -199,18 +200,18 @@ class TestUpdateQuestionTemplate:
     ) -> None:
         """Test updating question template text successfully."""
         template = await create_test_question_template(
-            db_session, user, question_text="Old text"
+            db_session, user, question_text_template="Old text. Given input: n = {n}"
         )
         await db_session.commit()
 
-        update_data = {"question_text": "New text"}
+        update_data = {"question_text_template": "New text. Given input: n = {n}"}
         response = await test_client.patch(
             f"/question-templates/{template.id}", json=update_data
         )
 
         assert response.status_code == 200
         data = response.json()
-        assert data["question_text"] == "New text"
+        assert data["question_text_template"] == "New text. Given input: n = {n}"
 
     @pytest.mark.asyncio
     async def test_update_question_template_description(
@@ -262,6 +263,7 @@ class TestUpdateQuestionTemplate:
             entry_function="multiply",
             num_distractors=3,
             output_type="first",
+            question_text_template="What is the result? Given input: x = {x}",
             target_elements=[
                 {
                     "element_type": "function",
@@ -302,7 +304,7 @@ class TestUpdateQuestionTemplate:
         import uuid
 
         non_existent_id = uuid.uuid4()
-        update_data = {"question_text": "New text"}
+        update_data = {"question_text_template": "New text"}
         response = await test_client.patch(
             f"/question-templates/{non_existent_id}", json=update_data
         )

@@ -9,6 +9,7 @@ from edcraft_engine.question_generator.models import (
 )
 from pydantic import BaseModel, Field
 
+from edcraft_backend.models.enums import TextTemplateType
 from edcraft_backend.schemas.code_info import CodeInfo
 from edcraft_backend.schemas.form_builder import FormElement
 from edcraft_backend.schemas.question_template import CreateTargetElementRequest
@@ -115,12 +116,24 @@ class GenerateTemplateRequest(BaseModel):
     generation_options: GenerationOptions = Field(
         ..., description="Options for question generation"
     )
+    question_text_template: str | None = Field(
+        None,
+        description="Optional custom question text template. \
+            If not provided, one will be auto-generated.",
+    )
+    text_template_type: TextTemplateType = Field(
+        TextTemplateType.BASIC,
+        description="Template type for rendering the question text",
+    )
 
 
 class TemplatePreviewResponse(BaseModel):
     """Response for template preview."""
 
-    question_text: str = Field(..., description="Generated template question text")
+    question_text_template: str = Field(
+        ..., description="Generated template question text"
+    )
+    text_template_type: TextTemplateType = Field(..., description="Template type")
     question_type: str = Field(..., description="Type of question")
     code: str = Field(..., description="Code for the question template")
     entry_function: str = Field(..., description="Entry function name")

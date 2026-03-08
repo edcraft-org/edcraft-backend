@@ -26,6 +26,7 @@ from edcraft_backend.schemas.question_generation import AssessmentMetadata
 from edcraft_backend.services.assessment_template_service import (
     AssessmentTemplateService,
 )
+from edcraft_backend.utils.template_renderer import render_question_text
 
 if TYPE_CHECKING:
     from edcraft_backend.schemas.assessment import AssessmentWithQuestionsResponse
@@ -107,12 +108,19 @@ class QuestionGenerationService:
             num_distractors=template.num_distractors,
         )
 
-        return await self.generate_question(
+        question = await self.generate_question(
             code=template.code,
             question_spec=question_spec,
             execution_spec=execution_spec,
             generation_options=generation_options,
         )
+
+        rendered_text = render_question_text(
+            template.question_text_template,
+            template.text_template_type,
+            input_data,
+        )
+        return question.model_copy(update={"text": rendered_text})
 
     async def create_template_preview(
         self,

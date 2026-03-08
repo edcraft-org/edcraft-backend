@@ -349,10 +349,10 @@ class TestSoftDeleteQuestionTemplateBank:
         other_bank = await create_test_question_template_bank(db_session, user)
 
         orphaned_template = await create_test_question_template(
-            db_session, user, question_text="Orphaned template"
+            db_session, user, question_text_template="Orphaned template"
         )
         shared_template = await create_test_question_template(
-            db_session, user, question_text="Shared template"
+            db_session, user, question_text_template="Shared template"
         )
 
         await link_question_template_to_question_template_bank(
@@ -405,7 +405,8 @@ class TestInsertQuestionTemplateIntoBank:
             json={
                 "question_template": {
                     "question_type": "mcq",
-                    "question_text": "What is 2+2?",
+                    "question_text_template": "What is 2+2?",
+                    "text_template_type": "basic",
                     "code": "def example():\n    return 2 + 2",
                     "entry_function": "example",
                     "num_distractors": 4,
@@ -426,7 +427,7 @@ class TestInsertQuestionTemplateIntoBank:
         assert response.status_code == 201
         data = response.json()
         assert len(data["question_templates"]) == 1
-        assert data["question_templates"][0]["question_text"] == "What is 2+2?"
+        assert data["question_templates"][0]["question_text_template"] == "What is 2+2?"
 
     @pytest.mark.asyncio
     async def test_insert_question_template_bank_not_found(
@@ -441,7 +442,8 @@ class TestInsertQuestionTemplateIntoBank:
             json={
                 "question_template": {
                     "question_type": "mcq",
-                    "question_text": "What is 2+2?",
+                    "question_text_template": "What is 2+2?",
+                    "text_template_type": "basic",
                     "code": "def example():\n    return 2 + 2",
                     "entry_function": "example",
                     "num_distractors": 4,
@@ -473,7 +475,7 @@ class TestLinkQuestionTemplateToBank:
         """Test linking an existing question template to a bank."""
         bank = await create_test_question_template_bank(db_session, user)
         template = await create_test_question_template(
-            db_session, user, question_text="Existing template"
+            db_session, user, question_text_template="Existing template"
         )
         await db_session.commit()
 

@@ -35,6 +35,13 @@ class QuestionGenerationError(EdCraftBaseException):
         super().__init__(message, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
 
+class TemplateRenderError(EdCraftBaseException):
+    """Raised when question text template rendering fails."""
+
+    def __init__(self, message: str = "Template rendering failed") -> None:
+        super().__init__(message, status.HTTP_400_BAD_REQUEST)
+
+
 # Domain-specific exceptions
 
 
