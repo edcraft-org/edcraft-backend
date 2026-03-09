@@ -61,6 +61,7 @@ class CreateQuestionTemplateRequest(BaseModel):
     num_distractors: int
     output_type: str
     target_elements: list[CreateTargetElementRequest]
+    input_data_config: dict[str, dict] | None = None
 
     @model_validator(mode="after")
     def validate_basic_template_variables(self) -> CreateQuestionTemplateRequest:
@@ -99,6 +100,7 @@ class UpdateQuestionTemplateRequest(BaseModel):
     num_distractors: int | None = None
     output_type: str | None = None
     target_elements: list[CreateTargetElementRequest] | None = None
+    input_data_config: dict[str, dict] | None = None
 
 
 class QuestionTemplateSummaryResponse(BaseModel):
@@ -129,6 +131,7 @@ class QuestionTemplateResponse(BaseModel):
     num_distractors: int
     output_type: str
     target_elements: list[TargetElementResponse]
+    input_data_config: dict[str, dict] | None = None
     entry_function_params: EntryFunctionParams = EntryFunctionParams(parameters=[])
     created_at: datetime
     updated_at: datetime

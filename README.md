@@ -757,6 +757,9 @@ Full endpoint reference is auto-generated at http://127.0.0.1:8000/docs. Key non
 - `generate-template` returns a preview with placeholder values (e.g. `<option_1>`) and `template_config` for future template creation
 - `assessment-from-template`: `question_inputs` array length must match the number of question templates in the assessment template; `title`/`description` default to template values if omitted
 
+**Input Generator**
+- generate values for one or more variables from their config
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.

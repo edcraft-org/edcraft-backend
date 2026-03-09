@@ -19,10 +19,12 @@ dependencies = [
     "python-dotenv>=1.2.1",
     "python-jose[cryptography]>=3.3.0",
     "sqlalchemy>=2.0.45",
+    "input-gen",
 ]
 
 [tool.uv.sources]
 edcraft-engine = { git = "https://github.com/edcraft-org/edcraft-engine.git" }
+input-gen = { git = "https://github.com/edcraft-org/input-gen.git" }
 
 [dependency-groups]
 dev = [
@@ -64,6 +66,7 @@ markers = [
     "question_template_banks: Question template bank router tests",
     "assessment_templates: Assessment template router tests",
     "question_generation: Question generation router tests",
+    "input_generator: Input generator router tests",
 ]
 
 [tool.ruff]

@@ -248,6 +248,7 @@ class QuestionTemplateBankService:
                     "question_type": assoc.question_template.question_type,
                     "question_text_template": assoc.question_template.question_text_template,
                     "text_template_type": assoc.question_template.text_template_type,
+                    "input_data_config": assoc.question_template.input_data_config,
                     "description": assoc.question_template.description,
                     "code": assoc.question_template.code,
                     "entry_function": assoc.question_template.entry_function,

@@ -35,6 +35,13 @@ class QuestionGenerationError(EdCraftBaseException):
         super().__init__(message, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
 
+class InputGenerationError(EdCraftBaseException):
+    """Raised when input generation fails."""
+
+    def __init__(self, message: str = "Failed to generate inputs") -> None:
+        super().__init__(message, status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+
 class TemplateRenderError(EdCraftBaseException):
     """Raised when question text template rendering fails."""
 

@@ -14,6 +14,7 @@ from edcraft_backend.routers import (
     assessments,
     auth,
     folders,
+    input_generator,
     question_bank,
     question_generation,
     question_template_banks,
@@ -64,6 +65,7 @@ app.add_middleware(
 )
 
 # Include routers (prefix and tags are defined in each router file)
+app.include_router(input_generator.router)
 app.include_router(question_generation.router)
 app.include_router(users.router)
 app.include_router(auth.router)
