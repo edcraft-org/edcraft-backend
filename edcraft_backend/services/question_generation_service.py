@@ -12,6 +12,11 @@ from edcraft_engine.question_generator.models import (
 from edcraft_engine.question_generator.question_generator import QuestionGenerator
 
 from edcraft_backend.exceptions import QuestionGenerationError, ValidationError
+from edcraft_backend.models.enums import (
+    TargetElementType,
+    TargetModifier,
+    TextTemplateType,
+)
 from edcraft_backend.schemas.assessment import CreateAssessmentRequest
 from edcraft_backend.schemas.question import (
     CreateMCQRequest,
@@ -22,10 +27,15 @@ from edcraft_backend.schemas.question import (
     MRQData,
     ShortAnswerData,
 )
-from edcraft_backend.schemas.question_generation import AssessmentMetadata
+from edcraft_backend.schemas.question_generation import (
+    AssessmentMetadata,
+    TemplatePreviewResponse,
+)
+from edcraft_backend.schemas.question_template import CreateTargetElementRequest
 from edcraft_backend.services.assessment_template_service import (
     AssessmentTemplateService,
 )
+from edcraft_backend.utils.code_parser import parse_function_parameters
 from edcraft_backend.utils.template_renderer import render_question_text
 
 if TYPE_CHECKING:
@@ -122,23 +132,52 @@ class QuestionGenerationService:
         )
         return question.model_copy(update={"text": rendered_text})
 
-    async def create_template_preview(
+    async def generate_template(
         self,
+        code: str,
+        entry_function: str,
         question_spec: QuestionSpec,
         generation_options: GenerationOptions,
-    ) -> Question:
-        """Create template preview without database persistence.
-
-        Args:
-            question_spec: Question specifications
-            generation_options: Generation options
-
-        Returns:
-            Question preview
-        """
-        return self.question_generator.generate_template_preview(
+        text_template_type: TextTemplateType,
+        question_text_template: str | None = None,
+    ) -> TemplatePreviewResponse:
+        """Generate template data including preview question and text template."""
+        preview_question = self.question_generator.generate_template_preview(
             question_spec=question_spec,
             generation_options=generation_options,
+        )
+
+        if question_text_template is None:
+            func_params = parse_function_parameters(code, entry_function)
+            if func_params.parameters:
+                input_fmt = ", ".join(f"{p} = {{{p}}}" for p in func_params.parameters)
+                question_text_template = (
+                    f"{preview_question.text}\nGiven input: {input_fmt}"
+                )
+            else:
+                question_text_template = preview_question.text
+
+        target_elements = [
+            CreateTargetElementRequest(
+                element_type=TargetElementType(e.type),
+                id_list=e.id,
+                name=e.name,
+                line_number=e.line_number,
+                modifier=TargetModifier(e.modifier) if e.modifier else None,
+            )
+            for e in question_spec.target
+        ]
+
+        return TemplatePreviewResponse(
+            question_text_template=question_text_template,
+            text_template_type=text_template_type,
+            question_type=preview_question.question_type,
+            preview_question=preview_question,
+            code=code,
+            entry_function=entry_function,
+            output_type=question_spec.output_type,
+            num_distractors=generation_options.num_distractors,
+            target_elements=target_elements,
         )
 
     async def generate_assessment_from_template(

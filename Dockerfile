@@ -45,6 +45,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 # Copy application code
 COPY --chown=edcraft:edcraft pyproject.toml ./
 COPY --chown=edcraft:edcraft edcraft_backend ./edcraft_backend
+COPY --chown=edcraft:edcraft worker ./worker
 COPY --chown=edcraft:edcraft alembic ./alembic
 COPY --chown=edcraft:edcraft alembic.ini ./
 

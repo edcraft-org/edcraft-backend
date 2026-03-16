@@ -8,6 +8,7 @@ Available Mocks:
     MockStaticAnalyser: Mocks edcraft_engine.static_analyser.StaticAnalyser
     MockOAuthClient: Mocks Authlib OAuth client for OAuth testing
     MockOAuthRegistry: Mocks OAuth registry for managing OAuth providers
+    MockJobService: Executes jobs inline in tests without Nomad
 
 Usage:
     from tests.mocks import MockQuestionGenerator, MockStaticAnalyser
@@ -26,10 +27,12 @@ Usage:
 Organization:
     - engine/: Mocks for EdCraft Engine components
     - oauth_client.py: Mocks for OAuth clients
+    - job_service.py: Mock JobService for job execution
     - factories.py: Helper functions for creating pre-configured mocks
 """
 
 from tests.mocks.engine import MockQuestionGenerator, MockStaticAnalyser
+from tests.mocks.job_service import MockJobService
 from tests.mocks.oauth_client import (
     MockOAuthClient,
     MockOAuthRegistry,
@@ -39,6 +42,7 @@ from tests.mocks.oauth_client import (
 __all__ = [
     "MockQuestionGenerator",
     "MockStaticAnalyser",
+    "MockJobService",
     "MockOAuthClient",
     "MockOAuthRegistry",
     "create_mock_oauth_user_info",

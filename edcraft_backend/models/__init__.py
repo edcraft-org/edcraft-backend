@@ -4,6 +4,7 @@ from edcraft_backend.models.assessment import Assessment
 from edcraft_backend.models.assessment_template import AssessmentTemplate
 from edcraft_backend.models.base import AssociationBase, Base, EntityBase
 from edcraft_backend.models.folder import Folder
+from edcraft_backend.models.job import Job, JobStatus, JobToken, JobType
 from edcraft_backend.models.oauth_account import OAuthAccount
 from edcraft_backend.models.one_time_token import OneTimeToken, TokenType
 from edcraft_backend.models.question import Question
@@ -37,4 +38,8 @@ __all__ = [
     "QuestionBank",
     "QuestionTemplateBank",
     "ResourceCollaborator",
+    "Job",
+    "JobStatus",
+    "JobToken",
+    "JobType",
 ]

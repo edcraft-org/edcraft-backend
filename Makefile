@@ -1,4 +1,4 @@
-.PHONY: install test lint type-check all-checks clean dev db-dev db-test docker-status docker-up docker-down
+.PHONY: install test lint type-check all-checks clean dev db-dev db-test docker-status docker-up docker-down nomad
 
 install:
 	uv sync
@@ -43,7 +43,11 @@ docker-status:
 	@docker compose --profile all ps
 
 docker-up:
-	docker compose --profile all up -d
+	docker compose --profile default up -d
 
 docker-down:
 	docker compose --profile all down
+
+nomad:
+	@echo "Starting Nomad agent in dev mode..."
+	nomad agent -dev -bind=0.0.0.0 -log-level=INFO

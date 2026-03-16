@@ -131,6 +131,36 @@ class OAuthGithubSettings(BaseSettings):
     )
 
 
+class NomadSettings(BaseSettings):
+    """Nomad job queue configuration."""
+
+    model_config = SettingsConfigDict(
+        env_file=None, env_prefix="NOMAD_", case_sensitive=False, extra="ignore"
+    )
+
+    host: str = Field(default="127.0.0.1", description="Nomad agent host")
+    port: int = Field(default=4646, description="Nomad HTTP API port")
+    token: str | None = Field(default=None, description="Nomad ACL token (required in production)")
+    namespace: str | None = Field(default=None, description="Nomad namespace for job isolation")
+    datacenters: list[str] = Field(
+        default_factory=lambda: ["dc1"],
+        description="Datacenters where jobs can be scheduled",
+    )
+    cpu_mhz: int = Field(default=500, description="CPU resource limit per worker task (MHz)")
+    memory_mb: int = Field(default=512, description="Memory resource limit per worker task (MB)")
+    callback_base_url: str = Field(
+        default="http://host.docker.internal:8000",
+        description=(
+            "Base URL the worker uses to POST results back "
+            "(must be reachable from inside the worker container)"
+        ),
+    )
+    container_image: str = Field(
+        default="edcraft-backend:latest",
+        description="Docker image to run as the worker",
+    )
+
+
 class EmailSettings(BaseSettings):
     """Email configuration. Env prefix: EMAIL_"""
 
@@ -172,6 +202,7 @@ class Settings(BaseSettings):
     oauth_google: OAuthGoogleSettings = Field(default_factory=OAuthGoogleSettings)
     oauth_github: OAuthGithubSettings = Field(default_factory=OAuthGithubSettings)
     email: EmailSettings = Field(default_factory=EmailSettings)
+    nomad: NomadSettings = Field(default_factory=NomadSettings)
 
     # Standalone settings
     log_level: str = Field(default="info", description="Logging level")

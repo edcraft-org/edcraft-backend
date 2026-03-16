@@ -6,9 +6,10 @@ from edcraft_engine.question_generator.models import (
     Question,
     QuestionSpec,
 )
+from edcraft_engine.question_generator.question_generator import QuestionGenerator
 
 
-class MockQuestionGenerator:
+class MockQuestionGenerator(QuestionGenerator):
     """
     Mock QuestionGenerator that returns predictable questions.
 

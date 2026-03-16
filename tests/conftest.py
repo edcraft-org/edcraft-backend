@@ -22,7 +22,7 @@ from edcraft_backend.database import get_db  # noqa: E402
 from edcraft_backend.main import app  # noqa: E402
 from edcraft_backend.models.base import Base  # noqa: E402
 from edcraft_backend.models.user import User  # noqa: E402
-from tests.mocks import MockQuestionGenerator, MockStaticAnalyser  # noqa: E402
+from tests.mocks import MockJobService, MockQuestionGenerator, MockStaticAnalyser  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -97,6 +97,7 @@ async def test_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, N
     from edcraft_backend.dependencies import (
         get_assessment_service,
         get_assessment_template_service,
+        get_job_service,
         get_question_generation_service,
         get_question_template_service,
     )
@@ -133,12 +134,16 @@ async def test_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, N
         service.static_analyser = MockStaticAnalyser()
         return service
 
+    def override_job_service() -> MockJobService:
+        return MockJobService(db_session)
+
     # Apply dependency overrides
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_question_generation_service] = (
         override_question_generation_service
     )
     app.dependency_overrides[CodeAnalysisService] = override_code_analysis_service
+    app.dependency_overrides[get_job_service] = override_job_service
 
     # Create async test client
     # Using raise_app_exceptions=False to prevent worker thread issues
@@ -191,6 +196,7 @@ async def _create_test_client(db_session: AsyncSession) -> AsyncGenerator[AsyncC
     from edcraft_backend.dependencies import (
         get_assessment_service,
         get_assessment_template_service,
+        get_job_service,
         get_question_generation_service,
         get_question_template_service,
     )
@@ -224,12 +230,16 @@ async def _create_test_client(db_session: AsyncSession) -> AsyncGenerator[AsyncC
         service.static_analyser = MockStaticAnalyser()
         return service
 
+    def override_job_service() -> MockJobService:
+        return MockJobService(db_session)
+
     # Apply dependency overrides
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_question_generation_service] = (
         override_question_generation_service
     )
     app.dependency_overrides[CodeAnalysisService] = override_code_analysis_service
+    app.dependency_overrides[get_job_service] = override_job_service
 
     # Create async test client
     transport = ASGITransport(app=app, raise_app_exceptions=False)

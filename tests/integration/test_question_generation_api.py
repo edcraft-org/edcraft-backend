@@ -1,6 +1,6 @@
 """Integration tests for Question Generation API endpoints."""
 
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -16,6 +16,17 @@ from tests.factories import (
 )
 
 
+async def _submit_and_poll(client: AsyncClient, url: str, json: Any) -> dict[str, Any]:
+    """Submit a job and poll GET /jobs/{job_id} for the result."""
+    resp = await client.post(url, json=json)
+    assert resp.status_code == 202
+    job_id = resp.json()["job_id"]
+
+    result_resp = await client.get(f"/jobs/{job_id}")
+    assert result_resp.status_code == 200
+    return cast(dict[str, Any], result_resp.json())
+
+
 @pytest.mark.integration
 @pytest.mark.question_generation
 class TestAnalyseCode:
@@ -27,56 +38,56 @@ class TestAnalyseCode:
         code_data = {
             "code": "def hello():\\n    print('Hello World')",
         }
-        response = await test_client.post(
-            "/question-generation/analyse-code", json=code_data
+        data = await _submit_and_poll(
+            test_client, "/question-generation/analyse-code", code_data
         )
 
-        assert response.status_code == 200
-        data = response.json()
-        assert "code_info" in data
-        assert "form_elements" in data
+        assert data["status"] == "completed"
+        result = data["result"]
+        assert "code_info" in result
+        assert "form_elements" in result
         # Verify code_info structure
-        assert "code_tree" in data["code_info"]
-        assert "functions" in data["code_info"]
-        assert "loops" in data["code_info"]
-        assert "branches" in data["code_info"]
-        assert "variables" in data["code_info"]
+        assert "code_tree" in result["code_info"]
+        assert "functions" in result["code_info"]
+        assert "loops" in result["code_info"]
+        assert "branches" in result["code_info"]
+        assert "variables" in result["code_info"]
 
     @pytest.mark.asyncio
     async def test_analyse_code_empty_code(self, test_client: AsyncClient) -> None:
         """Test code analysis with empty code."""
         code_data = {"code": ""}
-        response = await test_client.post(
-            "/question-generation/analyse-code", json=code_data
+        data = await _submit_and_poll(
+            test_client, "/question-generation/analyse-code", code_data
         )
 
-        assert response.status_code == 200
-        data = response.json()
+        assert data["status"] == "completed"
+        result = data["result"]
         # Empty code should still return valid structure
-        assert "code_info" in data
-        assert "form_elements" in data
+        assert "code_info" in result
+        assert "form_elements" in result
         # Verify code_info structure
-        assert "code_tree" in data["code_info"]
-        assert "functions" in data["code_info"]
-        assert "loops" in data["code_info"]
-        assert "branches" in data["code_info"]
-        assert "variables" in data["code_info"]
+        assert "code_tree" in result["code_info"]
+        assert "functions" in result["code_info"]
+        assert "loops" in result["code_info"]
+        assert "branches" in result["code_info"]
+        assert "variables" in result["code_info"]
 
     @pytest.mark.asyncio
     async def test_analyse_code_with_invalid_encoding(
         self, test_client: AsyncClient
     ) -> None:
-        """Test that invalid code encoding raises appropriate error."""
+        """Test that invalid code encoding causes the job to fail."""
         code_data = {
             "code": "\\x",  # Invalid escape sequence
         }
 
-        response = await test_client.post(
-            "/question-generation/analyse-code", json=code_data
+        data = await _submit_and_poll(
+            test_client, "/question-generation/analyse-code", code_data
         )
 
-        assert response.status_code == 400
-        assert "Invalid code format" in response.json()["detail"]
+        assert data["status"] == "failed"
+        assert data["error"] is not None
 
 
 @pytest.mark.integration
@@ -114,40 +125,43 @@ class TestGenerateQuestionFromTemplate:
 
         # Call endpoint with valid input_data
         request_data = {"input_data": {"n": 5}}
-        response = await test_client.post(
+        data = await _submit_and_poll(
+            test_client,
             f"/question-generation/from-template/{template.id}",
-            json=request_data,
+            request_data,
         )
 
-        # Assert success
-        assert response.status_code == 200
-        data = response.json()
+        assert data["status"] == "completed"
+        result = data["result"]
 
         # Verify question structure
-        assert "text" in data
-        assert "question_type" in data
-        assert data["question_type"] == "mcq"
-        assert "options" in data
-        assert "correct_indices" in data
-        assert len(data["options"]) > 0
+        assert "text" in result
+        assert "question_type" in result
+        assert result["question_type"] == "mcq"
+        assert "options" in result
+        assert "correct_indices" in result
+        assert len(result["options"]) > 0
 
         # Verify question text correctly incorporates input data
-        assert data["text"] == "Template question 1? Given input: n = 5"
+        assert result["text"] == "Template question 1? Given input: n = 5"
 
     @pytest.mark.asyncio
     async def test_generate_question_from_template_not_found(
         self, test_client: AsyncClient, user: User
     ) -> None:
-        """Test generating question from non-existent template returns 404."""
+        """Test generating question from non-existent template returns failed job."""
         non_existent_id = uuid4()
         request_data = {"input_data": {"n": 5}}
 
-        response = await test_client.post(
+        data = await _submit_and_poll(
+            test_client,
             f"/question-generation/from-template/{non_existent_id}",
-            json=request_data,
+            request_data,
         )
 
-        assert response.status_code == 404
+        assert data["status"] == "failed"
+        assert data["error"] is not None
+
 
 
 @pytest.mark.integration
@@ -181,23 +195,23 @@ class TestGenerateAssessmentFromTemplate:
                 {"n": 15},
             ],
         }
-        response = await test_client.post(
+        data = await _submit_and_poll(
+            test_client,
             f"/question-generation/assessment-from-template/{assessment_template.id}",
-            json=request_data,
+            request_data,
         )
 
-        # Assert success
-        assert response.status_code == 201
-        data = response.json()
+        assert data["status"] == "completed"
+        result = data["result"]
 
         # Verify assessment created with correct metadata
-        assert data["title"] == "Custom Assessment"
-        assert data["description"] == "Custom description"
-        assert data["owner_id"] == str(user.id)
+        assert result["title"] == "Custom Assessment"
+        assert result["description"] == "Custom description"
+        assert result["owner_id"] == str(user.id)
 
         # Verify 3 questions created and linked in correct order
-        assert len(data["questions"]) == 3
-        for i, question in enumerate(data["questions"]):
+        assert len(result["questions"]) == 3
+        for i, question in enumerate(result["questions"]):
             assert question["order"] == i
             assert question["template_id"] == str(question_templates[i].id)
 
@@ -220,16 +234,17 @@ class TestGenerateAssessmentFromTemplate:
             },
             "question_inputs": [{"n": 5}, {"n": 10}],
         }
-        response = await test_client.post(
+        data = await _submit_and_poll(
+            test_client,
             f"/question-generation/assessment-from-template/{assessment_template.id}",
-            json=request_data,
+            request_data,
         )
 
-        assert response.status_code == 201
-        data = response.json()
+        assert data["status"] == "completed"
+        result = data["result"]
 
-        assert data["title"] == assessment_template.title
-        assert data["description"] == assessment_template.description
+        assert result["title"] == assessment_template.title
+        assert result["description"] == assessment_template.description
 
     @pytest.mark.asyncio
     async def test_generate_assessment_from_template_overrides_defaults(
@@ -252,16 +267,17 @@ class TestGenerateAssessmentFromTemplate:
             },
             "question_inputs": [{"n": 5}, {"n": 10}],
         }
-        response = await test_client.post(
+        data = await _submit_and_poll(
+            test_client,
             f"/question-generation/assessment-from-template/{assessment_template.id}",
-            json=request_data,
+            request_data,
         )
 
-        assert response.status_code == 201
-        data = response.json()
+        assert data["status"] == "completed"
+        result = data["result"]
 
-        assert data["title"] == "Override Title"
-        assert data["description"] == "Override Description"
+        assert result["title"] == "Override Title"
+        assert result["description"] == "Override Description"
 
     @pytest.mark.asyncio
     async def test_generate_assessment_from_template_with_folder(
@@ -283,20 +299,21 @@ class TestGenerateAssessmentFromTemplate:
             },
             "question_inputs": [{"n": 5}, {"n": 10}],
         }
-        response = await test_client.post(
+        data = await _submit_and_poll(
+            test_client,
             f"/question-generation/assessment-from-template/{assessment_template.id}",
-            json=request_data,
+            request_data,
         )
 
-        assert response.status_code == 201
-        data = response.json()
-        assert data["folder_id"] == str(folder.id)
+        assert data["status"] == "completed"
+        result = data["result"]
+        assert result["folder_id"] == str(folder.id)
 
     @pytest.mark.asyncio
     async def test_generate_assessment_from_template_not_found(
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
-        """Test generating assessment from non-existent template returns 404."""
+        """Test generating assessment from non-existent template returns failed job."""
         await db_session.commit()
 
         non_existent_id = uuid4()
@@ -305,18 +322,20 @@ class TestGenerateAssessmentFromTemplate:
             "question_inputs": [{"n": 5}],
         }
 
-        response = await test_client.post(
+        data = await _submit_and_poll(
+            test_client,
             f"/question-generation/assessment-from-template/{non_existent_id}",
-            json=request_data,
+            request_data,
         )
 
-        assert response.status_code == 404
+        assert data["status"] == "failed"
+        assert data["error"] is not None
 
     @pytest.mark.asyncio
     async def test_generate_assessment_from_template_input_count_mismatch(
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
-        """Test input count mismatch raises ValidationError."""
+        """Test input count mismatch causes the job to fail."""
         assessment_template, _ = (
             await create_assessment_template_with_question_templates(
                 db_session, user, num_templates=3
@@ -330,15 +349,16 @@ class TestGenerateAssessmentFromTemplate:
             "question_inputs": [{"n": 5}, {"n": 10}],  # Missing one
         }
 
-        response = await test_client.post(
+        data = await _submit_and_poll(
+            test_client,
             f"/question-generation/assessment-from-template/{assessment_template.id}",
-            json=request_data,
+            request_data,
         )
 
-        assert response.status_code == 400
-        error_detail = response.json()["detail"]
-        assert "expected 3" in error_detail.lower()
-        assert "got 2" in error_detail.lower()
+        assert data["status"] == "failed"
+        error = data["error"].lower()
+        assert "expected 3" in error
+        assert "got 2" in error
 
     @pytest.mark.asyncio
     async def test_generate_assessment_from_template_empty_template(
@@ -355,14 +375,15 @@ class TestGenerateAssessmentFromTemplate:
             "question_inputs": [],  # Empty array
         }
 
-        response = await test_client.post(
+        data = await _submit_and_poll(
+            test_client,
             f"/question-generation/assessment-from-template/{template.id}",
-            json=request_data,
+            request_data,
         )
 
-        assert response.status_code == 201
-        data = response.json()
-        assert len(data["questions"]) == 0
+        assert data["status"] == "completed"
+        result = data["result"]
+        assert len(result["questions"]) == 0
 
     @pytest.mark.asyncio
     async def test_generate_assessment_from_template_preserves_question_order(
@@ -381,18 +402,19 @@ class TestGenerateAssessmentFromTemplate:
             "question_inputs": [{"n": i} for i in range(5)],
         }
 
-        response = await test_client.post(
+        data = await _submit_and_poll(
+            test_client,
             f"/question-generation/assessment-from-template/{assessment_template.id}",
-            json=request_data,
+            request_data,
         )
 
-        assert response.status_code == 201
-        data = response.json()
+        assert data["status"] == "completed"
+        result = data["result"]
 
-        assert len(data["questions"]) == 5
+        assert len(result["questions"]) == 5
         for i in range(5):
-            assert data["questions"][i]["order"] == i
-            assert data["questions"][i]["template_id"] == str(question_templates[i].id)
+            assert result["questions"][i]["order"] == i
+            assert result["questions"][i]["template_id"] == str(question_templates[i].id)
 
 
 @pytest.mark.integration
@@ -424,35 +446,35 @@ class TestGenerateTemplatePreview:
             "generation_options": {"num_distractors": 4},
         }
 
-        response = await test_client.post(
-            "/question-generation/generate-template", json=request_data
+        data = await _submit_and_poll(
+            test_client, "/question-generation/generate-template", request_data
         )
 
-        assert response.status_code == 200
-        data = response.json()
+        assert data["status"] == "completed"
+        result = data["result"]
 
         # Verify response structure
-        assert "question_text_template" in data
-        assert "text_template_type" in data
-        assert "question_type" in data
-        assert "preview_question" in data
+        assert "question_text_template" in result
+        assert "text_template_type" in result
+        assert "question_type" in result
+        assert "preview_question" in result
 
         # Verify question_type and template type
-        assert data["question_type"] == "mcq"
-        assert data["text_template_type"] == "basic"
+        assert result["question_type"] == "mcq"
+        assert result["text_template_type"] == "basic"
 
         # Verify question_text_template contains input param placeholders
-        assert "Given input: n = {n}" in data["question_text_template"]
+        assert "Given input: n = {n}" in result["question_text_template"]
 
         # Verify template_config fields in response
-        assert data["code"] == "def example(n):\n    return n * 2"
-        assert data["entry_function"] == "example"
-        assert data["num_distractors"] == 4
-        assert data["output_type"] == "first"
-        assert len(data["target_elements"]) == 1
+        assert result["code"] == "def example(n):\n    return n * 2"
+        assert result["entry_function"] == "example"
+        assert result["num_distractors"] == 4
+        assert result["output_type"] == "first"
+        assert len(result["target_elements"]) == 1
 
         # Verify preview_question structure
-        preview = data["preview_question"]
+        preview = result["preview_question"]
         assert preview["question_type"] == "mcq"
         assert preview["answer"] == "<placeholder_answer>"
         assert preview["options"] is not None
@@ -489,20 +511,20 @@ class TestGenerateTemplatePreview:
             "text_template_type": "basic",
         }
 
-        response = await test_client.post(
-            "/question-generation/generate-template", json=request_data
+        data = await _submit_and_poll(
+            test_client, "/question-generation/generate-template", request_data
         )
 
-        assert response.status_code == 200
-        data = response.json()
-        assert data["question_text_template"] == "Custom template: n = {n}"
-        assert data["text_template_type"] == "basic"
+        assert data["status"] == "completed"
+        result = data["result"]
+        assert result["question_text_template"] == "Custom template: n = {n}"
+        assert result["text_template_type"] == "basic"
 
     @pytest.mark.asyncio
     async def test_generate_template_preview_invalid_code_encoding(
         self, test_client: AsyncClient
     ) -> None:
-        """Test that invalid code encoding raises CodeDecodingError."""
+        """Test that invalid code encoding causes the job to fail."""
         request_data: dict[str, Any] = {
             "code": "\\x",  # Invalid escape sequence
             "entry_function": "example",
@@ -521,12 +543,12 @@ class TestGenerateTemplatePreview:
             "generation_options": {"num_distractors": 4},
         }
 
-        response = await test_client.post(
-            "/question-generation/generate-template", json=request_data
+        data = await _submit_and_poll(
+            test_client, "/question-generation/generate-template", request_data
         )
 
-        assert response.status_code == 400
-        assert "Invalid code format" in response.json()["detail"]
+        assert data["status"] == "failed"
+        assert data["error"] is not None
 
     @pytest.mark.asyncio
     async def test_generate_template_preview_preserves_all_config(
@@ -552,16 +574,16 @@ class TestGenerateTemplatePreview:
             "generation_options": {"num_distractors": 3},
         }
 
-        response = await test_client.post(
-            "/question-generation/generate-template", json=request_data
+        data = await _submit_and_poll(
+            test_client, "/question-generation/generate-template", request_data
         )
 
-        assert response.status_code == 200
-        data = response.json()
+        assert data["status"] == "completed"
+        result = data["result"]
 
         # Verify all config is preserved
-        assert data["entry_function"] == "example"
-        assert data["output_type"] == "list"
-        assert data["question_type"] == "mrq"
-        assert data["target_elements"][0]["modifier"] == "arguments"
-        assert data["num_distractors"] == 3
+        assert result["entry_function"] == "example"
+        assert result["output_type"] == "list"
+        assert result["question_type"] == "mrq"
+        assert result["target_elements"][0]["modifier"] == "arguments"
+        assert result["num_distractors"] == 3

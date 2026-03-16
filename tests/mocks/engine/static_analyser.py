@@ -8,9 +8,10 @@ from edcraft_engine.static_analyser.models import (
     Loop,
     Scope,
 )
+from edcraft_engine.static_analyser.static_analyser import StaticAnalyser
 
 
-class MockStaticAnalyser:
+class MockStaticAnalyser(StaticAnalyser):
     """
     Mock StaticAnalyser that returns predictable code analysis.
 
@@ -40,12 +41,12 @@ class MockStaticAnalyser:
         """
         self._custom_analysis = analysis
 
-    def analyse(self, code: str) -> CodeAnalysis:
+    def analyse(self, source_code: str) -> CodeAnalysis:
         """
         Analyze code and return mock CodeAnalysis.
 
         Args:
-            code: The code to analyze (ignored in default mock)
+            source_code: The code to analyze (ignored in default mock)
 
         Returns:
             CodeAnalysis: Custom analysis if provided, otherwise minimal default analysis

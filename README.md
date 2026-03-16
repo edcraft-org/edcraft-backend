@@ -14,12 +14,14 @@ EdCraft Backend is a FastAPI-based web service that exposes the EdCraft Engine f
 - Structured project layout with routers, services, and schemas
 - Comprehensive development tooling (pytest, mypy, ruff)
 - JWT-based authentication and OAuth2 support (GitHub)
+- Async job queue via Nomad — generation endpoints are non-blocking 
 
 ## Requirements
 
 - Python 3.12+
 - [uv](https://github.com/astral-sh/uv) package manager
 - Docker
+- [Nomad](https://developer.hashicorp.com/nomad/install)
 
 ## Installation
 
@@ -82,11 +84,11 @@ uv run alembic upgrade head
 Start the development server with auto-reload:
 
 ```bash
-# 1. Start the database (runs in background)
-docker compose up -d
+# 1. Start the database
+make db-dev
 
-# 2. Verify database is running
-docker compose ps
+# 2. Start the Nomad agent
+make nomad
 
 # 3. Start the FastAPI development server
 make dev
@@ -172,6 +174,47 @@ make docker-down
 
 The backend will be available at http://localhost:8000 with automatic database migrations on startup.
 
+### WSL2 Setup
+
+When running Docker inside WSL2, the backend container cannot reach Nomad via `localhost` — they are in separate network namespaces. Follow these steps on first-time setup and after each WSL2 restart.
+
+**First-time setup only** — create the Docker network with a subnet that does not overlap with WSL2's network interfaces:
+
+```bash
+docker network create --subnet 192.168.100.0/24 edcraft-network
+```
+
+Also tag the worker image with a non-`:latest` tag. Nomad always tries to pull `:latest` from the registry even with `force_pull: false`, so a stable local tag is required:
+
+```bash
+docker tag edcraft-backend:latest edcraft-backend:local
+```
+
+Then set in `.env.development`:
+```
+NOMAD_CONTAINER_IMAGE=edcraft-backend:local
+```
+
+Re-run `docker tag` whenever you rebuild the image.
+
+**Every session** — start things in this order:
+
+1. Start Nomad in a dedicated terminal (runs in the foreground):
+   ```bash
+   make nomad
+   ```
+
+2. Update `NOMAD_HOST` in `.env.development` with the current WSL2 IP:
+   ```bash
+   sed -i "s/NOMAD_HOST=.*/NOMAD_HOST=$(ip addr show eth0 | grep 'inet ' | awk '{print $2}' | cut -d/ -f1)/" .env.development
+   ```
+   This is needed because WSL2 assigns a new IP to `eth0` on each restart.
+
+3. Start Docker services in a separate terminal:
+   ```bash
+   make docker-up
+   ```
+
 ### Building the Image
 
 ```bash
@@ -201,10 +244,13 @@ The application follows a layered architecture pattern:
   - **`routers/`** - FastAPI route handlers organized by resource (auth, users, assessments, questions, etc.)
   - **`schemas/`** - Pydantic models for request/response validation and serialization
   - **`services/`** - Business logic layer separating concerns from route handlers
+  - **`repositories/`** - Database access layer
+  - **`executors/`** - Integrations with external systems (Nomad job submission via HTTP API)
   - **`security/`** - JWT authentication and password hashing utilities
   - **`oauth/`** - OAuth 2.0 provider integrations
   - Core files: `main.py` (app initialization), `database.py` (session management), `dependencies.py` (shared dependencies)
 
+- **`worker/`** - Standalone worker entrypoint run inside Nomad-spawned containers; handles all job types and POSTs results back to FastAPI via callback URL
 - **`alembic/`** - Database migration scripts managed by Alembic
 - **`tests/`** - Test suite
 - **Configuration files**: `docker-compose.yml`, `Makefile`, `pyproject.toml`
@@ -516,6 +562,15 @@ The application uses a comprehensive database schema for managing assessments, q
     - Valid order range: 0 to current template count (inclusive); omit to append
     - Automatic normalization after deletions
 
+- **Job** ([job.py](edcraft_backend/models/job.py)) - Tracks async jobs submitted to Nomad
+  - Statuses: `queued` → `running` → `completed` / `failed`
+  - Stores `result_json` (serialized result) and `error_message` on completion
+  - Optionally linked to the submitting user (`user_id`, nullable)
+
+- **JobToken** ([job.py](edcraft_backend/models/job.py)) - Single-use callback tokens for worker → API result delivery
+  - Token is passed to the worker at submission time; worker includes it in the `POST /jobs/callback/{token}` request
+  - Consumed (marked used) on first call; revoked tokens are rejected
+
 **Working with Models:**
 
 When creating new models:
@@ -541,6 +596,54 @@ async def get_items(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Item))
     return result.scalars().all()
 ```
+
+## Async Job Queue (Nomad)
+
+Long-running AI generation endpoints are non-blocking. Instead of waiting for the result, they immediately return `202 Accepted` with a `job_id` that clients use to poll for completion.
+
+### How It Works
+
+1. **Client submits request** → FastAPI creates a `Job` row in the database (status: `queued`), generates a one-time `JobToken`, builds a callback URL, and dispatches a batch job to Nomad.
+2. **FastAPI responds** with `202 Accepted`:
+   ```json
+   { "job_id": "<uuid>", "status_url": "/jobs/<uuid>" }
+   ```
+3. **Nomad schedules a worker container** using the same `edcraft-backend` Docker image. Job parameters are passed as a base64-encoded env var.
+4. **Worker executes** (`python -m worker.entrypoint`), completes the task, and POSTs the result back:
+   ```
+   POST /jobs/callback/{token}
+   { "result": "<json string>" }
+   ```
+5. **Client polls** `GET /jobs/{job_id}` until `status` is `completed` or `failed`:
+   ```json
+   { "job_id": "<uuid>", "status": "completed", "result": { ... }, "error": null }
+   ```
+
+### Async Endpoints
+
+| Method | Endpoint | Job type |
+|--------|----------|----------|
+| `POST` | `/question-generation/analyse-code` | `analyse_code` |
+| `POST` | `/question-generation/generate-question` | `generate_question` |
+| `POST` | `/question-generation/generate-template` | `generate_template` |
+| `POST` | `/question-generation/from-template/{template_id}` | `question_from_template` |
+| `POST` | `/question-generation/assessment-from-template/{template_id}` | `assessment_from_template` |
+| `POST` | `/input-generator/generate` | `generate_inputs` |
+
+
+### Nomad Configuration Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NOMAD_HOST` | `127.0.0.1` | Nomad agent host |
+| `NOMAD_PORT` | `4646` | Nomad HTTP API port |
+| `NOMAD_TOKEN` | _(none)_ | ACL token — not required in `-dev` mode |
+| `NOMAD_NAMESPACE` | _(none)_ | Namespace for job isolation |
+| `NOMAD_DATACENTERS` | `["dc1"]` | Datacenters where workers are scheduled |
+| `NOMAD_CPU_MHZ` | `500` | CPU reservation per worker task (MHz) |
+| `NOMAD_MEMORY_MB` | `512` | Memory reservation per worker task (MB) |
+| `NOMAD_CALLBACK_BASE_URL` | `http://host.docker.internal:8000` | Base URL the worker uses to POST results back |
+| `NOMAD_CONTAINER_IMAGE` | `edcraft-backend:latest` | Docker image to run as the worker |
 
 ## Authentication
 
@@ -667,6 +770,12 @@ The docker-compose.yml uses `env_file` directives to load environment-specific c
 - `SERVER_PORT` - Server port (default: `8000`)
 - `LOG_LEVEL` - Logging level (`debug`, `info`, `warning`, `error`, `critical`)
 
+#### Nomad Settings
+See the full variable reference in the [Async Job Queue](#async-job-queue-nomad) section.
+- `NOMAD_HOST` - Nomad agent host (default: `127.0.0.1`)
+- `NOMAD_PORT` - Nomad HTTP API port (default: `4646`)
+- `NOMAD_CALLBACK_BASE_URL` - URL workers use to POST results back (must be reachable from inside a Docker container)
+- `NOMAD_CONTAINER_IMAGE` - Worker Docker image (default: `edcraft-backend:latest`)
 
 ## API Documentation
 
@@ -703,11 +812,17 @@ Full endpoint reference is auto-generated at http://127.0.0.1:8000/docs. Key non
 - `template_config` structure: `{code, question_spec, generation_options, entry_function}`
 
 **Question Generation**
-- `generate-template` returns a preview with placeholder values (e.g. `<option_1>`) and `template_config` for future template creation
+- All endpoints are **async** — they return `202 Accepted` with `{"job_id": "...", "status_url": "/jobs/..."}`. Poll `GET /jobs/{job_id}` for the result.
+- `generate-template` result includes a preview with placeholder values (e.g. `<option_1>`) and `template_config` for future template creation
 - `assessment-from-template`: `question_inputs` array length must match the number of question templates in the assessment template; `title`/`description` default to template values if omitted
 
 **Input Generator**
-- generate values for one or more variables from their config
+- All endpoints are **async** — same `202 Accepted` + poll pattern as Question Generation
+- Generates values for one or more variables from their config
+
+**Jobs** (`/jobs`, requires auth)
+- `GET /jobs/{job_id}` — poll for job status; returns `status`, `result` (parsed), and `error`
+- Possible statuses: `queued`, `running`, `completed`, `failed`
 
 ## License
 
