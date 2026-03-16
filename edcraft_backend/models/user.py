@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from edcraft_backend.models.question_bank import QuestionBank
     from edcraft_backend.models.question_template import QuestionTemplate
     from edcraft_backend.models.question_template_bank import QuestionTemplateBank
+    from edcraft_backend.models.resource_collaborator import ResourceCollaborator
 
 
 class User(EntityBase):
@@ -63,6 +64,9 @@ class User(EntityBase):
     )
     question_template_banks: Mapped[list["QuestionTemplateBank"]] = relationship(
         back_populates="owner", cascade="all, delete-orphan", lazy="selectin"
+    )
+    resource_collaborations: Mapped[list["ResourceCollaborator"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan", lazy="selectin"
     )
 
     def __repr__(self) -> str:

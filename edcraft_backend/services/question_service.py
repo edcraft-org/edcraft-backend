@@ -13,6 +13,9 @@ from edcraft_backend.repositories.question_bank_question_repository import (
     QuestionBankQuestionRepository,
 )
 from edcraft_backend.repositories.question_repository import QuestionRepository
+from edcraft_backend.repositories.resource_collaborator_repository import (
+    ResourceCollaboratorRepository,
+)
 from edcraft_backend.schemas.question import (
     CreateMCQRequest,
     CreateMRQRequest,
@@ -46,10 +49,12 @@ class QuestionService:
         question_repository: QuestionRepository,
         assessment_question_repository: AssessmentQuestionRepository,
         question_bank_question_repository: QuestionBankQuestionRepository,
+        collaborator_repository: ResourceCollaboratorRepository,
     ):
         self.question_repo = question_repository
         self.assessment_assoc_repo = assessment_question_repository
         self.question_bank_assoc_repo = question_bank_question_repository
+        self.collaborator_repo = collaborator_repository
 
     async def get_owned_question(self, user_id: UUID, question_id: UUID) -> Question:
         """Get question and verify ownership.
@@ -166,8 +171,22 @@ class QuestionService:
             ResourceNotFoundError: If question not found
             UnauthorizedAccessError: If user doesn't own the question
         """
-        question = await self.get_owned_question(user_id, question_id)
+        question = await self.question_repo.get_by_id(question_id)
+        if not question:
+            raise ResourceNotFoundError("Question", str(question_id))
 
+        if question.owner_id != user_id:
+            can_edit = await self.collaborator_repo.user_can_edit_question(
+                question_id, user_id
+            )
+            if not can_edit:
+                raise UnauthorizedAccessError("Question", str(question_id))
+
+        return await self._update_question_data(question, question_data)
+
+    async def _update_question_data(
+        self, question: Question, question_data: UpdateQuestionRequest
+    ) -> Question:
         if question_data.question_text is not None:
             question.question_text = question_data.question_text
 

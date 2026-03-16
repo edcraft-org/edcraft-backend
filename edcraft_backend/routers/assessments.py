@@ -1,5 +1,6 @@
 """Assessment endpoints with question association management."""
 
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -11,14 +12,18 @@ from edcraft_backend.dependencies import (
 )
 from edcraft_backend.exceptions import EdCraftBaseException
 from edcraft_backend.models.assessment import Assessment
+from edcraft_backend.models.resource_collaborator import ResourceCollaborator
 from edcraft_backend.schemas.assessment import (
+    AddCollaboratorRequest,
     AssessmentResponse,
     AssessmentWithQuestionsResponse,
+    CollaboratorResponse,
     CreateAssessmentRequest,
     InsertQuestionIntoAssessmentRequest,
     LinkQuestionToAssessmentRequest,
     ReorderQuestionsInAssessmentRequest,
     UpdateAssessmentRequest,
+    UpdateCollaboratorRoleRequest,
 )
 
 router = APIRouter(prefix="/assessments", tags=["assessments"])
@@ -42,11 +47,14 @@ async def list_assessments(
     current_user: CurrentUserDep,
     service: AssessmentServiceDep,
     folder_id: UUID | None = Query(None, description="Filter by folder ID"),
-) -> list[Assessment]:
-    """List assessments by owner, optionally filtered by folder."""
+    collab_filter: Literal["all", "owned", "shared"] = Query(
+        "all", description="Filter by collaboration role: all, owned, or shared"
+    ),
+) -> list[AssessmentResponse]:
+    """List assessments the user has access to, optionally filtered by folder or role."""
     try:
         return await service.list_assessments(
-            user_id=current_user.id, folder_id=folder_id
+            user_id=current_user.id, folder_id=folder_id, collab_filter=collab_filter
         )
     except EdCraftBaseException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
@@ -60,9 +68,9 @@ async def get_assessment(
 ) -> AssessmentWithQuestionsResponse:
     """Get assessment with questions.
 
-    - Owners can access any of their assessments (private or public)
-    - Non-owners and unauthenticated users can only access public assessments
-    - Returns 404 for private assessments accessed by non-owners
+    - Collaborators can access the assessment
+    - Unauthenticated users can only access public assessments
+    - Returns 404 for private assessments accessed by non-collaborators
     """
     try:
         user_id = current_user.id if current_user else None
@@ -80,7 +88,7 @@ async def update_assessment(
     assessment_data: UpdateAssessmentRequest,
     service: AssessmentServiceDep,
 ) -> Assessment:
-    """Update assessment metadata."""
+    """Update assessment metadata. Requires edit permissions."""
     try:
         return await service.update_assessment(
             user_id=current_user.id,
@@ -97,7 +105,7 @@ async def soft_delete_assessment(
     assessment_id: UUID,
     service: AssessmentServiceDep,
 ) -> None:
-    """Soft delete an assessment and clean up orphaned questions."""
+    """Soft delete an assessment. Owner only."""
     try:
         await service.soft_delete_assessment(
             user_id=current_user.id, assessment_id=assessment_id
@@ -117,7 +125,7 @@ async def insert_question_into_assessment(
     question_data: InsertQuestionIntoAssessmentRequest,
     service: AssessmentServiceDep,
 ) -> AssessmentWithQuestionsResponse:
-    """Add a question to an assessment.
+    """Add a question to an assessment. Requires edit permissions.
 
     Questions are ordered using 0-indexed consecutive integers (0, 1, 2, 3...).
     When adding a question with a specified order, questions at or after that
@@ -144,7 +152,9 @@ async def link_question_into_assessment(
     question_data: LinkQuestionToAssessmentRequest,
     service: AssessmentServiceDep,
 ) -> AssessmentWithQuestionsResponse:
-    """Link an existing question into an assessment.
+    """Link an existing question into an assessment. Requires edit permissions.
+
+    The question must be owned by the caller.
 
     Questions are ordered using 0-indexed consecutive integers (0, 1, 2, 3...).
     When linking a question with a specified order, questions at or after that
@@ -172,7 +182,7 @@ async def remove_question_from_assessment(
     question_id: UUID,
     service: AssessmentServiceDep,
 ) -> None:
-    """Remove a question from an assessment and clean up if orphaned."""
+    """Remove a question from an assessment. Requires edit permissions."""
     try:
         await service.remove_question_from_assessment(
             current_user.id, assessment_id, question_id
@@ -190,10 +200,98 @@ async def reorder_questions(
     reorder_data: ReorderQuestionsInAssessmentRequest,
     service: AssessmentServiceDep,
 ) -> AssessmentWithQuestionsResponse:
-    """Reorder questions in an assessment."""
+    """Reorder questions in an assessment. Requires edit permissions."""
     try:
         return await service.reorder_questions(
             current_user.id, assessment_id, reorder_data.question_orders
+        )
+    except EdCraftBaseException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+
+@router.post(
+    "/{assessment_id}/collaborators",
+    response_model=CollaboratorResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_collaborator(
+    current_user: CurrentUserDep,
+    assessment_id: UUID,
+    collaborator_data: AddCollaboratorRequest,
+    service: AssessmentServiceDep,
+) -> ResourceCollaborator:
+    """Add a collaborator to an assessment. Editor or owner. Cannot assign owner role."""
+    try:
+        return await service.add_collaborator(
+            caller_id=current_user.id,
+            assessment_id=assessment_id,
+            email=collaborator_data.email,
+            role=collaborator_data.role,
+        )
+    except EdCraftBaseException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+
+@router.get(
+    "/{assessment_id}/collaborators",
+    response_model=list[CollaboratorResponse],
+)
+async def list_collaborators(
+    current_user: CurrentUserDep,
+    assessment_id: UUID,
+    service: AssessmentServiceDep,
+) -> list[ResourceCollaborator]:
+    """List collaborators for an assessment. Editor or owner only."""
+    try:
+        return await service.list_collaborators(
+            caller_id=current_user.id, assessment_id=assessment_id
+        )
+    except EdCraftBaseException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+
+@router.patch(
+    "/{assessment_id}/collaborators/{collaborator_id}",
+    response_model=CollaboratorResponse,
+)
+async def update_collaborator_role(
+    current_user: CurrentUserDep,
+    assessment_id: UUID,
+    collaborator_id: UUID,
+    role_data: UpdateCollaboratorRoleRequest,
+    service: AssessmentServiceDep,
+) -> ResourceCollaborator:
+    """
+    Update a collaborator's role. Editor or owner.
+    Editors can assign editor/viewer. Owner can transfer ownership.
+    """
+    try:
+        return await service.update_collaborator_role(
+            caller_id=current_user.id,
+            assessment_id=assessment_id,
+            collaborator_id=collaborator_id,
+            new_role=role_data.role,
+        )
+    except EdCraftBaseException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+
+@router.delete(
+    "/{assessment_id}/collaborators/{collaborator_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def remove_collaborator(
+    current_user: CurrentUserDep,
+    assessment_id: UUID,
+    collaborator_id: UUID,
+    service: AssessmentServiceDep,
+) -> None:
+    """Remove a collaborator from an assessment. Editor or owner. Cannot remove the owner."""
+    try:
+        await service.remove_collaborator(
+            caller_id=current_user.id,
+            assessment_id=assessment_id,
+            collaborator_id=collaborator_id,
         )
     except EdCraftBaseException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e

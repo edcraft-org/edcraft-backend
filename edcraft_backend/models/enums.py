@@ -61,11 +61,55 @@ class TextTemplateType(str, Enum):
         return self.value
 
 
-class AssessmentVisibility(str, Enum):
-    """Visibility settings for assessments."""
+class ResourceVisibility(str, Enum):
+    """Visibility settings for resources (assessments, etc.)."""
 
     PRIVATE = "private"
     PUBLIC = "public"
+
+    def __str__(self) -> str:
+        return self.value
+
+
+class CollaboratorRole(str, Enum):
+    """Roles for resource collaborators."""
+
+    OWNER = "owner"
+    EDITOR = "editor"
+    VIEWER = "viewer"
+
+    @property
+    def _level(self) -> int:
+        return {"owner": 2, "editor": 1, "viewer": 0}[self.value]
+
+    def __ge__(self, other: object) -> bool:
+        if isinstance(other, CollaboratorRole):
+            return self._level >= other._level
+        return NotImplemented
+
+    def __gt__(self, other: object) -> bool:
+        if isinstance(other, CollaboratorRole):
+            return self._level > other._level
+        return NotImplemented
+
+    def __le__(self, other: object) -> bool:
+        if isinstance(other, CollaboratorRole):
+            return self._level <= other._level
+        return NotImplemented
+
+    def __lt__(self, other: object) -> bool:
+        if isinstance(other, CollaboratorRole):
+            return self._level < other._level
+        return NotImplemented
+
+    def __str__(self) -> str:
+        return self.value
+
+
+class ResourceType(str, Enum):
+    """Resource types for the generic collaborator table."""
+
+    ASSESSMENT = "assessment"
 
     def __str__(self) -> str:
         return self.value

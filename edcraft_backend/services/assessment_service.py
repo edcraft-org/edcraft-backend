@@ -1,3 +1,4 @@
+from typing import Literal
 from uuid import UUID
 
 from edcraft_backend.exceptions import (
@@ -9,15 +10,25 @@ from edcraft_backend.exceptions import (
 )
 from edcraft_backend.models.assessment import Assessment
 from edcraft_backend.models.assessment_question import AssessmentQuestion
-from edcraft_backend.models.enums import AssessmentVisibility
+from edcraft_backend.models.enums import (
+    CollaboratorRole,
+    ResourceType,
+    ResourceVisibility,
+)
+from edcraft_backend.models.resource_collaborator import ResourceCollaborator
 from edcraft_backend.repositories.assessment_question_repository import (
     AssessmentQuestionRepository,
 )
 from edcraft_backend.repositories.assessment_repository import AssessmentRepository
+from edcraft_backend.repositories.resource_collaborator_repository import (
+    ResourceCollaboratorRepository,
+)
+from edcraft_backend.repositories.user_repository import UserRepository
 from edcraft_backend.schemas.assessment import (
     AssessmentMCQResponse,
     AssessmentMRQResponse,
     AssessmentQuestionResponse,
+    AssessmentResponse,
     AssessmentShortAnswerResponse,
     AssessmentWithQuestionsResponse,
     CreateAssessmentRequest,
@@ -38,32 +49,43 @@ class AssessmentService:
         folder_svc: FolderService,
         assessment_question_repository: AssessmentQuestionRepository,
         question_service: QuestionService,
+        collaborator_repository: ResourceCollaboratorRepository,
+        user_repository: UserRepository,
     ):
         self.assessment_repo = assessment_repository
         self.folder_svc = folder_svc
         self.assoc_repo = assessment_question_repository
         self.question_svc = question_service
+        self.collaborator_repo = collaborator_repository
+        self.user_repo = user_repository
 
-    async def get_owned_assessment(
-        self, user_id: UUID, assessment_id: UUID
+    async def get_assessment(
+        self,
+        user_id: UUID,
+        assessment_id: UUID,
+        min_role: CollaboratorRole = CollaboratorRole.VIEWER,
     ) -> Assessment:
-        """Get assessment and verify ownership.
+        """Get assessment and verify the user has at least the given role.
 
         Args:
             user_id: User UUID
             assessment_id: Assessment UUID
+            min_role: Minimum required collaborator role
 
         Returns:
             Assessment entity
 
         Raises:
             ResourceNotFoundError: If assessment not found
-            UnauthorizedAccessError: If user doesn't own the assessment
+            UnauthorizedAccessError: If user lacks the required role
         """
         assessment = await self.assessment_repo.get_by_id(assessment_id)
         if not assessment:
             raise ResourceNotFoundError("Assessment", str(assessment_id))
-        if assessment.owner_id != user_id:
+        has_perm = await self.collaborator_repo.check_permission(
+            ResourceType.ASSESSMENT, assessment_id, user_id, min_role
+        )
+        if not has_perm:
             raise UnauthorizedAccessError("Assessment", str(assessment_id))
         return assessment
 
@@ -86,52 +108,52 @@ class AssessmentService:
         await self.folder_svc.get_owned_folder(user_id, assessment_data.folder_id)
 
         assessment = Assessment(owner_id=user_id, **assessment_data.model_dump())
-        return await self.assessment_repo.create(assessment)
+        assessment = await self.assessment_repo.create(assessment)
+
+        collab = ResourceCollaborator(
+            resource_type=ResourceType.ASSESSMENT,
+            resource_id=assessment.id,
+            user_id=user_id,
+            role=CollaboratorRole.OWNER,
+        )
+        await self.collaborator_repo.create(collab)
+
+        return assessment
 
     async def list_assessments(
         self,
         user_id: UUID,
         folder_id: UUID | None = None,
-    ) -> list[Assessment]:
-        """List assessments within folder or all user assessments.
+        collab_filter: Literal["all", "owned", "shared"] = "all",
+    ) -> list[AssessmentResponse]:
+        """List assessments the user has access to.
 
         Args:
             user_id: User UUID
-            folder_id: Folder UUID (None for ALL assessments owned by user)
+            folder_id: Optional folder UUID filter
+            collab_filter: "all" (any role), "owned" (owner role only), "shared" (non-owner roles)
 
         Returns:
-            List of assessments ordered by updated_at descending
+            List of AssessmentResponse with my_role populated, ordered by updated_at descending
 
         Raises:
             ResourceNotFoundError: If folder not found
-            UnauthorizedAccessError: If folder does not belong to user
+            UnauthorizedAccessError: If folder does not belong to user (owned filter only)
         """
-        if folder_id:
+        if folder_id and collab_filter == "owned":
             await self.folder_svc.get_owned_folder(user_id, folder_id)
-            assessments = await self.assessment_repo.get_by_folder(folder_id)
-        else:
-            assessments = await self.assessment_repo.list(
-                filters={"owner_id": user_id},
-                order_by=Assessment.updated_at.desc(),
+
+        rows = await self.assessment_repo.list_by_collaborator(
+            user_id=user_id,
+            collab_filter=collab_filter,
+            folder_id=folder_id,
+        )
+        return [
+            AssessmentResponse.model_validate(assessment).model_copy(
+                update={"my_role": role}
             )
-
-        return assessments
-
-    async def get_assessment(self, user_id: UUID, assessment_id: UUID) -> Assessment:
-        """Get an assessment by ID and verify ownership.
-
-        Args:
-            user_id: User UUID
-            assessment_id: Assessment UUID
-
-        Returns:
-            Assessment entity
-
-        Raises:
-            ResourceNotFoundError: If assessment not found
-            UnauthorizedAccessError: If user doesn't own the assessment
-        """
-        return await self.get_owned_assessment(user_id, assessment_id)
+            for assessment, role in rows
+        ]
 
     async def update_assessment(
         self,
@@ -151,9 +173,11 @@ class AssessmentService:
 
         Raises:
             ResourceNotFoundError: If assessment or folder not found
-            UnauthorizedAccessError: If user doesn't own resources
+            UnauthorizedAccessError: If user lacks editor or owner role
         """
-        assessment = await self.get_owned_assessment(user_id, assessment_id)
+        assessment = await self.get_assessment(
+            user_id, assessment_id, min_role=CollaboratorRole.EDITOR
+        )
         update_data = assessment_data.model_dump(exclude_unset=True)
 
         if "folder_id" in update_data and update_data["folder_id"]:
@@ -180,7 +204,9 @@ class AssessmentService:
             ResourceNotFoundError: If assessment not found
             UnauthorizedAccessError: If user doesn't own the assessment
         """
-        assessment = await self.get_owned_assessment(user_id, assessment_id)
+        assessment = await self.get_assessment(
+            user_id, assessment_id, min_role=CollaboratorRole.OWNER
+        )
         deleted_assessment = await self.assessment_repo.soft_delete(assessment)
         await self.question_svc.cleanup_orphaned_questions(assessment.owner_id)
         return deleted_assessment
@@ -247,10 +273,14 @@ class AssessmentService:
         if not assessment:
             raise ResourceNotFoundError("Assessment", str(assessment_id))
 
-        is_owner = user_id and assessment.owner_id == user_id
-        is_public = assessment.visibility == AssessmentVisibility.PUBLIC
+        is_public = assessment.visibility == ResourceVisibility.PUBLIC
+        can_view = is_public
+        if not can_view and user_id:
+            can_view = await self.collaborator_repo.check_permission(
+                ResourceType.ASSESSMENT, assessment_id, user_id, CollaboratorRole.VIEWER
+            )
 
-        if not (is_owner or is_public):
+        if not can_view:
             raise ResourceNotFoundError("Assessment", str(assessment_id))
 
         # Filter out soft-deleted questions
@@ -259,6 +289,12 @@ class AssessmentService:
             if assoc.question and assoc.question.deleted_at is None:
                 question_response = self._build_assessment_question_response(assoc)
                 questions.append(question_response)
+
+        my_role = None
+        if user_id:
+            my_role = await self.collaborator_repo.get_role(
+                ResourceType.ASSESSMENT, assessment_id, user_id
+            )
 
         return AssessmentWithQuestionsResponse(
             id=assessment.id,
@@ -270,6 +306,7 @@ class AssessmentService:
             created_at=assessment.created_at,
             updated_at=assessment.updated_at,
             questions=questions,
+            my_role=my_role,
         )
 
     async def add_question_to_assessment(
@@ -293,10 +330,11 @@ class AssessmentService:
         Raises:
             ResourceNotFoundError: If assessment or question not found
             ValidationError: If order is invalid
-            UnauthorizedAccessError: If user doesn't own the assessment
+            UnauthorizedAccessError: If user lacks editor or owner role
         """
-        # Verify assessment exists and ownership
-        assessment = await self.get_owned_assessment(user_id, assessment_id)
+        assessment = await self.get_assessment(
+            user_id, assessment_id, min_role=CollaboratorRole.EDITOR
+        )
 
         # Create question
         question_entity = await self.question_svc.create_question(user_id, question)
@@ -352,12 +390,13 @@ class AssessmentService:
             ResourceNotFoundError: If assessment or question not found
             DuplicateResourceError: If question already linked to assessment
             ValidationError: If order is invalid
-            UnauthorizedAccessError: If user doesn't own resources
+            UnauthorizedAccessError: If user lacks editor/owner role or doesn't own question
         """
-        # Verify assessment exists and ownership
-        assessment = await self.get_owned_assessment(user_id, assessment_id)
+        assessment = await self.get_assessment(
+            user_id, assessment_id, min_role=CollaboratorRole.EDITOR
+        )
 
-        # Verify question exists and ownership
+        # Editors can only link questions they own
         await self.question_svc.get_owned_question(user_id, question_id)
 
         # Check for existing association
@@ -415,9 +454,11 @@ class AssessmentService:
 
         Raises:
             ResourceNotFoundError: If association not found
-            UnauthorizedAccessError: If user doesn't own the assessment
+            UnauthorizedAccessError: If user lacks editor or owner role
         """
-        assessment = await self.get_owned_assessment(user_id, assessment_id)
+        await self.get_assessment(
+            user_id, assessment_id, min_role=CollaboratorRole.EDITOR
+        )
 
         assoc = await self.assoc_repo.find_association(assessment_id, question_id)
         if not assoc:
@@ -426,9 +467,14 @@ class AssessmentService:
                 f"assessment={assessment_id}, question={question_id}",
             )
 
+        question = await self.question_svc.question_repo.get_by_id(question_id)
+        question_owner_id = question.owner_id if question else None
+
         await self.assoc_repo.hard_delete(assoc)
         await self.assoc_repo.normalize_orders(assessment_id)
-        await self.question_svc.cleanup_orphaned_questions(assessment.owner_id)
+
+        if question_owner_id:
+            await self.question_svc.cleanup_orphaned_questions(question_owner_id)
 
     async def reorder_questions(
         self,
@@ -449,10 +495,11 @@ class AssessmentService:
         Raises:
             ResourceNotFoundError: If assessment not found
             ValidationError: If not all questions are included in reorder
-            UnauthorizedAccessError: If user doesn't own the assessment
+            UnauthorizedAccessError: If user lacks editor or owner role
         """
-        # Verify assessment exists and ownership
-        await self.get_owned_assessment(user_id, assessment_id)
+        await self.get_assessment(
+            user_id, assessment_id, min_role=CollaboratorRole.EDITOR
+        )
 
         # Get all current associations
         current_assocs = await self.assoc_repo.get_all_for_assessment(assessment_id)
@@ -491,3 +538,205 @@ class AssessmentService:
 
         # Return updated assessment with questions
         return await self.get_assessment_with_questions(user_id, assessment_id)
+
+    async def add_collaborator(
+        self,
+        caller_id: UUID,
+        assessment_id: UUID,
+        email: str,
+        role: CollaboratorRole,
+    ) -> ResourceCollaborator:
+        """Add a collaborator to an assessment. Editor or owner.
+
+        Args:
+            caller_id: User UUID of the caller (must be editor or owner)
+            assessment_id: Assessment UUID
+            email: Email address of the user to add
+            role: Role to assign (must not be OWNER)
+
+        Returns:
+            Created ResourceCollaborator
+
+        Raises:
+            UnauthorizedAccessError: If caller lacks editor or owner role
+            ValidationError: If role is OWNER
+            ResourceNotFoundError: If no user found with given email
+            DuplicateResourceError: If user is already a collaborator
+        """
+        await self.get_assessment(
+            caller_id, assessment_id, min_role=CollaboratorRole.EDITOR
+        )
+
+        if role == CollaboratorRole.OWNER:
+            raise ValidationError(
+                "Cannot assign 'owner' role via collaborator management."
+            )
+
+        target_user = await self.user_repo.get_by_email(email)
+        if not target_user:
+            raise ResourceNotFoundError("User", f"email={email}")
+
+        existing = await self.collaborator_repo.find_collaborator(
+            ResourceType.ASSESSMENT, assessment_id, target_user.id
+        )
+        if existing:
+            raise DuplicateResourceError(
+                "ResourceCollaborator",
+                "resource_id/user_id",
+                f"assessment={assessment_id}, user={target_user.id}",
+            )
+
+        collab = ResourceCollaborator(
+            resource_type=ResourceType.ASSESSMENT,
+            resource_id=assessment_id,
+            user_id=target_user.id,
+            role=role,
+        )
+        created = await self.collaborator_repo.create(collab)
+
+        loaded = await self.collaborator_repo.find_by_id(created.id)
+        if not loaded:
+            raise ResourceNotFoundError("ResourceCollaborator", f"id={created.id}")
+        return loaded
+
+    async def list_collaborators(
+        self,
+        caller_id: UUID,
+        assessment_id: UUID,
+    ) -> list[ResourceCollaborator]:
+        """List all collaborators for an assessment. Editor or owner only.
+
+        Args:
+            caller_id: User UUID of the caller
+            assessment_id: Assessment UUID
+
+        Returns:
+            List of ResourceCollaborator rows (with user eagerly loaded)
+
+        Raises:
+            UnauthorizedAccessError: If caller lacks editor or owner role
+        """
+        await self.get_assessment(
+            caller_id, assessment_id, min_role=CollaboratorRole.EDITOR
+        )
+        return await self.collaborator_repo.get_all_for_resource(
+            ResourceType.ASSESSMENT, assessment_id
+        )
+
+    async def update_collaborator_role(
+        self,
+        caller_id: UUID,
+        assessment_id: UUID,
+        collaborator_id: UUID,
+        new_role: CollaboratorRole,
+    ) -> ResourceCollaborator:
+        """Update a collaborator's role. Editor or owner, with restrictions.
+
+        Restrictions:
+        - Editors can assign editor or viewer, but not owner
+        - Cannot directly change the owner's row (except via ownership transfer)
+        - Ownership transfer (new_role=OWNER): owner-only; caller becomes editor
+
+        Args:
+            caller_id: User UUID of the caller (must be editor or owner)
+            assessment_id: Assessment UUID
+            collaborator_id: UUID of the collaborator record to update
+            new_role: New role to assign
+
+        Returns:
+            Updated ResourceCollaborator
+
+        Raises:
+            UnauthorizedAccessError: If caller lacks editor or owner role
+            ValidationError: If role constraints are violated
+            ResourceNotFoundError: If collaborator not found
+        """
+        await self.get_assessment(
+            caller_id, assessment_id, min_role=CollaboratorRole.EDITOR
+        )
+
+        caller_role_raw = await self.collaborator_repo.get_role(
+            ResourceType.ASSESSMENT, assessment_id, caller_id
+        )
+        caller_role = CollaboratorRole(caller_role_raw) if caller_role_raw else None
+
+        collab = await self.collaborator_repo.find_by_id(collaborator_id)
+        if not collab or collab.resource_id != assessment_id:
+            raise ResourceNotFoundError(
+                "ResourceCollaborator",
+                f"id={collaborator_id}",
+            )
+
+        if new_role == CollaboratorRole.OWNER:
+            # Ownership transfer: only the current owner can do this
+            if caller_role != CollaboratorRole.OWNER:
+                raise ValidationError("Only the owner can transfer ownership.")
+            if collab.role == CollaboratorRole.OWNER:
+                raise ValidationError("Target user is already the owner.")
+            # Demote caller to editor, promote target to owner
+            caller_collab = await self.collaborator_repo.find_collaborator(
+                ResourceType.ASSESSMENT, assessment_id, caller_id
+            )
+            if caller_collab:
+                caller_collab.role = CollaboratorRole.EDITOR
+            collab.role = CollaboratorRole.OWNER
+            # Move assessment to the new owner's root folder
+            new_owner_root = await self.folder_svc.get_root_folder(collab.user_id)
+            assessment = await self.assessment_repo.get_by_id(assessment_id)
+            if assessment and new_owner_root:
+                assessment.folder_id = new_owner_root.id
+            await self.collaborator_repo.db.flush()
+            await self.collaborator_repo.db.refresh(collab)
+            return collab
+
+        # Cannot directly change the owner's row to a non-owner role
+        if collab.role == CollaboratorRole.OWNER:
+            raise ValidationError(
+                "Cannot change the owner's role directly. Use ownership transfer instead."
+            )
+
+        # Editors cannot assign owner (already handled above) — can assign editor or viewer
+        if (
+            caller_role == CollaboratorRole.EDITOR
+            and new_role == CollaboratorRole.OWNER
+        ):
+            raise ValidationError("Editors cannot assign the 'owner' role.")
+
+        collab.role = new_role
+        await self.collaborator_repo.db.flush()
+        await self.collaborator_repo.db.refresh(collab)
+        return collab
+
+    async def remove_collaborator(
+        self,
+        caller_id: UUID,
+        assessment_id: UUID,
+        collaborator_id: UUID,
+    ) -> None:
+        """Remove a collaborator. Editor or owner; cannot remove the owner.
+
+        Args:
+            caller_id: User UUID of the caller (must be editor or owner)
+            assessment_id: Assessment UUID
+            collaborator_id: UUID of the collaborator record to remove
+
+        Raises:
+            UnauthorizedAccessError: If caller lacks editor or owner role
+            ValidationError: If trying to remove the owner row
+            ResourceNotFoundError: If collaborator not found
+        """
+        await self.get_assessment(
+            caller_id, assessment_id, min_role=CollaboratorRole.EDITOR
+        )
+
+        collab = await self.collaborator_repo.find_by_id(collaborator_id)
+        if not collab or collab.resource_id != assessment_id:
+            raise ResourceNotFoundError(
+                "ResourceCollaborator",
+                f"id={collaborator_id}",
+            )
+
+        if collab.role == CollaboratorRole.OWNER:
+            raise ValidationError("Cannot remove the owner.")
+
+        await self.collaborator_repo.hard_delete(collab)

@@ -38,6 +38,9 @@ from edcraft_backend.repositories.question_template_repository import (
     QuestionTemplateRepository,
 )
 from edcraft_backend.repositories.refresh_token_repository import RefreshTokenRepository
+from edcraft_backend.repositories.resource_collaborator_repository import (
+    ResourceCollaboratorRepository,
+)
 from edcraft_backend.repositories.target_element_repository import (
     TargetElementRepository,
 )
@@ -170,6 +173,13 @@ def get_one_time_token_repository(
     return OneTimeTokenRepository(db)
 
 
+def get_resource_collaborator_repository(
+    db: AsyncSession = Depends(get_db),
+) -> ResourceCollaboratorRepository:
+    """Get ResourceCollaboratorRepository instance."""
+    return ResourceCollaboratorRepository(db)
+
+
 # Service dependencies
 def get_email_service() -> EmailService:
     """Get EmailService instance."""
@@ -184,10 +194,16 @@ def get_question_service(
     question_bank_question_repo: QuestionBankQuestionRepository = Depends(
         get_question_bank_question_repository
     ),
+    collaborator_repo: ResourceCollaboratorRepository = Depends(
+        get_resource_collaborator_repository
+    ),
 ) -> QuestionService:
     """Get QuestionService instance."""
     return QuestionService(
-        question_repo, assessment_question_repo, question_bank_question_repo
+        question_repo,
+        assessment_question_repo,
+        question_bank_question_repo,
+        collaborator_repo,
     )
 
 
@@ -256,10 +272,19 @@ def get_assessment_service(
         get_assessment_question_repository
     ),
     question_svc: QuestionService = Depends(get_question_service),
+    collaborator_repo: ResourceCollaboratorRepository = Depends(
+        get_resource_collaborator_repository
+    ),
+    user_repo: UserRepository = Depends(get_user_repository),
 ) -> AssessmentService:
     """Get AssessmentService instance."""
     return AssessmentService(
-        assessment_repo, folder_svc, assessment_question_repo, question_svc
+        assessment_repo,
+        folder_svc,
+        assessment_question_repo,
+        question_svc,
+        collaborator_repo,
+        user_repo,
     )
 
 
@@ -412,6 +437,9 @@ async def get_current_user_optional(
 
 
 # Type aliases for cleaner router signatures
+ResourceCollaboratorRepositoryDep = Annotated[
+    ResourceCollaboratorRepository, Depends(get_resource_collaborator_repository)
+]
 UserServiceDep = Annotated[UserService, Depends(get_user_service)]
 FolderServiceDep = Annotated[FolderService, Depends(get_folder_service)]
 QuestionServiceDep = Annotated[QuestionService, Depends(get_question_service)]
