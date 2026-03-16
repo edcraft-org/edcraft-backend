@@ -6,7 +6,18 @@ from edcraft_backend.repositories.assessment_template_question_template_reposito
 from edcraft_backend.repositories.assessment_template_repository import AssessmentTemplateRepository
 from edcraft_backend.repositories.base import AssociationRepository, EntityRepository
 from edcraft_backend.repositories.folder_repository import FolderRepository
+from edcraft_backend.repositories.job_repository import JobRepository, JobTokenRepository
+from edcraft_backend.repositories.question_bank_question_repository import (
+    QuestionBankQuestionRepository,
+)
+from edcraft_backend.repositories.question_bank_repository import QuestionBankRepository
 from edcraft_backend.repositories.question_repository import QuestionRepository
+from edcraft_backend.repositories.question_template_bank_question_template_repository import (
+    QuestionTemplateBankQuestionTemplateRepository,
+)
+from edcraft_backend.repositories.question_template_bank_repository import (
+    QuestionTemplateBankRepository,
+)
 from edcraft_backend.repositories.question_template_repository import QuestionTemplateRepository
 from edcraft_backend.repositories.target_element_repository import TargetElementRepository
 from edcraft_backend.repositories.user_repository import UserRepository
@@ -16,8 +27,14 @@ __all__ = [
     "AssociationRepository",
     "UserRepository",
     "FolderRepository",
+    "JobRepository",
+    "JobTokenRepository",
+    "QuestionBankRepository",
+    "QuestionBankQuestionRepository",
     "QuestionRepository",
     "QuestionTemplateRepository",
+    "QuestionTemplateBankRepository",
+    "QuestionTemplateBankQuestionTemplateRepository",
     "AssessmentRepository",
     "AssessmentTemplateRepository",
     "AssessmentQuestionRepository",

@@ -20,6 +20,7 @@ dependencies = [
     "python-jose[cryptography]>=3.3.0",
     "sqlalchemy>=2.0.45",
     "input-gen",
+    "httpx>=0.28.1",
 ]
 
 [tool.uv.sources]
@@ -28,7 +29,6 @@ input-gen = { git = "https://github.com/edcraft-org/input-gen.git" }
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.1",
     "mypy>=1.19.1",
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",

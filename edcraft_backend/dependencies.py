@@ -7,6 +7,7 @@ from fastapi import Cookie, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from edcraft_backend.database import get_db
+from edcraft_backend.executors.nomad import NomadExecutor
 from edcraft_backend.models.user import User
 from edcraft_backend.repositories.assessment_question_repository import (
     AssessmentQuestionRepository,
@@ -19,6 +20,10 @@ from edcraft_backend.repositories.assessment_template_repository import (
     AssessmentTemplateRepository,
 )
 from edcraft_backend.repositories.folder_repository import FolderRepository
+from edcraft_backend.repositories.job_repository import (
+    JobRepository,
+    JobTokenRepository,
+)
 from edcraft_backend.repositories.oauth_account_repository import OAuthAccountRepository
 from edcraft_backend.repositories.one_time_token_repository import (
     OneTimeTokenRepository,
@@ -50,6 +55,7 @@ from edcraft_backend.services.assessment_template_service import (
 from edcraft_backend.services.auth_service import AuthService
 from edcraft_backend.services.email_service import EmailService
 from edcraft_backend.services.folder_service import FolderService
+from edcraft_backend.services.job_service import JobService
 from edcraft_backend.services.oauth_service import OAuthService
 from edcraft_backend.services.question_bank_service import QuestionBankService
 from edcraft_backend.services.question_generation_service import (
@@ -469,3 +475,31 @@ OneTimeTokenRepositoryDep = Annotated[
     Depends(get_one_time_token_repository),
 ]
 EmailServiceDep = Annotated[EmailService, Depends(get_email_service)]
+
+
+# Nomad
+def get_job_repository(db: AsyncSession = Depends(get_db)) -> JobRepository:
+    """Get JobRepository instance."""
+    return JobRepository(db)
+
+
+def get_job_token_repository(db: AsyncSession = Depends(get_db)) -> JobTokenRepository:
+    """Get JobTokenRepository instance."""
+    return JobTokenRepository(db)
+
+
+def get_nomad_executor() -> NomadExecutor:
+    """Get NomadExecutor instance."""
+    return NomadExecutor()
+
+
+def get_job_service(
+    job_repo: JobRepository = Depends(get_job_repository),
+    job_token_repo: JobTokenRepository = Depends(get_job_token_repository),
+    executor: NomadExecutor = Depends(get_nomad_executor),
+) -> JobService:
+    """Get JobService instance."""
+    return JobService(job_repo, job_token_repo, executor)
+
+
+JobServiceDep = Annotated[JobService, Depends(get_job_service)]

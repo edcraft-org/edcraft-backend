@@ -17,6 +17,8 @@ from edcraft_backend.models import (  # noqa: F401
     AssessmentTemplate,
     AssessmentTemplateQuestionTemplate,
     Folder,
+    Job,
+    JobToken,
     OAuthAccount,
     Question,
     QuestionBank,

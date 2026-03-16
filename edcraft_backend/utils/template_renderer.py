@@ -33,7 +33,7 @@ def render_question_text(
             raise TemplateRenderError(f"Template rendering failed: {e}") from e
     elif template_type == TextTemplateType.MUSTACHE:
         try:
-            return pymustache.render(template, input_data)
+            return str(pymustache.render(template, input_data))
         except Exception as e:
             raise TemplateRenderError(f"Mustache template rendering failed: {e}") from e
     else:

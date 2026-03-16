@@ -19,12 +19,17 @@ class TestGenerateInputs:
             json={"inputs": {"num": {"type": "integer", "minimum": 1, "maximum": 50}}},
         )
 
-        assert response.status_code == 200
-        data = response.json()
-        assert "inputs" in data
-        assert "num" in data["inputs"]
-        assert isinstance(data["inputs"]["num"], int)
-        assert 1 <= data["inputs"]["num"] <= 50
+        assert response.status_code == 202
+        job_id = response.json()["job_id"]
+
+        result_resp = await test_client.get(f"/jobs/{job_id}")
+        assert result_resp.status_code == 200
+        data = result_resp.json()
+        assert data["status"] == "completed"
+        inputs = data["result"]["inputs"]
+        assert "num" in inputs
+        assert isinstance(inputs["num"], int)
+        assert 1 <= inputs["num"] <= 50
 
     @pytest.mark.asyncio
     async def test_generate_inputs_multiple_variables(
@@ -41,26 +46,37 @@ class TestGenerateInputs:
             },
         )
 
-        assert response.status_code == 200
-        data = response.json()
-        assert "inputs" in data
-        assert "count" in data["inputs"]
-        assert "flag" in data["inputs"]
-        assert isinstance(data["inputs"]["count"], int)
-        assert 0 <= data["inputs"]["count"] <= 100
-        assert isinstance(data["inputs"]["flag"], bool)
+        assert response.status_code == 202
+        job_id = response.json()["job_id"]
+
+        result_resp = await test_client.get(f"/jobs/{job_id}")
+        assert result_resp.status_code == 200
+        data = result_resp.json()
+        assert data["status"] == "completed"
+        inputs = data["result"]["inputs"]
+        assert "count" in inputs
+        assert "flag" in inputs
+        assert isinstance(inputs["count"], int)
+        assert 0 <= inputs["count"] <= 100
+        assert isinstance(inputs["flag"], bool)
 
     @pytest.mark.asyncio
     async def test_generate_inputs_invalid_schema(
         self, test_client: AsyncClient
     ) -> None:
-        """Test that an invalid schema returns a 422 error."""
+        """Test that an unknown schema type is accepted as a job and processed."""
         response = await test_client.post(
             "/input-generator/generate",
             json={"inputs": {"num": {"type": "invalid_type"}}},
         )
 
-        assert response.status_code == 422
+        assert response.status_code == 202
+        job_id = response.json()["job_id"]
+
+        result_resp = await test_client.get(f"/jobs/{job_id}")
+        assert result_resp.status_code == 200
+        data = result_resp.json()
+        assert data["status"] in ("completed", "failed")
 
     @pytest.mark.asyncio
     async def test_generate_inputs_empty_inputs(
@@ -72,6 +88,11 @@ class TestGenerateInputs:
             json={"inputs": {}},
         )
 
-        assert response.status_code == 200
-        data = response.json()
-        assert data["inputs"] == {}
+        assert response.status_code == 202
+        job_id = response.json()["job_id"]
+
+        result_resp = await test_client.get(f"/jobs/{job_id}")
+        assert result_resp.status_code == 200
+        data = result_resp.json()
+        assert data["status"] == "completed"
+        assert data["result"]["inputs"] == {}

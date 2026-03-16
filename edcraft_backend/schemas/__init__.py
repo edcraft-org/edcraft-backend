@@ -48,6 +48,7 @@ from edcraft_backend.schemas.question_bank import QuestionBankResponse
 
 # Question Generation schemas
 from edcraft_backend.schemas.question_generation import (
+    AssessmentMetadata,
     CodeAnalysisRequest,
     CodeAnalysisResponse,
     GenerateFromTemplateRequest,
@@ -116,6 +117,7 @@ __all__ = [
     "UpdateAssessmentTemplateRequest",
     "AssessmentTemplateWithQuestionTemplatesResponse",
     # Question Generation
+    "AssessmentMetadata",
     "CodeAnalysisRequest",
     "CodeAnalysisResponse",
     "GenerateFromTemplateRequest",
