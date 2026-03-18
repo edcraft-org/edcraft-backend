@@ -6,8 +6,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from edcraft_backend.models.assessment import Assessment
 from edcraft_backend.models.assessment_question import AssessmentQuestion
-from edcraft_backend.models.enums import CollaboratorRole, ResourceType
+from edcraft_backend.models.enums import (
+    CollaboratorRole,
+    ResourceType,
+    ResourceVisibility,
+)
+from edcraft_backend.models.question import Question
 from edcraft_backend.models.resource_collaborator import ResourceCollaborator
 from edcraft_backend.repositories.base import AssociationRepository
 
@@ -17,6 +23,20 @@ class ResourceCollaboratorRepository(AssociationRepository[ResourceCollaborator]
 
     def __init__(self, db: AsyncSession):
         super().__init__(ResourceCollaborator, db)
+
+    def _get_acceptable_roles(
+        self, min_role: CollaboratorRole
+    ) -> list[CollaboratorRole]:
+        if min_role == CollaboratorRole.OWNER:
+            return [CollaboratorRole.OWNER]
+        elif min_role == CollaboratorRole.EDITOR:
+            return [CollaboratorRole.OWNER, CollaboratorRole.EDITOR]
+        else:  # VIEWER
+            return [
+                CollaboratorRole.OWNER,
+                CollaboratorRole.EDITOR,
+                CollaboratorRole.VIEWER,
+            ]
 
     async def find_by_id(
         self,
@@ -99,17 +119,7 @@ class ResourceCollaboratorRepository(AssociationRepository[ResourceCollaborator]
         Returns:
             True if user has sufficient permission, False otherwise
         """
-        # Build the set of roles that satisfy min_role using the hierarchy
-        if min_role == CollaboratorRole.OWNER:
-            acceptable = [CollaboratorRole.OWNER]
-        elif min_role == CollaboratorRole.EDITOR:
-            acceptable = [CollaboratorRole.OWNER, CollaboratorRole.EDITOR]
-        else:  # VIEWER — any role is acceptable
-            acceptable = [
-                CollaboratorRole.OWNER,
-                CollaboratorRole.EDITOR,
-                CollaboratorRole.VIEWER,
-            ]
+        acceptable = self._get_acceptable_roles(min_role)
 
         stmt = (
             select(ResourceCollaborator.id)
@@ -150,21 +160,41 @@ class ResourceCollaboratorRepository(AssociationRepository[ResourceCollaborator]
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def user_can_edit_question(
+    async def check_question_permission(
         self,
         question_id: UUID,
         user_id: UUID,
+        min_role: CollaboratorRole,
     ) -> bool:
-        """Check if a user has owner or editor role on any assessment containing the question.
+        """Check if a user has sufficient access to a question.
+
+        Access is granted if the user:
+        - owns the question, OR
+        - has at least min_role on any assessment containing the question, OR
+        - (min_role=VIEWER only) the question is in a public assessment.
 
         Args:
             question_id: Question UUID
             user_id: User UUID
+            min_role: Minimum required role (VIEWER or EDITOR)
 
         Returns:
-            True if the user can edit the question via assessment collaboration
+            True if the user has sufficient permission
         """
-        stmt = (
+        acceptable_roles = self._get_acceptable_roles(min_role)
+
+        # Check ownership
+        owner_stmt = (
+            select(Question.id)
+            .where(Question.id == question_id, Question.owner_id == user_id)
+            .limit(1)
+        )
+        result = await self.db.execute(owner_stmt)
+        if result.scalar_one_or_none() is not None:
+            return True
+
+        # Build conditions for assessment-based access
+        collab_condition = (
             select(ResourceCollaborator.id)
             .join(
                 AssessmentQuestion,
@@ -174,11 +204,31 @@ class ResourceCollaboratorRepository(AssociationRepository[ResourceCollaborator]
                 ResourceCollaborator.resource_type == ResourceType.ASSESSMENT,
                 AssessmentQuestion.question_id == question_id,
                 ResourceCollaborator.user_id == user_id,
-                ResourceCollaborator.role.in_(
-                    [CollaboratorRole.OWNER, CollaboratorRole.EDITOR]
-                ),
+                ResourceCollaborator.role.in_(acceptable_roles),
             )
             .limit(1)
         )
-        result = await self.db.execute(stmt)
-        return result.scalar_one_or_none() is not None
+        result = await self.db.execute(collab_condition)
+        if result.scalar_one_or_none() is not None:
+            return True
+
+        # For VIEWER, also allow access if question is in any public assessment
+        if min_role == CollaboratorRole.VIEWER:
+            public_stmt = (
+                select(AssessmentQuestion.id)
+                .join(
+                    Assessment,
+                    Assessment.id == AssessmentQuestion.assessment_id,
+                )
+                .where(
+                    AssessmentQuestion.question_id == question_id,
+                    Assessment.visibility == ResourceVisibility.PUBLIC,
+                    Assessment.deleted_at.is_(None),
+                )
+                .limit(1)
+            )
+            result = await self.db.execute(public_stmt)
+            if result.scalar_one_or_none() is not None:
+                return True
+
+        return False

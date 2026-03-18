@@ -130,12 +130,59 @@ async def link_question_into_question_bank(
     question_data: LinkQuestionToQuestionBankRequest,
     service: QuestionBankServiceDep,
 ) -> QuestionBankWithQuestionsResponse:
-    """Link an existing question into a question bank."""
+    """Copy an existing question into a question bank and link to source question.
+    Requires view permissions for source question.
+    """
     try:
         return await service.link_question_to_question_bank(
             current_user.id,
             question_bank_id,
             question_data.question_id,
+        )
+    except EdCraftBaseException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+
+@router.post(
+    "/{question_bank_id}/questions/{question_id}/sync",
+    response_model=QuestionBankWithQuestionsResponse,
+)
+async def sync_question_in_question_bank(
+    current_user: CurrentUserDep,
+    question_bank_id: UUID,
+    question_id: UUID,
+    service: QuestionBankServiceDep,
+) -> QuestionBankWithQuestionsResponse:
+    """Sync a linked question's content from its source.
+
+    Overwrites the question's content with the current content of its source question.
+    Returns 400 if the question has no source link.
+    """
+    try:
+        return await service.sync_question_in_question_bank(
+            current_user.id, question_bank_id, question_id
+        )
+    except EdCraftBaseException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+
+@router.post(
+    "/{question_bank_id}/questions/{question_id}/unlink",
+    response_model=QuestionBankWithQuestionsResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def unlink_question_in_question_bank(
+    current_user: CurrentUserDep,
+    question_bank_id: UUID,
+    question_id: UUID,
+    service: QuestionBankServiceDep,
+) -> QuestionBankWithQuestionsResponse:
+    """Sever the source link on a question without removing it from the question bank.
+    The question content is preserved as a fully independent question.
+    """
+    try:
+        return await service.unlink_question_in_question_bank(
+            current_user.id, question_bank_id, question_id
         )
     except EdCraftBaseException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e

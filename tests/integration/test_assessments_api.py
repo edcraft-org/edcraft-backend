@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from edcraft_backend.models.enums import CollaboratorRole, ResourceType
+from edcraft_backend.models.question import Question
 from edcraft_backend.models.resource_collaborator import ResourceCollaborator
 from edcraft_backend.models.user import User
 from tests.factories import (
@@ -15,10 +16,8 @@ from tests.factories import (
     create_test_assessment,
     create_test_folder,
     create_test_question,
-    create_test_question_bank,
     create_test_user,
     link_question_to_assessment,
-    link_question_to_question_bank,
 )
 
 
@@ -595,9 +594,13 @@ class TestSoftDeleteAssessment:
     async def test_soft_delete_assessment_success(
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
-        """Test soft deleting assessment successfully."""
+        """Test soft deleting assessment and its questions."""
         assessment = await create_test_assessment(db_session, user)
+        question = await create_test_question(db_session, user)
+        await link_question_to_assessment(db_session, assessment.id, question.id)
         await db_session.commit()
+
+        question_id = question.id
 
         response = await test_client.delete(f"/assessments/{assessment.id}")
 
@@ -606,6 +609,14 @@ class TestSoftDeleteAssessment:
         # Verify assessment has deleted_at timestamp
         await db_session.refresh(assessment)
         assert assessment.deleted_at is not None
+
+        # Verify the question is soft-deleted with the assessment
+        db_session.expire_all()
+        deleted_question = (
+            await db_session.execute(select(Question).where(Question.id == question_id))
+        ).scalar_one_or_none()
+        assert deleted_question is not None
+        assert deleted_question.deleted_at is not None
 
     @pytest.mark.asyncio
     async def test_soft_delete_assessment_not_in_list(
@@ -638,110 +649,6 @@ class TestSoftDeleteAssessment:
 
         assert response.status_code == 404
 
-    @pytest.mark.asyncio
-    async def test_soft_delete_assessment_cleans_up_orphaned_questions(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that deleting assessment triggers cleanup of orphaned questions."""
-        from edcraft_backend.models.question import Question
-
-        assessment = await create_test_assessment(db_session, user)
-
-        orphaned_question = await create_test_question(
-            db_session, user, question_text="Orphaned Question"
-        )
-
-        shared_question = await create_test_question(
-            db_session, user, question_text="Shared Question"
-        )
-        other_assessment = await create_test_assessment(
-            db_session, user, title="Other Assessment"
-        )
-        await db_session.commit()
-
-        await test_client.post(
-            f"/assessments/{assessment.id}/questions/link",
-            json={"question_id": str(orphaned_question.id)},
-        )
-
-        await test_client.post(
-            f"/assessments/{assessment.id}/questions/link",
-            json={"question_id": str(shared_question.id)},
-        )
-        await test_client.post(
-            f"/assessments/{other_assessment.id}/questions/link",
-            json={"question_id": str(shared_question.id)},
-        )
-
-        response = await test_client.delete(f"/assessments/{assessment.id}")
-        assert response.status_code == 204
-
-        orphaned_q_id = orphaned_question.id
-        shared_q_id = shared_question.id
-
-        db_session.expire_all()
-        orphaned_q_result = await db_session.execute(
-            select(Question).where(Question.id == orphaned_q_id)
-        )
-        orphaned_q = orphaned_q_result.scalar_one_or_none()
-        assert orphaned_q is not None
-        assert (
-            orphaned_q.deleted_at is not None
-        ), "Orphaned question should be soft deleted"
-
-        shared_q_result = await db_session.execute(
-            select(Question).where(Question.id == shared_q_id)
-        )
-        shared_q = shared_q_result.scalar_one_or_none()
-        assert shared_q is not None
-        assert shared_q.deleted_at is None, "Shared question should still be active"
-
-    @pytest.mark.asyncio
-    async def test_delete_assessment_preserves_question_still_in_use(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that deleting assessment doesn't delete question still used in question bank."""
-        from edcraft_backend.models.question import Question
-
-        # Create assessment and question bank
-        assessment = await create_test_assessment(db_session, user)
-        question_bank = await create_test_question_bank(
-            db_session, user, title="Test Question Bank"
-        )
-
-        # Create a question used in both assessment and question bank
-        shared_question = await create_test_question(
-            db_session, user, question_text="Question in both assessment and bank"
-        )
-        await db_session.commit()
-
-        # Link question to both assessment and question bank
-        await test_client.post(
-            f"/assessments/{assessment.id}/questions/link",
-            json={"question_id": str(shared_question.id)},
-        )
-        await link_question_to_question_bank(
-            db_session, question_bank.id, shared_question.id
-        )
-        await db_session.commit()
-
-        # Delete the assessment
-        response = await test_client.delete(f"/assessments/{assessment.id}")
-        assert response.status_code == 204
-
-        # Verify the question is still active (not deleted)
-        shared_q_id = shared_question.id
-        db_session.expire_all()
-
-        result = await db_session.execute(
-            select(Question).where(Question.id == shared_q_id)
-        )
-        question = result.scalar_one_or_none()
-        assert question is not None
-        assert (
-            question.deleted_at is None
-        ), "Question should remain active when still used in question bank"
-
 
 @pytest.mark.integration
 @pytest.mark.assessments
@@ -752,7 +659,7 @@ class TestLinkQuestionToAssessment:
     async def test_link_question_to_assessment_success(
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
-        """Test linking question to assessment successfully."""
+        """Test linking a question creates an independent copy with source reference."""
         assessment = await create_test_assessment(db_session, user)
         question = await create_test_question(db_session, user)
         await db_session.commit()
@@ -765,8 +672,11 @@ class TestLinkQuestionToAssessment:
         assert response.status_code == 201
         data = response.json()
         assert len(data["questions"]) == 1
-        assert data["questions"][0]["id"] == str(question.id)
-        assert data["questions"][0]["order"] == 0
+        copy = data["questions"][0]
+        assert copy["id"] != str(question.id)
+        assert copy["order"] == 0
+        assert copy["linked_from_question_id"] == str(question.id)
+        assert copy["question_text"] == question.question_text
 
     @pytest.mark.asyncio
     async def test_link_multiple_questions_with_order(
@@ -774,9 +684,9 @@ class TestLinkQuestionToAssessment:
     ) -> None:
         """Test linking multiple questions with specific order."""
         assessment = await create_test_assessment(db_session, user)
-        question1 = await create_test_question(db_session, user)
-        question2 = await create_test_question(db_session, user)
-        question3 = await create_test_question(db_session, user)
+        question1 = await create_test_question(db_session, user, question_text="Q1")
+        question2 = await create_test_question(db_session, user, question_text="Q2")
+        question3 = await create_test_question(db_session, user, question_text="Q3")
         await db_session.commit()
 
         # Add questions with specific order
@@ -796,9 +706,75 @@ class TestLinkQuestionToAssessment:
         assert response.status_code == 201
         data = response.json()
         assert len(data["questions"]) == 3
-        assert data["questions"][0]["id"] == str(question1.id)
-        assert data["questions"][1]["id"] == str(question2.id)
-        assert data["questions"][2]["id"] == str(question3.id)
+        assert data["questions"][0]["question_text"] == "Q1"
+        assert data["questions"][1]["question_text"] == "Q2"
+        assert data["questions"][2]["question_text"] == "Q3"
+        assert data["questions"][0]["linked_from_question_id"] == str(question1.id)
+        assert data["questions"][1]["linked_from_question_id"] == str(question2.id)
+        assert data["questions"][2]["linked_from_question_id"] == str(question3.id)
+
+    @pytest.mark.asyncio
+    async def test_link_question_from_other_assessment_as_viewer(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that a viewer on an assessment can link its questions elsewhere."""
+
+        # Create owner2 and their assessment with a question
+        owner2 = await create_test_user(db_session)
+        assessment2 = await create_test_assessment(db_session, owner2)
+        source_question = await create_test_question(
+            db_session, owner2, question_text="Source Q"
+        )
+        await link_question_to_assessment(
+            db_session, assessment2.id, source_question.id
+        )
+
+        # Add user as viewer on assessment2
+        viewer_collab = ResourceCollaborator(
+            resource_type=ResourceType.ASSESSMENT,
+            resource_id=assessment2.id,
+            user_id=user.id,
+            role=CollaboratorRole.VIEWER,
+        )
+        db_session.add(viewer_collab)
+
+        # Create the destination assessment owned by user
+        dest_assessment = await create_test_assessment(db_session, user)
+        await db_session.commit()
+
+        response = await test_client.post(
+            f"/assessments/{dest_assessment.id}/questions/link",
+            json={"question_id": str(source_question.id)},
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert len(data["questions"]) == 1
+        assert data["questions"][0]["linked_from_question_id"] == str(
+            source_question.id
+        )
+        assert data["questions"][0]["question_text"] == "Source Q"
+
+    @pytest.mark.asyncio
+    async def test_link_question_without_access_returns_403(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that linking a question without access returns 403."""
+        owner2 = await create_test_user(db_session)
+        private_assessment = await create_test_assessment(db_session, owner2)
+        private_question = await create_test_question(db_session, owner2)
+        await link_question_to_assessment(
+            db_session, private_assessment.id, private_question.id
+        )
+        dest_assessment = await create_test_assessment(db_session, user)
+        await db_session.commit()
+
+        response = await test_client.post(
+            f"/assessments/{dest_assessment.id}/questions/link",
+            json={"question_id": str(private_question.id)},
+        )
+
+        assert response.status_code == 403
 
     @pytest.mark.asyncio
     async def test_link_question_default_order(
@@ -957,6 +933,132 @@ class TestLinkQuestionToAssessment:
         assert response.status_code == 400
         assert "Order must be between 0 and 2" in response.json()["detail"]
         assert "Omit order to append" in response.json()["detail"]
+
+
+@pytest.mark.integration
+@pytest.mark.assessments
+class TestSyncQuestionInAssessment:
+    """Tests for POST /assessments/{assessment_id}/questions/{question_id}/sync endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_sync_updates_copy_from_source(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that sync overwrites copy content with the current source content."""
+        assessment = await create_test_assessment(db_session, user)
+        source = await create_test_question(
+            db_session, user, question_text="Original text"
+        )
+        await db_session.commit()
+
+        # Link (creates copy)
+        link_resp = await test_client.post(
+            f"/assessments/{assessment.id}/questions/link",
+            json={"question_id": str(source.id)},
+        )
+        copy_id = link_resp.json()["questions"][0]["id"]
+
+        # Edit the copy independently
+        await test_client.patch(
+            f"/questions/{copy_id}",
+            json={"question_text": "Edited in assessment"},
+        )
+
+        # Edit the source
+        await test_client.patch(
+            f"/questions/{str(source.id)}",
+            json={"question_text": "Updated source text"},
+        )
+
+        # Sync the copy
+        response = await test_client.post(
+            f"/assessments/{assessment.id}/questions/{copy_id}/sync"
+        )
+
+        assert response.status_code == 200
+        questions = response.json()["questions"]
+        copy = next(q for q in questions if q["id"] == copy_id)
+        assert copy["question_text"] == "Updated source text"
+        assert copy["linked_from_question_id"] == str(source.id)
+
+    @pytest.mark.asyncio
+    async def test_sync_without_source_link_returns_400(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that syncing a question with no source link returns 400."""
+        assessment = await create_test_assessment(db_session, user)
+        question = await create_test_question(db_session, user)
+        await link_question_to_assessment(db_session, assessment.id, question.id)
+        await db_session.commit()
+
+        response = await test_client.post(
+            f"/assessments/{assessment.id}/questions/{question.id}/sync"
+        )
+
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_sync_question_not_in_assessment_returns_404(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that syncing a question not in the assessment returns 404."""
+        import uuid
+
+        assessment = await create_test_assessment(db_session, user)
+        await db_session.commit()
+
+        response = await test_client.post(
+            f"/assessments/{assessment.id}/questions/{uuid.uuid4()}/sync"
+        )
+
+        assert response.status_code == 404
+
+
+@pytest.mark.integration
+@pytest.mark.assessments
+class TestUnlinkQuestionInAssessment:
+    """Tests for POST /assessments/{assessment_id}/questions/{question_id}/unlink endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_unlink_severs_source_reference(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that unlink sets linked_from_question_id to null while keeping the question."""
+        assessment = await create_test_assessment(db_session, user)
+        source = await create_test_question(db_session, user, question_text="Source")
+        await db_session.commit()
+
+        link_resp = await test_client.post(
+            f"/assessments/{assessment.id}/questions/link",
+            json={"question_id": str(source.id)},
+        )
+        copy_id = link_resp.json()["questions"][0]["id"]
+
+        response = await test_client.post(
+            f"/assessments/{assessment.id}/questions/{copy_id}/unlink"
+        )
+
+        assert response.status_code == 200
+        questions = response.json()["questions"]
+        copy = next(q for q in questions if q["id"] == copy_id)
+        assert copy["linked_from_question_id"] is None
+        assert copy["question_text"] == "Source"
+
+    @pytest.mark.asyncio
+    async def test_unlink_question_not_in_assessment_returns_404(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that unlinking a question not in the assessment returns 404."""
+        import uuid
+
+        assessment = await create_test_assessment(db_session, user)
+        await db_session.commit()
+
+        response = await test_client.post(
+            f"/assessments/{assessment.id}/questions/{uuid.uuid4()}/unlink"
+        )
+
+        assert response.status_code == 404
 
 
 @pytest.mark.integration
@@ -1174,9 +1276,11 @@ class TestRemoveQuestionFromAssessment:
         await link_question_to_assessment(db_session, assessment.id, question.id)
         await db_session.commit()
 
+        question_id = question.id
+
         # Remove question
         response = await test_client.delete(
-            f"/assessments/{assessment.id}/questions/{question.id}"
+            f"/assessments/{assessment.id}/questions/{question_id}"
         )
 
         assert response.status_code == 204
@@ -1184,6 +1288,14 @@ class TestRemoveQuestionFromAssessment:
         # Verify question removed
         get_response = await test_client.get(f"/assessments/{assessment.id}")
         assert len(get_response.json()["questions"]) == 0
+
+        # Verify question is soft-deleted
+        db_session.expire_all()
+        deleted_question = (
+            await db_session.execute(select(Question).where(Question.id == question_id))
+        ).scalar_one_or_none()
+        assert deleted_question is not None
+        assert deleted_question.deleted_at is not None
 
     @pytest.mark.asyncio
     async def test_remove_question_preserves_other_questions(
@@ -1256,20 +1368,10 @@ class TestRemoveQuestionFromAssessment:
         question1 = await create_test_question(db_session, user, question_text="Q1")
         question2 = await create_test_question(db_session, user, question_text="Q2")
         question3 = await create_test_question(db_session, user, question_text="Q3")
+        await link_question_to_assessment(db_session, assessment.id, question1.id, order=0)
+        await link_question_to_assessment(db_session, assessment.id, question2.id, order=1)
+        await link_question_to_assessment(db_session, assessment.id, question3.id, order=2)
         await db_session.commit()
-
-        await test_client.post(
-            f"/assessments/{assessment.id}/questions/link",
-            json={"question_id": str(question1.id), "order": 0},
-        )
-        await test_client.post(
-            f"/assessments/{assessment.id}/questions/link",
-            json={"question_id": str(question2.id), "order": 1},
-        )
-        await test_client.post(
-            f"/assessments/{assessment.id}/questions/link",
-            json={"question_id": str(question3.id), "order": 2},
-        )
 
         await test_client.delete(
             f"/assessments/{assessment.id}/questions/{question2.id}"
@@ -1283,71 +1385,6 @@ class TestRemoveQuestionFromAssessment:
         assert data["questions"][0]["order"] == 0
         assert data["questions"][1]["question_text"] == "Q3"
         assert data["questions"][1]["order"] == 1
-
-    @pytest.mark.asyncio
-    async def test_remove_question_cleans_up_orphaned_question(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that removing a question triggers cleanup if it becomes orphaned."""
-        from edcraft_backend.models.question import Question
-
-        assessment = await create_test_assessment(db_session, user)
-
-        orphaned_question = await create_test_question(
-            db_session, user, question_text="Will be orphaned"
-        )
-
-        shared_question = await create_test_question(
-            db_session, user, question_text="Shared"
-        )
-        other_assessment = await create_test_assessment(
-            db_session, user, title="Other Assessment"
-        )
-        await db_session.commit()
-
-        await link_question_to_assessment(
-            db_session, assessment.id, orphaned_question.id, order=0
-        )
-        await link_question_to_assessment(
-            db_session, assessment.id, shared_question.id, order=1
-        )
-        await link_question_to_assessment(
-            db_session, other_assessment.id, shared_question.id, order=0
-        )
-        await db_session.commit()
-
-        response = await test_client.delete(
-            f"/assessments/{assessment.id}/questions/{orphaned_question.id}"
-        )
-        assert response.status_code == 204
-
-        assessment_id = assessment.id
-        orphaned_q_id = orphaned_question.id
-        shared_q_id = shared_question.id
-
-        db_session.expire_all()
-        orphaned_q_result = await db_session.execute(
-            select(Question).where(Question.id == orphaned_q_id)
-        )
-        orphaned_q = orphaned_q_result.scalar_one_or_none()
-        assert orphaned_q is not None
-        assert (
-            orphaned_q.deleted_at is not None
-        ), "Question should be soft deleted when orphaned"
-
-        await test_client.delete(
-            f"/assessments/{assessment_id}/questions/{shared_q_id}"
-        )
-
-        db_session.expire_all()
-        shared_q_result = await db_session.execute(
-            select(Question).where(Question.id == shared_q_id)
-        )
-        shared_q = shared_q_result.scalar_one_or_none()
-        assert shared_q is not None
-        assert (
-            shared_q.deleted_at is None
-        ), "Shared question should remain active while still in use"
 
 
 @pytest.mark.integration
@@ -1364,21 +1401,10 @@ class TestReorderQuestions:
         question1 = await create_test_question(db_session, user, question_text="Q1")
         question2 = await create_test_question(db_session, user, question_text="Q2")
         question3 = await create_test_question(db_session, user, question_text="Q3")
+        await link_question_to_assessment(db_session, assessment.id, question1.id, order=0)
+        await link_question_to_assessment(db_session, assessment.id, question2.id, order=1)
+        await link_question_to_assessment(db_session, assessment.id, question3.id, order=2)
         await db_session.commit()
-
-        # Add questions in initial order
-        await test_client.post(
-            f"/assessments/{assessment.id}/questions/link",
-            json={"question_id": str(question1.id), "order": 0},
-        )
-        await test_client.post(
-            f"/assessments/{assessment.id}/questions/link",
-            json={"question_id": str(question2.id), "order": 1},
-        )
-        await test_client.post(
-            f"/assessments/{assessment.id}/questions/link",
-            json={"question_id": str(question3.id), "order": 2},
-        )
 
         # Reorder: reverse the order
         reorder_data: dict[str, Any] = {
@@ -1408,21 +1434,10 @@ class TestReorderQuestions:
         question1 = await create_test_question(db_session, user)
         question2 = await create_test_question(db_session, user)
         question3 = await create_test_question(db_session, user)
+        await link_question_to_assessment(db_session, assessment.id, question1.id, order=0)
+        await link_question_to_assessment(db_session, assessment.id, question2.id, order=1)
+        await link_question_to_assessment(db_session, assessment.id, question3.id, order=2)
         await db_session.commit()
-
-        # Add questions
-        await test_client.post(
-            f"/assessments/{assessment.id}/questions/link",
-            json={"question_id": str(question1.id), "order": 0},
-        )
-        await test_client.post(
-            f"/assessments/{assessment.id}/questions/link",
-            json={"question_id": str(question2.id), "order": 1},
-        )
-        await test_client.post(
-            f"/assessments/{assessment.id}/questions/link",
-            json={"question_id": str(question3.id), "order": 2},
-        )
 
         reorder_data: dict[str, Any] = {
             "question_orders": [
@@ -1463,21 +1478,10 @@ class TestReorderQuestions:
         question1 = await create_test_question(db_session, user, question_text="Q1")
         question2 = await create_test_question(db_session, user, question_text="Q2")
         question3 = await create_test_question(db_session, user, question_text="Q3")
+        await link_question_to_assessment(db_session, assessment.id, question1.id, order=0)
+        await link_question_to_assessment(db_session, assessment.id, question2.id, order=1)
+        await link_question_to_assessment(db_session, assessment.id, question3.id, order=2)
         await db_session.commit()
-
-        # Add questions
-        await test_client.post(
-            f"/assessments/{assessment.id}/questions/link",
-            json={"question_id": str(question1.id)},
-        )
-        await test_client.post(
-            f"/assessments/{assessment.id}/questions/link",
-            json={"question_id": str(question2.id)},
-        )
-        await test_client.post(
-            f"/assessments/{assessment.id}/questions/link",
-            json={"question_id": str(question3.id)},
-        )
 
         # Reorder with gaps (order: 5, 10, 100)
         reorder_data: dict[str, Any] = {
@@ -1868,6 +1872,7 @@ class TestUpdateCollaboratorRole:
 
         # Assessment should be moved to the new owner's root folder
         from edcraft_backend.models.folder import Folder
+
         await db_session.refresh(assessment)
         new_owner_root = (
             await db_session.execute(

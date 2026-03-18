@@ -152,9 +152,8 @@ async def link_question_into_assessment(
     question_data: LinkQuestionToAssessmentRequest,
     service: AssessmentServiceDep,
 ) -> AssessmentWithQuestionsResponse:
-    """Link an existing question into an assessment. Requires edit permissions.
-
-    The question must be owned by the caller.
+    """Copy an existing question into an assessment and link to source question.
+    Requires edit permissions for assessment and view permissions for question.
 
     Questions are ordered using 0-indexed consecutive integers (0, 1, 2, 3...).
     When linking a question with a specified order, questions at or after that
@@ -168,6 +167,51 @@ async def link_question_into_assessment(
             assessment_id,
             question_data.question_id,
             question_data.order,
+        )
+    except EdCraftBaseException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+
+@router.post(
+    "/{assessment_id}/questions/{question_id}/sync",
+    response_model=AssessmentWithQuestionsResponse,
+)
+async def sync_question_in_assessment(
+    current_user: CurrentUserDep,
+    assessment_id: UUID,
+    question_id: UUID,
+    service: AssessmentServiceDep,
+) -> AssessmentWithQuestionsResponse:
+    """Sync a linked question's content from its source. Requires edit permissions.
+
+    Overwrites the question's content with the current content of its source question.
+    Returns 400 if the question has no source link.
+    """
+    try:
+        return await service.sync_question_in_assessment(
+            current_user.id, assessment_id, question_id
+        )
+    except EdCraftBaseException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+
+@router.post(
+    "/{assessment_id}/questions/{question_id}/unlink",
+    response_model=AssessmentWithQuestionsResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def unlink_question_in_assessment(
+    current_user: CurrentUserDep,
+    assessment_id: UUID,
+    question_id: UUID,
+    service: AssessmentServiceDep,
+) -> AssessmentWithQuestionsResponse:
+    """Sever the source link on a question without removing it. Requires edit permissions.
+    The question content is preserved as a fully independent question.
+    """
+    try:
+        return await service.unlink_question_in_assessment(
+            current_user.id, assessment_id, question_id
         )
     except EdCraftBaseException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e

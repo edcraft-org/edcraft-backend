@@ -106,6 +106,7 @@ class BaseQuestionResponse(BaseModel):
     id: UUID
     owner_id: UUID
     template_id: UUID | None
+    linked_from_question_id: UUID | None = None
     question_text: str
     created_at: datetime
     updated_at: datetime

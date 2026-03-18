@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, cast
 from uuid import UUID
 
 from edcraft_backend.exceptions import (
@@ -15,6 +15,8 @@ from edcraft_backend.models.enums import (
     ResourceType,
     ResourceVisibility,
 )
+from edcraft_backend.models.question import Question
+from edcraft_backend.models.question_data import MCQData, MRQData
 from edcraft_backend.models.resource_collaborator import ResourceCollaborator
 from edcraft_backend.repositories.assessment_question_repository import (
     AssessmentQuestionRepository,
@@ -35,7 +37,19 @@ from edcraft_backend.schemas.assessment import (
     QuestionOrder,
     UpdateAssessmentRequest,
 )
-from edcraft_backend.schemas.question import CreateQuestionRequest
+from edcraft_backend.schemas.question import (
+    CreateQuestionRequest,
+    UpdateQuestionRequest,
+)
+from edcraft_backend.schemas.question import (
+    MCQData as MCQDataSchema,
+)
+from edcraft_backend.schemas.question import (
+    MRQData as MRQDataSchema,
+)
+from edcraft_backend.schemas.question import (
+    ShortAnswerData as ShortAnswerDataSchema,
+)
 from edcraft_backend.services.folder_service import FolderService
 from edcraft_backend.services.question_service import QuestionService
 
@@ -207,8 +221,14 @@ class AssessmentService:
         assessment = await self.get_assessment(
             user_id, assessment_id, min_role=CollaboratorRole.OWNER
         )
+
+        assocs = await self.assoc_repo.get_all_for_assessment(assessment.id)
+        for assoc in assocs:
+            question = await self.question_svc.question_repo.get_by_id(assoc.question_id)
+            if question:
+                await self.question_svc.question_repo.soft_delete(question)
+
         deleted_assessment = await self.assessment_repo.soft_delete(assessment)
-        await self.question_svc.cleanup_orphaned_questions(assessment.owner_id)
         return deleted_assessment
 
     def _build_assessment_question_response(
@@ -231,6 +251,7 @@ class AssessmentService:
             "id": q.id,
             "owner_id": q.owner_id,
             "template_id": q.template_id,
+            "linked_from_question_id": q.linked_from_question_id,
             "question_type": q.question_type,
             "question_text": q.question_text,
             "created_at": q.created_at,
@@ -309,6 +330,54 @@ class AssessmentService:
             my_role=my_role,
         )
 
+    async def _attach_question_to_assessment(
+        self,
+        assessment: Assessment,
+        question_id: UUID,
+        order: int | None,
+    ) -> None:
+        """Validate order, insert the association, and expire the cached assessment."""
+        current_count = await self.assoc_repo.get_count(assessment.id)
+
+        if order is not None and (order < 0 or order > current_count):
+            raise ValidationError(
+                f"Order must be between 0 and {current_count}. "
+                "Omit order to append to the end."
+            )
+
+        if order is None:
+            order = current_count
+
+        if order < current_count:
+            await self.assoc_repo.shift_orders_from(assessment.id, order)
+
+        assoc = AssessmentQuestion(
+            assessment_id=assessment.id,
+            question_id=question_id,
+            order=order,
+        )
+        await self.assoc_repo.create(assoc)
+        self.assessment_repo.db.expire(assessment)
+
+    async def _require_assoc_and_question(
+        self,
+        assessment_id: UUID,
+        question_id: UUID,
+    ) -> tuple[AssessmentQuestion, Question]:
+        """Fetch and validate the assoc + question, raising if either is missing."""
+        assoc = await self.assoc_repo.find_association(assessment_id, question_id)
+        if not assoc:
+            raise ResourceNotFoundError(
+                "AssessmentQuestion",
+                f"assessment={assessment_id}, question={question_id}",
+            )
+
+        question = await self.question_svc.question_repo.get_by_id(question_id)
+        if not question:
+            raise ResourceNotFoundError("Question", str(question_id))
+
+        return assoc, question
+
     async def add_question_to_assessment(
         self,
         user_id: UUID,
@@ -335,37 +404,8 @@ class AssessmentService:
         assessment = await self.get_assessment(
             user_id, assessment_id, min_role=CollaboratorRole.EDITOR
         )
-
-        # Create question
         question_entity = await self.question_svc.create_question(user_id, question)
-
-        # Validate and determine order
-        current_count = await self.assoc_repo.get_count(assessment_id)
-
-        if order is not None and (order < 0 or order > current_count):
-            raise ValidationError(
-                f"Order must be between 0 and {current_count}. "
-                "Omit order to append to the end."
-            )
-
-        if order is None:
-            order = current_count
-
-        if order < current_count:
-            await self.assoc_repo.shift_orders_from(assessment_id, order)
-
-        # Create association
-        assoc = AssessmentQuestion(
-            assessment_id=assessment_id,
-            question_id=question_entity.id,
-            order=order,
-        )
-        await self.assoc_repo.create(assoc)
-
-        # Expire the cached assessment to force fresh query
-        self.assessment_repo.db.expire(assessment)
-
-        # Return updated assessment with questions
+        await self._attach_question_to_assessment(assessment, question_entity.id, order)
         return await self.get_assessment_with_questions(user_id, assessment_id)
 
     async def link_question_to_assessment(
@@ -375,12 +415,16 @@ class AssessmentService:
         question_id: UUID,
         order: int | None = None,
     ) -> AssessmentWithQuestionsResponse:
-        """Link an existing question to an assessment.
+        """Copy a question into an assessment, and link to source question.
+
+        The user must have at least VIEWER access to the source question (owns it,
+        is a collaborator on an assessment containing it, or it's in a public assessment).
+        A new independent copy is created and linked to the assessment.
 
         Args:
             user_id: User UUID
             assessment_id: Assessment UUID
-            question_id: Question UUID
+            question_id: UUID of the source question to copy
             order: Order position for the question
 
         Returns:
@@ -388,55 +432,120 @@ class AssessmentService:
 
         Raises:
             ResourceNotFoundError: If assessment or question not found
-            DuplicateResourceError: If question already linked to assessment
             ValidationError: If order is invalid
-            UnauthorizedAccessError: If user lacks editor/owner role or doesn't own question
+            UnauthorizedAccessError: If user lacks editor/owner role on assessment
+                or view access on the source question
         """
         assessment = await self.get_assessment(
             user_id, assessment_id, min_role=CollaboratorRole.EDITOR
         )
 
-        # Editors can only link questions they own
-        await self.question_svc.get_owned_question(user_id, question_id)
+        source = await self.question_svc.question_repo.get_by_id(question_id)
+        if not source:
+            raise ResourceNotFoundError("Question", str(question_id))
 
-        # Check for existing association
-        existing_assoc = await self.assoc_repo.find_association(
-            assessment_id, question_id
+        can_view = await self.collaborator_repo.check_question_permission(
+            question_id, user_id, CollaboratorRole.VIEWER
         )
-        if existing_assoc:
-            raise DuplicateResourceError(
-                "AssessmentQuestion",
-                "question_id/assessment_id",
-                f"assessment={assessment_id}, question={question_id}",
+        if not can_view:
+            raise UnauthorizedAccessError("Question", str(question_id))
+
+        copy = await self.question_svc.copy_question(source, assessment.owner_id)
+        await self._attach_question_to_assessment(assessment, copy.id, order)
+        return await self.get_assessment_with_questions(user_id, assessment_id)
+
+    async def sync_question_in_assessment(
+        self,
+        user_id: UUID,
+        assessment_id: UUID,
+        question_id: UUID,
+    ) -> AssessmentWithQuestionsResponse:
+        """Sync a linked question's content from its source question.
+
+        Args:
+            user_id: User UUID
+            assessment_id: Assessment UUID
+            question_id: UUID of the question copy in this assessment
+
+        Returns:
+            Updated assessment with questions
+
+        Raises:
+            ResourceNotFoundError: If assessment, question, or source not found
+            ValidationError: If question has no source link
+            UnauthorizedAccessError: If user lacks editor/owner role or view access on source
+        """
+        await self.get_assessment(
+            user_id, assessment_id, min_role=CollaboratorRole.EDITOR
+        )
+        _, question = await self._require_assoc_and_question(assessment_id, question_id)
+
+        if not question.linked_from_question_id:
+            raise ValidationError("Question has no source link to sync from.")
+
+        source = await self.question_svc.question_repo.get_by_id(
+            question.linked_from_question_id
+        )
+        if not source:
+            raise ResourceNotFoundError(
+                "Question", str(question.linked_from_question_id)
             )
 
-        # Validate and determine order
-        current_count = await self.assoc_repo.get_count(assessment_id)
-
-        if order is not None and (order < 0 or order > current_count):
-            raise ValidationError(
-                f"Order must be between 0 and {current_count}. "
-                "Omit order to append to the end."
-            )
-
-        if order is None:
-            order = current_count
-
-        if order < current_count:
-            await self.assoc_repo.shift_orders_from(assessment_id, order)
-
-        # Create association
-        assoc = AssessmentQuestion(
-            assessment_id=assessment_id,
-            question_id=question_id,
-            order=order,
+        can_view = await self.collaborator_repo.check_question_permission(
+            source.id, user_id, CollaboratorRole.VIEWER
         )
-        await self.assoc_repo.create(assoc)
+        if not can_view:
+            raise UnauthorizedAccessError("Question", str(source.id))
 
-        # Expire the cached assessment to force fresh query
-        self.assessment_repo.db.expire(assessment)
+        _raw = source.data
+        if isinstance(_raw, MCQData):
+            _schema_data: MCQDataSchema | MRQDataSchema | ShortAnswerDataSchema = (
+                MCQDataSchema.model_validate(_raw)
+            )
+        elif isinstance(_raw, MRQData):
+            _schema_data = MRQDataSchema.model_validate(_raw)
+        else:
+            _schema_data = ShortAnswerDataSchema.model_validate(_raw)
 
-        # Return updated assessment with questions
+        update_data = UpdateQuestionRequest(
+            question_type=cast(
+                Literal["mcq", "mrq", "short_answer"], source.question_type
+            ),
+            question_text=source.question_text,
+            data=_schema_data,
+        )
+        await self.question_svc._update_question_data(question, update_data)
+
+        return await self.get_assessment_with_questions(user_id, assessment_id)
+
+    async def unlink_question_in_assessment(
+        self,
+        user_id: UUID,
+        assessment_id: UUID,
+        question_id: UUID,
+    ) -> AssessmentWithQuestionsResponse:
+        """Sever the source link on a question without removing it from the assessment.
+
+        Args:
+            user_id: User UUID
+            assessment_id: Assessment UUID
+            question_id: UUID of the question in this assessment
+
+        Returns:
+            Updated assessment with questions
+
+        Raises:
+            ResourceNotFoundError: If assessment or question not found
+            UnauthorizedAccessError: If user lacks editor/owner role
+        """
+        await self.get_assessment(
+            user_id, assessment_id, min_role=CollaboratorRole.EDITOR
+        )
+        _, question = await self._require_assoc_and_question(assessment_id, question_id)
+
+        question.linked_from_question_id = None
+        await self.question_svc.question_repo.update(question)
+
         return await self.get_assessment_with_questions(user_id, assessment_id)
 
     async def remove_question_from_assessment(
@@ -459,22 +568,12 @@ class AssessmentService:
         await self.get_assessment(
             user_id, assessment_id, min_role=CollaboratorRole.EDITOR
         )
-
-        assoc = await self.assoc_repo.find_association(assessment_id, question_id)
-        if not assoc:
-            raise ResourceNotFoundError(
-                "AssessmentQuestion",
-                f"assessment={assessment_id}, question={question_id}",
-            )
-
-        question = await self.question_svc.question_repo.get_by_id(question_id)
-        question_owner_id = question.owner_id if question else None
-
+        assoc, question = await self._require_assoc_and_question(
+            assessment_id, question_id
+        )
         await self.assoc_repo.hard_delete(assoc)
         await self.assoc_repo.normalize_orders(assessment_id)
-
-        if question_owner_id:
-            await self.question_svc.cleanup_orphaned_questions(question_owner_id)
+        await self.question_svc.question_repo.soft_delete(question)
 
     async def reorder_questions(
         self,

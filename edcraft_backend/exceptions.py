@@ -25,21 +25,21 @@ class CodeAnalysisError(EdCraftBaseException):
     """Raised when code analysis fails."""
 
     def __init__(self, message: str = "Failed to analyze code") -> None:
-        super().__init__(message, status.HTTP_422_UNPROCESSABLE_ENTITY)
+        super().__init__(message, status.HTTP_422_UNPROCESSABLE_CONTENT)
 
 
 class QuestionGenerationError(EdCraftBaseException):
     """Raised when question generation fails."""
 
     def __init__(self, message: str = "Failed to generate question") -> None:
-        super().__init__(message, status.HTTP_422_UNPROCESSABLE_ENTITY)
+        super().__init__(message, status.HTTP_422_UNPROCESSABLE_CONTENT)
 
 
 class InputGenerationError(EdCraftBaseException):
     """Raised when input generation fails."""
 
     def __init__(self, message: str = "Failed to generate inputs") -> None:
-        super().__init__(message, status.HTTP_422_UNPROCESSABLE_ENTITY)
+        super().__init__(message, status.HTTP_422_UNPROCESSABLE_CONTENT)
 
 
 class TemplateRenderError(EdCraftBaseException):

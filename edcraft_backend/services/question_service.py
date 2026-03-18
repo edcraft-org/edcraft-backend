@@ -3,6 +3,7 @@ from uuid import UUID
 
 from edcraft_backend.exceptions import ResourceNotFoundError, UnauthorizedAccessError
 from edcraft_backend.models.assessment import Assessment
+from edcraft_backend.models.enums import CollaboratorRole
 from edcraft_backend.models.question import Question
 from edcraft_backend.models.question_bank import QuestionBank
 from edcraft_backend.models.question_data import MCQData, MRQData, ShortAnswerData
@@ -176,8 +177,8 @@ class QuestionService:
             raise ResourceNotFoundError("Question", str(question_id))
 
         if question.owner_id != user_id:
-            can_edit = await self.collaborator_repo.user_can_edit_question(
-                question_id, user_id
+            can_edit = await self.collaborator_repo.check_question_permission(
+                question_id, user_id, CollaboratorRole.EDITOR
             )
             if not can_edit:
                 raise UnauthorizedAccessError("Question", str(question_id))
@@ -250,6 +251,41 @@ class QuestionService:
         """
         question = await self.get_owned_question(user_id, question_id)
         return await self.question_repo.soft_delete(question)
+
+    async def copy_question(self, source: Question, new_owner_id: UUID) -> Question:
+        """Create an independent copy of a question owned by new_owner_id.
+
+        Args:
+            source: Source question to copy
+            new_owner_id: User UUID who will own the copy
+
+        Returns:
+            Newly created Question with linked_from_question_id set to source.id
+        """
+        copy = Question(
+            owner_id=new_owner_id,
+            template_id=source.template_id,
+            question_type=source.question_type,
+            question_text=source.question_text,
+            linked_from_question_id=source.id,
+        )
+
+        if source.question_type == "mcq" and source.mcq_data:
+            copy.mcq_data = MCQData(
+                options=list(source.mcq_data.options),
+                correct_index=source.mcq_data.correct_index,
+            )
+        elif source.question_type == "mrq" and source.mrq_data:
+            copy.mrq_data = MRQData(
+                options=list(source.mrq_data.options),
+                correct_indices=list(source.mrq_data.correct_indices),
+            )
+        elif source.question_type == "short_answer" and source.short_answer_data:
+            copy.short_answer_data = ShortAnswerData(
+                correct_answer=source.short_answer_data.correct_answer,
+            )
+
+        return await self.question_repo.create(copy)
 
     async def cleanup_orphaned_questions(self, owner_id: UUID) -> int:
         """Delete questions not used in any active assessment.

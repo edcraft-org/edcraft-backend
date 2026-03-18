@@ -116,7 +116,7 @@ class AssessmentRepository(EntityRepository[Assessment]):
         stmt = stmt.order_by(Assessment.updated_at.desc())
 
         result = await self.db.execute(stmt)
-        return [(row[0], row[1]) for row in result.all()]
+        return [(row[0], CollaboratorRole(row[1])) for row in result.all()]
 
     async def bulk_soft_delete_by_folder_ids(self, folder_ids: list[UUID]) -> None:
         """Bulk soft-delete assessments by folder IDs.

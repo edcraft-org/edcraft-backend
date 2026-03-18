@@ -4,11 +4,12 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from edcraft_backend.models.question import Question
 from edcraft_backend.models.user import User
 from tests.factories import (
-    create_test_assessment,
     create_test_folder,
     create_test_question,
     create_test_question_bank,
@@ -289,9 +290,13 @@ class TestSoftDeleteQuestionBank:
     async def test_soft_delete_question_bank_success(
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
-        """Test soft deleting question bank successfully."""
+        """Test soft deleting question bank and its questions."""
         bank = await create_test_question_bank(db_session, user)
+        question = await create_test_question(db_session, user)
+        await link_question_to_question_bank(db_session, bank.id, question.id)
         await db_session.commit()
+
+        question_id = question.id
 
         response = await test_client.delete(f"/question-banks/{bank.id}")
 
@@ -300,6 +305,14 @@ class TestSoftDeleteQuestionBank:
         # Verify bank has deleted_at timestamp
         await db_session.refresh(bank)
         assert bank.deleted_at is not None
+
+        # Verify the question is soft-deleted with the bank
+        db_session.expire_all()
+        deleted_question = (
+            await db_session.execute(select(Question).where(Question.id == question_id))
+        ).scalar_one_or_none()
+        assert deleted_question is not None
+        assert deleted_question.deleted_at is not None
 
     @pytest.mark.asyncio
     async def test_soft_delete_question_bank_not_in_list(
@@ -332,67 +345,6 @@ class TestSoftDeleteQuestionBank:
 
         assert response.status_code == 404
 
-    @pytest.mark.asyncio
-    async def test_soft_delete_question_bank_cleans_up_orphaned_questions(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that deleting question bank triggers cleanup of orphaned questions."""
-        from sqlalchemy import select
-
-        from edcraft_backend.models.question import Question
-
-        bank = await create_test_question_bank(db_session, user)
-
-        orphaned_question = await create_test_question(
-            db_session, user, question_text="Orphaned Question"
-        )
-
-        shared_question = await create_test_question(
-            db_session, user, question_text="Shared Question"
-        )
-        other_bank = await create_test_question_bank(
-            db_session, user, title="Other Bank"
-        )
-        await db_session.commit()
-
-        # Link questions to bank
-        await test_client.post(
-            f"/question-banks/{bank.id}/questions/link",
-            json={"question_id": str(orphaned_question.id)},
-        )
-
-        await test_client.post(
-            f"/question-banks/{bank.id}/questions/link",
-            json={"question_id": str(shared_question.id)},
-        )
-        await test_client.post(
-            f"/question-banks/{other_bank.id}/questions/link",
-            json={"question_id": str(shared_question.id)},
-        )
-
-        response = await test_client.delete(f"/question-banks/{bank.id}")
-        assert response.status_code == 204
-
-        orphaned_q_id = orphaned_question.id
-        shared_q_id = shared_question.id
-
-        db_session.expire_all()
-        orphaned_q_result = await db_session.execute(
-            select(Question).where(Question.id == orphaned_q_id)
-        )
-        orphaned_q = orphaned_q_result.scalar_one_or_none()
-        assert orphaned_q is not None
-        assert (
-            orphaned_q.deleted_at is not None
-        ), "Orphaned question should be soft deleted"
-
-        shared_q_result = await db_session.execute(
-            select(Question).where(Question.id == shared_q_id)
-        )
-        shared_q = shared_q_result.scalar_one_or_none()
-        assert shared_q is not None
-        assert shared_q.deleted_at is None, "Shared question should still be active"
-
 
 @pytest.mark.integration
 @pytest.mark.question_banks
@@ -403,9 +355,11 @@ class TestLinkQuestionToQuestionBank:
     async def test_link_question_to_bank_success(
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
-        """Test linking existing question to bank successfully."""
+        """Test linking creates an independent copy with source reference."""
         bank = await create_test_question_bank(db_session, user)
-        question = await create_test_question(db_session, user)
+        question = await create_test_question(
+            db_session, user, question_text="Source Q"
+        )
         await db_session.commit()
 
         link_data = {"question_id": str(question.id)}
@@ -416,7 +370,10 @@ class TestLinkQuestionToQuestionBank:
         assert response.status_code == 201
         data = response.json()
         assert len(data["questions"]) == 1
-        assert data["questions"][0]["id"] == str(question.id)
+        copy = data["questions"][0]
+        assert copy["id"] != str(question.id)
+        assert copy["linked_from_question_id"] == str(question.id)
+        assert copy["question_text"] == "Source Q"
 
     @pytest.mark.asyncio
     async def test_link_multiple_questions_to_bank(
@@ -424,9 +381,9 @@ class TestLinkQuestionToQuestionBank:
     ) -> None:
         """Test linking multiple questions to bank."""
         bank = await create_test_question_bank(db_session, user)
-        question1 = await create_test_question(db_session, user)
-        question2 = await create_test_question(db_session, user)
-        question3 = await create_test_question(db_session, user)
+        question1 = await create_test_question(db_session, user, question_text="Q1")
+        question2 = await create_test_question(db_session, user, question_text="Q2")
+        question3 = await create_test_question(db_session, user, question_text="Q3")
         await db_session.commit()
 
         # Link questions
@@ -447,10 +404,10 @@ class TestLinkQuestionToQuestionBank:
         data = response.json()
         assert len(data["questions"]) == 3
 
-        question_ids = [q["id"] for q in data["questions"]]
-        assert str(question1.id) in question_ids
-        assert str(question2.id) in question_ids
-        assert str(question3.id) in question_ids
+        source_links = {q["linked_from_question_id"] for q in data["questions"]}
+        assert str(question1.id) in source_links
+        assert str(question2.id) in source_links
+        assert str(question3.id) in source_links
 
     @pytest.mark.asyncio
     async def test_link_question_to_nonexistent_bank(
@@ -487,28 +444,119 @@ class TestLinkQuestionToQuestionBank:
         assert response.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_link_duplicate_question_returns_error(
+    async def test_link_same_source_twice_creates_two_copies(
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
-        """Test linking same question twice returns error."""
+        """Test linking the same source question twice creates two independent copies."""
         bank = await create_test_question_bank(db_session, user)
         question = await create_test_question(db_session, user)
         await db_session.commit()
 
-        # Link question first time
         await test_client.post(
             f"/question-banks/{bank.id}/questions/link",
             json={"question_id": str(question.id)},
         )
-
-        # Try to link same question again
         response = await test_client.post(
             f"/question-banks/{bank.id}/questions/link",
             json={"question_id": str(question.id)},
         )
 
-        assert response.status_code == 409
-        assert "already" in response.json()["detail"].lower()
+        assert response.status_code == 201
+        data = response.json()
+        assert len(data["questions"]) == 2
+        ids = [q["id"] for q in data["questions"]]
+        assert ids[0] != ids[1]
+        assert all(
+            q["linked_from_question_id"] == str(question.id) for q in data["questions"]
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.question_banks
+class TestSyncQuestionInQuestionBank:
+    """Tests for POST /question-banks/{question_bank_id}/questions/{question_id}/sync."""
+
+    @pytest.mark.asyncio
+    async def test_sync_updates_copy_from_source(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that sync overwrites copy content with the current source content."""
+        bank = await create_test_question_bank(db_session, user)
+        source = await create_test_question(
+            db_session, user, question_text="Original text"
+        )
+        await db_session.commit()
+
+        # Link (creates copy)
+        link_resp = await test_client.post(
+            f"/question-banks/{bank.id}/questions/link",
+            json={"question_id": str(source.id)},
+        )
+        copy_id = link_resp.json()["questions"][0]["id"]
+
+        # Edit the source
+        await test_client.patch(
+            f"/questions/{str(source.id)}",
+            json={"question_text": "Updated source text"},
+        )
+
+        # Sync the copy
+        response = await test_client.post(
+            f"/question-banks/{bank.id}/questions/{copy_id}/sync"
+        )
+
+        assert response.status_code == 200
+        questions = response.json()["questions"]
+        copy = next(q for q in questions if q["id"] == copy_id)
+        assert copy["question_text"] == "Updated source text"
+        assert copy["linked_from_question_id"] == str(source.id)
+
+    @pytest.mark.asyncio
+    async def test_sync_without_source_link_returns_400(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that syncing a question with no source link returns 400."""
+        bank = await create_test_question_bank(db_session, user)
+        question = await create_test_question(db_session, user)
+        await link_question_to_question_bank(db_session, bank.id, question.id)
+        await db_session.commit()
+
+        response = await test_client.post(
+            f"/question-banks/{bank.id}/questions/{question.id}/sync"
+        )
+
+        assert response.status_code == 400
+
+
+@pytest.mark.integration
+@pytest.mark.question_banks
+class TestUnlinkQuestionInQuestionBank:
+    """Tests for POST /question-banks/{question_bank_id}/questions/{question_id}/unlink."""
+
+    @pytest.mark.asyncio
+    async def test_unlink_severs_source_reference(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that unlink sets linked_from_question_id to null while keeping the question."""
+        bank = await create_test_question_bank(db_session, user)
+        source = await create_test_question(db_session, user, question_text="Source")
+        await db_session.commit()
+
+        link_resp = await test_client.post(
+            f"/question-banks/{bank.id}/questions/link",
+            json={"question_id": str(source.id)},
+        )
+        copy_id = link_resp.json()["questions"][0]["id"]
+
+        response = await test_client.post(
+            f"/question-banks/{bank.id}/questions/{copy_id}/unlink"
+        )
+
+        assert response.status_code == 200
+        questions = response.json()["questions"]
+        copy = next(q for q in questions if q["id"] == copy_id)
+        assert copy["linked_from_question_id"] is None
+        assert copy["question_text"] == "Source"
 
 
 @pytest.mark.integration
@@ -614,25 +662,31 @@ class TestRemoveQuestionFromQuestionBank:
     async def test_remove_question_from_bank_success(
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
-        """Test removing question from bank successfully."""
+        """Test removing question from bank removes it and soft-deletes it."""
         bank = await create_test_question_bank(db_session, user)
         question = await create_test_question(db_session, user)
-        await db_session.commit()
-
-        # Link question
         await link_question_to_question_bank(db_session, bank.id, question.id)
         await db_session.commit()
 
-        # Remove question
+        question_id = question.id
+
         response = await test_client.delete(
-            f"/question-banks/{bank.id}/questions/{question.id}"
+            f"/question-banks/{bank.id}/questions/{question_id}"
         )
 
         assert response.status_code == 204
 
-        # Verify question removed
+        # Verify question removed from bank
         get_response = await test_client.get(f"/question-banks/{bank.id}")
         assert len(get_response.json()["questions"]) == 0
+
+        # Verify question is soft-deleted
+        db_session.expire_all()
+        deleted_question = (
+            await db_session.execute(select(Question).where(Question.id == question_id))
+        ).scalar_one_or_none()
+        assert deleted_question is not None
+        assert deleted_question.deleted_at is not None
 
     @pytest.mark.asyncio
     async def test_remove_question_preserves_other_questions(
@@ -689,114 +743,3 @@ class TestRemoveQuestionFromQuestionBank:
         )
 
         assert response.status_code == 404
-
-    @pytest.mark.asyncio
-    async def test_remove_question_cleans_up_orphaned_question(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that removing a question triggers cleanup if it becomes orphaned."""
-        from sqlalchemy import select
-
-        from edcraft_backend.models.question import Question
-
-        bank = await create_test_question_bank(db_session, user)
-
-        orphaned_question = await create_test_question(
-            db_session, user, question_text="Will be orphaned"
-        )
-
-        shared_question = await create_test_question(
-            db_session, user, question_text="Shared"
-        )
-        other_bank = await create_test_question_bank(
-            db_session, user, title="Other Bank"
-        )
-        await db_session.commit()
-
-        await link_question_to_question_bank(db_session, bank.id, orphaned_question.id)
-        await link_question_to_question_bank(db_session, bank.id, shared_question.id)
-        await link_question_to_question_bank(
-            db_session, other_bank.id, shared_question.id
-        )
-        await db_session.commit()
-
-        response = await test_client.delete(
-            f"/question-banks/{bank.id}/questions/{orphaned_question.id}"
-        )
-        assert response.status_code == 204
-
-        bank_id = bank.id
-        orphaned_q_id = orphaned_question.id
-        shared_q_id = shared_question.id
-
-        db_session.expire_all()
-        orphaned_q_result = await db_session.execute(
-            select(Question).where(Question.id == orphaned_q_id)
-        )
-        orphaned_q = orphaned_q_result.scalar_one_or_none()
-        assert orphaned_q is not None
-        assert (
-            orphaned_q.deleted_at is not None
-        ), "Question should be soft deleted when orphaned"
-
-        await test_client.delete(f"/question-banks/{bank_id}/questions/{shared_q_id}")
-
-        db_session.expire_all()
-        shared_q_result = await db_session.execute(
-            select(Question).where(Question.id == shared_q_id)
-        )
-        shared_q = shared_q_result.scalar_one_or_none()
-        assert shared_q is not None
-        assert (
-            shared_q.deleted_at is None
-        ), "Shared question should remain active while still in use"
-
-    @pytest.mark.asyncio
-    async def test_remove_question_preserves_question_still_in_use(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that removing question from bank doesn't delete question still used."""
-        from sqlalchemy import select
-
-        from edcraft_backend.models.question import Question
-
-        # Create question bank and assessment
-        question_bank = await create_test_question_bank(db_session, user)
-        assessment = await create_test_assessment(
-            db_session, user, title="Test Assessment"
-        )
-
-        # Create a question used in both question bank and assessment
-        shared_question = await create_test_question(
-            db_session, user, question_text="Question in both bank and assessment"
-        )
-        await db_session.commit()
-
-        # Link question to both question bank and assessment
-        await link_question_to_question_bank(
-            db_session, question_bank.id, shared_question.id
-        )
-        await test_client.post(
-            f"/assessments/{assessment.id}/questions/link",
-            json={"question_id": str(shared_question.id)},
-        )
-        await db_session.commit()
-
-        # Remove the question from the question bank
-        response = await test_client.delete(
-            f"/question-banks/{question_bank.id}/questions/{shared_question.id}"
-        )
-        assert response.status_code == 204
-
-        # Verify the question is still active (not deleted)
-        shared_q_id = shared_question.id
-        db_session.expire_all()
-
-        result = await db_session.execute(
-            select(Question).where(Question.id == shared_q_id)
-        )
-        question = result.scalar_one_or_none()
-        assert question is not None
-        assert (
-            question.deleted_at is None
-        ), "Question should remain active when still used in assessment"

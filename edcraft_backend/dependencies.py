@@ -295,10 +295,17 @@ def get_question_bank_service(
         get_question_bank_question_repository
     ),
     question_svc: QuestionService = Depends(get_question_service),
+    collaborator_repo: ResourceCollaboratorRepository = Depends(
+        get_resource_collaborator_repository
+    ),
 ) -> QuestionBankService:
     """Get QuestionBankService instance."""
     return QuestionBankService(
-        question_bank_repo, folder_svc, question_bank_question_repo, question_svc
+        question_bank_repo,
+        folder_svc,
+        question_bank_question_repo,
+        question_svc,
+        collaborator_repo,
     )
 
 

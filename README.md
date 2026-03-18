@@ -513,7 +513,8 @@ The application uses a comprehensive database schema for managing assessments, q
 
 - **Question** ([question.py](edcraft_backend/models/question.py)) - Individual question instances
   - Can be created from a QuestionTemplate
-  - Reusable across multiple assessments and question banks
+  - `linked_from_question_id`: points to the source question when a copy was created via the link endpoint
+  - **Copy-on-Link semantics:** Linking a question into an assessment or question bank creates an independent copy rather than sharing the same record. Each copy can be edited independently. The source link is used to sync content from the source on demand.
 
 - **AssessmentQuestion** ([assessment_question.py](edcraft_backend/models/assessment_question.py)) - Association table for assessments and questions
   - Tracks question ordering within assessments (0-indexed)

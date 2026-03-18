@@ -40,6 +40,11 @@ class Question(EntityBase):
         nullable=True,
         index=True,
     )
+    linked_from_question_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("questions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     # Basic Fields
     question_type: Mapped[str] = mapped_column(
