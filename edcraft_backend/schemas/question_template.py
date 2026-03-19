@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import TYPE_CHECKING
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, model_validator
@@ -18,12 +17,6 @@ from edcraft_backend.utils.code_parser import (
     EntryFunctionParams,
     parse_function_parameters,
 )
-
-if TYPE_CHECKING:
-    from edcraft_backend.schemas.assessment_template import AssessmentTemplateResponse
-    from edcraft_backend.schemas.question_template_bank import (
-        QuestionTemplateBankResponse,
-    )
 
 
 class CreateTargetElementRequest(BaseModel):
@@ -133,6 +126,10 @@ class QuestionTemplateResponse(BaseModel):
     target_elements: list[TargetElementResponse]
     input_data_config: dict[str, dict] | None = None
     entry_function_params: EntryFunctionParams = EntryFunctionParams(parameters=[])
+    linked_from_template_id: UUID | None
+    assessment_template_id: UUID | None
+    question_template_bank_id: UUID | None
+    order: int | None
     created_at: datetime
     updated_at: datetime
 
@@ -145,12 +142,3 @@ class QuestionTemplateResponse(BaseModel):
             self.code, self.entry_function
         )
         return self
-
-
-class QuestionTemplateUsageResponse(BaseModel):
-    """Schema for question template usage information."""
-
-    assessment_templates: list[AssessmentTemplateResponse] = []
-    question_template_banks: list[QuestionTemplateBankResponse] = []
-
-    model_config = ConfigDict(from_attributes=True)

@@ -57,12 +57,14 @@ async def list_assessment_templates(
     "/{template_id}", response_model=AssessmentTemplateWithQuestionTemplatesResponse
 )
 async def get_assessment_template(
-    current_user: CurrentUserDep, template_id: UUID, service: AssessmentTemplateServiceDep
+    current_user: CurrentUserDep,
+    template_id: UUID,
+    service: AssessmentTemplateServiceDep,
 ) -> AssessmentTemplateWithQuestionTemplatesResponse:
     """Get assessment template with question templates in order."""
     try:
         return await service.get_template_with_question_templates(
-            user_id=current_user.id, template_id=template_id
+            user_id=current_user.id, assessment_template_id=template_id
         )
     except EdCraftBaseException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
@@ -140,7 +142,8 @@ async def link_question_template_to_assessment_template(
     link_data: LinkQuestionTemplateToAssessmentTemplateRequest,
     service: AssessmentTemplateServiceDep,
 ) -> AssessmentTemplateWithQuestionTemplatesResponse:
-    """Link an existing question template to an assessment template.
+    """Copy a question template into an assessment template.
+    Links new question template to source question template.
 
     Question templates are ordered using 0-indexed consecutive integers (0, 1, 2, 3...).
     When linking a question template with a specified order, templates at or after that
@@ -196,6 +199,51 @@ async def reorder_question_templates(
             user_id=current_user.id,
             template_id=template_id,
             question_template_orders=reorder_data.question_template_orders,
+        )
+    except EdCraftBaseException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+
+@router.post(
+    "/{template_id}/question-templates/{question_template_id}/sync",
+    response_model=AssessmentTemplateWithQuestionTemplatesResponse,
+)
+async def sync_question_template_in_assessment_template(
+    current_user: CurrentUserDep,
+    template_id: UUID,
+    question_template_id: UUID,
+    service: AssessmentTemplateServiceDep,
+) -> AssessmentTemplateWithQuestionTemplatesResponse:
+    """
+    Sync a linked question template's content from its source template.
+    Overwrites the question template's content with the current content of its source.
+    """
+    try:
+        return await service.sync_question_template_in_template(
+            user_id=current_user.id,
+            template_id=template_id,
+            question_template_id=question_template_id,
+        )
+    except EdCraftBaseException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+
+@router.post(
+    "/{template_id}/question-templates/{question_template_id}/unlink",
+    response_model=AssessmentTemplateWithQuestionTemplatesResponse,
+)
+async def unlink_question_template_in_assessment_template(
+    current_user: CurrentUserDep,
+    template_id: UUID,
+    question_template_id: UUID,
+    service: AssessmentTemplateServiceDep,
+) -> AssessmentTemplateWithQuestionTemplatesResponse:
+    """Remove the source link from a question template copy (make it independent)."""
+    try:
+        return await service.unlink_question_template_in_template(
+            user_id=current_user.id,
+            template_id=template_id,
+            question_template_id=question_template_id,
         )
     except EdCraftBaseException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e

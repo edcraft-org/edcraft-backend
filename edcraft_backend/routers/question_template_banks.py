@@ -142,7 +142,8 @@ async def link_question_template_to_bank(
     question_template_data: LinkQuestionTemplateToQuestionTemplateBankRequest,
     service: QuestionTemplateBankServiceDep,
 ) -> QuestionTemplateBankWithTemplatesResponse:
-    """Link an existing question template to a question template bank."""
+    """Copy a question template into a question template bank.
+    Links new question template to source question template."""
     try:
         return await service.link_question_template_to_bank(
             current_user.id,
@@ -167,6 +168,51 @@ async def remove_question_template_from_bank(
     try:
         await service.remove_question_template_from_bank(
             current_user.id, question_template_bank_id, question_template_id
+        )
+    except EdCraftBaseException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+
+@router.post(
+    "/{question_template_bank_id}/question-templates/{question_template_id}/sync",
+    response_model=QuestionTemplateBankWithTemplatesResponse,
+)
+async def sync_question_template_in_bank(
+    current_user: CurrentUserDep,
+    question_template_bank_id: UUID,
+    question_template_id: UUID,
+    service: QuestionTemplateBankServiceDep,
+) -> QuestionTemplateBankWithTemplatesResponse:
+    """
+    Sync a linked question template's content from its source template.
+    Overwrites the question template's content with the current content of its source.
+    """
+    try:
+        return await service.sync_question_template_in_bank(
+            user_id=current_user.id,
+            question_template_bank_id=question_template_bank_id,
+            question_template_id=question_template_id,
+        )
+    except EdCraftBaseException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+
+
+@router.post(
+    "/{question_template_bank_id}/question-templates/{question_template_id}/unlink",
+    response_model=QuestionTemplateBankWithTemplatesResponse,
+)
+async def unlink_question_template_in_bank(
+    current_user: CurrentUserDep,
+    question_template_bank_id: UUID,
+    question_template_id: UUID,
+    service: QuestionTemplateBankServiceDep,
+) -> QuestionTemplateBankWithTemplatesResponse:
+    """Remove the source link from a question template copy (make it independent)."""
+    try:
+        return await service.unlink_question_template_in_bank(
+            user_id=current_user.id,
+            question_template_bank_id=question_template_bank_id,
+            question_template_id=question_template_id,
         )
     except EdCraftBaseException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e

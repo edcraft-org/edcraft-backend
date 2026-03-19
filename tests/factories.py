@@ -9,9 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from edcraft_backend.models.assessment import Assessment
 from edcraft_backend.models.assessment_template import AssessmentTemplate
-from edcraft_backend.models.assessment_template_question_template import (
-    AssessmentTemplateQuestionTemplate,
-)
 from edcraft_backend.models.enums import CollaboratorRole, ResourceType
 from edcraft_backend.models.folder import Folder
 from edcraft_backend.models.question import Question
@@ -19,9 +16,6 @@ from edcraft_backend.models.question_bank import QuestionBank
 from edcraft_backend.models.question_data import MCQData, MRQData, ShortAnswerData
 from edcraft_backend.models.question_template import QuestionTemplate
 from edcraft_backend.models.question_template_bank import QuestionTemplateBank
-from edcraft_backend.models.question_template_bank_question_template import (
-    QuestionTemplateBankQuestionTemplate,
-)
 from edcraft_backend.models.resource_collaborator import ResourceCollaborator
 from edcraft_backend.models.user import User
 
@@ -485,9 +479,9 @@ async def link_question_template_to_assessment_template(
     assessment_template_id: UUID,
     question_template_id: UUID,
     order: int = 0,
-) -> AssessmentTemplateQuestionTemplate:
+) -> QuestionTemplate:
     """
-    Create association linking a question template to an assessment template.
+    Link a question template to an assessment template by setting FK directly.
 
     Args:
         db: Database session
@@ -496,23 +490,23 @@ async def link_question_template_to_assessment_template(
         order: Display order of the question template in the assessment template
 
     Returns:
-        Created AssessmentTemplateQuestionTemplate instance
+        Updated QuestionTemplate instance
     """
-    assoc = AssessmentTemplateQuestionTemplate(
-        assessment_template_id=assessment_template_id,
-        question_template_id=question_template_id,
-        order=order,
+    result = await db.execute(
+        select(QuestionTemplate).where(QuestionTemplate.id == question_template_id)
     )
-    db.add(assoc)
+    qt = result.scalar_one()
+    qt.assessment_template_id = assessment_template_id
+    qt.order = order
     await db.flush()
-    return assoc
+    return qt
 
 
 async def link_question_template_to_question_template_bank(
     db: AsyncSession, question_template_bank_id: UUID, question_template_id: UUID
-) -> QuestionTemplateBankQuestionTemplate:
+) -> QuestionTemplate:
     """
-    Create association linking a question template to a question template bank.
+    Link a question template to a question template bank by setting FK directly.
 
     Args:
         db: Database session
@@ -520,15 +514,15 @@ async def link_question_template_to_question_template_bank(
         question_template_id: ID of the question template to link
 
     Returns:
-        Created QuestionTemplateBankQuestionTemplate instance
+        Updated QuestionTemplate instance
     """
-    assoc = QuestionTemplateBankQuestionTemplate(
-        question_template_bank_id=question_template_bank_id,
-        question_template_id=question_template_id,
+    result = await db.execute(
+        select(QuestionTemplate).where(QuestionTemplate.id == question_template_id)
     )
-    db.add(assoc)
+    qt = result.scalar_one()
+    qt.question_template_bank_id = question_template_bank_id
     await db.flush()
-    return assoc
+    return qt
 
 
 # Composite Factories

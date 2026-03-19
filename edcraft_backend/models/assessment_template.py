@@ -9,10 +9,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from edcraft_backend.models.base import EntityBase
 
 if TYPE_CHECKING:
-    from edcraft_backend.models.assessment_template_question_template import (
-        AssessmentTemplateQuestionTemplate,
-    )
     from edcraft_backend.models.folder import Folder
+    from edcraft_backend.models.question_template import QuestionTemplate
     from edcraft_backend.models.user import User
 
 
@@ -40,12 +38,12 @@ class AssessmentTemplate(EntityBase):
     owner: Mapped["User"] = relationship(back_populates="assessment_templates")
     folder: Mapped["Folder"] = relationship(back_populates="assessment_templates")
 
-    # Many-to-many relationship with question templates
-    template_associations: Mapped[list["AssessmentTemplateQuestionTemplate"]] = relationship(
+    # One-to-many: question templates directly owned by this assessment template
+    question_templates: Mapped[list["QuestionTemplate"]] = relationship(
         back_populates="assessment_template",
-        cascade="all, delete-orphan",
         lazy="selectin",
-        order_by="AssessmentTemplateQuestionTemplate.order",
+        order_by="QuestionTemplate.order",
+        foreign_keys="QuestionTemplate.assessment_template_id",
     )
 
     def __repr__(self) -> str:

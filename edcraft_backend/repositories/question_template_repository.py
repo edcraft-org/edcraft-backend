@@ -1,11 +1,8 @@
 from uuid import UUID
 
-from sqlalchemy import select, union
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from edcraft_backend.models.assessment_template_question_template import (
-    AssessmentTemplateQuestionTemplate,
-)
 from edcraft_backend.models.question_template import QuestionTemplate
 from edcraft_backend.repositories.base import EntityRepository
 
@@ -20,11 +17,7 @@ class QuestionTemplateRepository(EntityRepository[QuestionTemplate]):
         self,
         owner_id: UUID,
     ) -> list[QuestionTemplate]:
-        """Get unused question templates.
-
-        A template is considered orphaned if it's not in ANY of:
-        - Non-deleted AssessmentTemplate
-        - Non-deleted QuestionTemplateBank
+        """Get question templates not in any active container.
 
         Args:
             owner_id: User UUID to filter templates
@@ -32,46 +25,71 @@ class QuestionTemplateRepository(EntityRepository[QuestionTemplate]):
         Returns:
             List of orphaned question templates
         """
-        from edcraft_backend.models.assessment_template import AssessmentTemplate
-        from edcraft_backend.models.question_template_bank import QuestionTemplateBank
-        from edcraft_backend.models.question_template_bank_question_template import (
-            QuestionTemplateBankQuestionTemplate,
-        )
-
-        # Subquery for templates in use by assessment templates
-        used_in_assessment_templates_subquery = (
-            select(AssessmentTemplateQuestionTemplate.question_template_id)
-            .join(
-                AssessmentTemplate,
-                AssessmentTemplateQuestionTemplate.assessment_template_id
-                == AssessmentTemplate.id,
-            )
-            .where(AssessmentTemplate.deleted_at.is_(None))
-        )
-
-        # Subquery for templates in use by question template banks
-        used_in_template_banks_subquery = (
-            select(QuestionTemplateBankQuestionTemplate.question_template_id)
-            .join(
-                QuestionTemplateBank,
-                QuestionTemplateBankQuestionTemplate.question_template_bank_id
-                == QuestionTemplateBank.id,
-            )
-            .where(QuestionTemplateBank.deleted_at.is_(None))
-        )
-
-        used_question_templates_subquery = union(
-            used_in_assessment_templates_subquery, used_in_template_banks_subquery
-        ).subquery()
-
-        # Get templates not in either used list
         stmt = select(QuestionTemplate).where(
             QuestionTemplate.owner_id == owner_id,
             QuestionTemplate.deleted_at.is_(None),
-            QuestionTemplate.id.notin_(
-                select(used_question_templates_subquery.c.question_template_id)
-            ),
+            QuestionTemplate.assessment_template_id.is_(None),
+            QuestionTemplate.question_template_bank_id.is_(None),
         )
 
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
+
+    async def get_by_assessment_template_id(
+        self, assessment_template_id: UUID
+    ) -> list[QuestionTemplate]:
+        """Get all question templates for an assessment template, ordered by order.
+
+        Args:
+            assessment_template_id: AssessmentTemplate UUID
+
+        Returns:
+            List of QuestionTemplate instances ordered by order field
+        """
+        stmt = (
+            select(QuestionTemplate)
+            .where(
+                QuestionTemplate.assessment_template_id == assessment_template_id,
+                QuestionTemplate.deleted_at.is_(None),
+            )
+            .order_by(QuestionTemplate.order)
+        )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def shift_orders_from(
+        self, assessment_template_id: UUID, start_order: int
+    ) -> None:
+        """Shift order values up by 1 for all templates at or after start_order.
+
+        Args:
+            assessment_template_id: AssessmentTemplate UUID
+            start_order: Order value to start shifting from (inclusive)
+        """
+        templates = await self.db.execute(
+            select(QuestionTemplate)
+            .where(
+                QuestionTemplate.assessment_template_id == assessment_template_id,
+                QuestionTemplate.order >= start_order,
+                QuestionTemplate.deleted_at.is_(None),
+            )
+            .order_by(QuestionTemplate.order.desc())
+        )
+        for template in templates.scalars().all():
+            if template.order is not None:
+                template.order = template.order + 1
+                await self.update(template)
+        await self.db.flush()
+
+    async def normalize_orders(self, assessment_template_id: UUID) -> None:
+        """Normalize order values to consecutive integers starting from 0.
+
+        Args:
+            assessment_template_id: AssessmentTemplate UUID
+        """
+        templates = await self.get_by_assessment_template_id(assessment_template_id)
+        for idx, template in enumerate(templates):
+            if template.order != idx:
+                template.order = idx
+                await self.update(template)
+        await self.db.flush()

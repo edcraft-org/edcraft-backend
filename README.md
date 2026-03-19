@@ -322,17 +322,13 @@ erDiagram
     folders ||--o{ question_banks : "contains"
     folders ||--o{ question_template_banks : "contains"
 
-    assessments ||--o{ assessment_questions : "has"
-    questions ||--o{ assessment_questions : "belongs to"
+    assessments ||--o{ questions : "contains (FK)"
+    question_banks ||--o{ questions : "contains (FK)"
+    questions ||--o{ questions : "linked_from (self-ref)"
 
-    question_banks ||--o{ question_bank_questions : "has"
-    questions ||--o{ question_bank_questions : "belongs to"
-
-    assessment_templates ||--o{ assessment_template_question_templates : "has"
-    question_templates ||--o{ assessment_template_question_templates : "belongs to"
-
-    question_template_banks ||--o{ question_template_bank_question_templates : "has"
-    question_templates ||--o{ question_template_bank_question_templates : "belongs to"
+    assessment_templates ||--o{ question_templates : "contains (FK)"
+    question_template_banks ||--o{ question_templates : "contains (FK)"
+    question_templates ||--o{ question_templates : "linked_from (self-ref)"
 
     question_templates ||--o{ questions : "generates"
 
@@ -403,25 +399,16 @@ erDiagram
         uuid id PK
         uuid owner_id FK
         uuid template_id FK "nullable, SET NULL"
+        uuid assessment_id FK "nullable, SET NULL"
+        uuid question_bank_id FK "nullable, SET NULL"
+        uuid linked_from_question_id FK "nullable, SET NULL (self-ref)"
+        int order "nullable, unique per assessment"
         string question_type
         text question_text
         json additional_data
         datetime created_at
         datetime updated_at
         datetime deleted_at "soft delete"
-    }
-
-    assessment_questions {
-        uuid assessment_id FK,PK
-        uuid question_id FK,PK
-        int order "unique per assessment"
-        datetime added_at
-    }
-
-    question_bank_questions {
-        uuid question_bank_id FK,PK
-        uuid question_id FK,PK
-        datetime added_at
     }
 
     question_template_banks {
@@ -449,6 +436,10 @@ erDiagram
     question_templates {
         uuid id PK
         uuid owner_id FK
+        uuid assessment_template_id FK "nullable, SET NULL"
+        uuid question_template_bank_id FK "nullable, SET NULL"
+        uuid linked_from_template_id FK "nullable, SET NULL (self-ref)"
+        int order "nullable, unique per assessment_template"
         string question_type
         string question_text_template
         string text_template_type
@@ -456,19 +447,6 @@ erDiagram
         datetime created_at
         datetime updated_at
         datetime deleted_at "soft delete"
-    }
-
-    assessment_template_question_templates {
-        uuid assessment_template_id FK,PK
-        uuid question_template_id FK,PK
-        int order
-        datetime created_at
-    }
-
-    question_template_bank_question_templates {
-        uuid question_template_bank_id FK,PK
-        uuid question_template_id FK,PK
-        datetime added_at
     }
 ```
 
@@ -504,62 +482,39 @@ The application uses a comprehensive database schema for managing assessments, q
   - The root folder is accessible via `GET /users/me/root-folder`
 
 - **Assessment** ([assessment.py](edcraft_backend/models/assessment.py)) - Ordered collection of questions
-  - Many-to-many relationship with questions
-  - Maintains ordering for question presentation
+  - One-to-many relationship with questions via `assessment_id` FK on `questions`
 
 - **QuestionBank** ([question_bank.py](edcraft_backend/models/question_bank.py)) - Reusable storage for questions
-  - Many-to-many relationship with questions
-  - No ordering
+  - One-to-many relationship with questions via `question_bank_id` FK on `questions`
 
 - **Question** ([question.py](edcraft_backend/models/question.py)) - Individual question instances
-  - Can be created from a QuestionTemplate
-  - `linked_from_question_id`: points to the source question when a copy was created via the link endpoint
-  - **Copy-on-Link semantics:** Linking a question into an assessment or question bank creates an independent copy rather than sharing the same record. Each copy can be edited independently. The source link is used to sync content from the source on demand.
-
-- **AssessmentQuestion** ([assessment_question.py](edcraft_backend/models/assessment_question.py)) - Association table for assessments and questions
-  - Tracks question ordering within assessments (0-indexed)
-  - Unique constraints:
-    - Each question can only be added once per assessment
-    - Each order position must be unique within an assessment
-  - **Question Ordering Behavior:**
+  - Can be created from a QuestionTemplate (`template_id`)
+  - Belongs to exactly one container at a time: either an assessment (`assessment_id`) or a question bank (`question_bank_id`), enforced by a CHECK constraint
+  - `linked_from_question_id`: self-referential FK pointing to the source question when a copy was created via the link endpoint (SET NULL on source delete)
+  - **Copy-on-Link semantics:** Linking a question into an assessment or question bank creates an independent copy rather than sharing the same record. Each copy can be edited independently. The source link can be used to sync content from the source on demand.
+  - **Question Ordering Behavior** (assessments only):
     - Orders are 0-indexed and always consecutive (0, 1, 2, 3...)
     - Insert behavior: Adding a question at a specific order shifts subsequent questions down
-    - Valid order range: 0 to current question count (inclusive)
-    - Omit order parameter to append to the end
+    - Valid order range: 0 to current question count (inclusive); omit to append
     - Automatic normalization after deletions to maintain consecutive ordering
 
-- **QuestionBankQuestion** ([question_bank_question.py](edcraft_backend/models/question_bank_question.py)) - Association table for question banks and questions
-  - Links questions to question banks (no ordering)
-  - Unique constraint: Each question can only be added once per bank
-
-- **AssessmentTemplate** ([assessment_template.py](edcraft_backend/models/assessment_template.py)) - Collection of question templates, serves as question template bank
-  - Many-to-many relationship with question templates
+- **AssessmentTemplate** ([assessment_template.py](edcraft_backend/models/assessment_template.py)) - Ordered collection of question templates
+  - One-to-many relationship with question templates via `assessment_template_id` FK on `question_templates`
 
 - **QuestionTemplateBank** ([question_template_bank.py](edcraft_backend/models/question_template_bank.py)) - Reusable storage for question templates
-  - Many-to-many relationship with question templates
-  - Templates can be shared across multiple banks and assessment templates
+  - One-to-many relationship with question templates via `question_template_bank_id` FK on `question_templates`
 
 - **QuestionTemplate** ([question_template.py](edcraft_backend/models/question_template.py)) - Blueprint for creating questions
   - Hybrid structure: fixed columns + JSON for flexibility
   - Used to generate Question instances
-  - Can belong to assessment templates and/or question template banks
-  - **Orphan Cleanup:** Templates are automatically soft-deleted when removed from ALL assessment templates AND question template banks
-
-- **AssessmentTemplateQuestionTemplate** ([assessment_template_question_template.py](edcraft_backend/models/assessment_template_question_template.py)) - Association table
-  - Tracks template ordering within assessment templates (0-indexed)
-  - Unique constraints:
-    - Each question template can only be added once per assessment template
-    - Each order position must be unique within an assessment template
-  - **Question Template Ordering Behavior:**
+  - Belongs to exactly one container at a time: either an assessment template (`assessment_template_id`) or a question template bank (`question_template_bank_id`), enforced by a CHECK constraint
+  - `linked_from_template_id`: self-referential FK pointing to the source template when a copy was created via the link endpoint (SET NULL on source delete)
+  - **Copy-on-Link semantics:** Linking a question template into an assessment template or bank creates an independent copy rather than sharing the same record. Each copy can be edited independently. The source link can be used to sync content from the source on demand.
+  - **Question Template Ordering Behavior** (assessment templates only):
     - Orders are 0-indexed and always consecutive (0, 1, 2, 3...)
-    - Insert behavior: Adding a question template at a specific order shifts subsequent templates down
-    - Valid order range: 0 to current question template count (inclusive)
-    - Omit order parameter to append to the end
-    - Automatic normalization after deletions to maintain consecutive ordering
-
-- **QuestionTemplateBankQuestionTemplate** ([question_template_bank_question_template.py](edcraft_backend/models/question_template_bank_question_template.py)) - Association table for question template banks
-  - Links question templates to question template banks (no ordering)
-  - Unique constraint: Each question template can only be added once per bank
+    - Insert behavior: Adding a template at a specific order shifts subsequent templates down
+    - Valid order range: 0 to current template count (inclusive); omit to append
+    - Automatic normalization after deletions
 
 **Working with Models:**
 
@@ -733,12 +688,9 @@ Full endpoint reference is auto-generated at http://127.0.0.1:8000/docs. Key non
 **Assessments** (`/assessments`, all require auth)
 - Questions support ordered insertion: omit `order` to append, or specify to insert at position (others shift down)
 - Reorder endpoint requires all questions to be included with unique orders
-- Deleting an assessment preserves its questions; orphaned questions (no longer in any assessment OR question bank) are cleaned up automatically
 
 **Question Banks** (`/question-banks`, all require auth)
 - Reusable collections of questions without ordering
-- Questions can be added, linked, or removed from banks
-- Deleting a question bank preserves its questions if they're still used in assessments or other banks
 
 **Assessment Templates** (`/assessment-templates`, all require auth)
 - Question templates support ordered insertion: omit `order` to append, or specify to insert at position (others shift down)
@@ -746,10 +698,6 @@ Full endpoint reference is auto-generated at http://127.0.0.1:8000/docs. Key non
 
 **Question Template Banks** (`/question-template-banks`, all require auth)
 - Reusable collections of question templates without ordering
-- Question templates can be added, linked, or removed from banks
-- Templates can be shared across multiple banks and assessment templates
-- Deleting a question template bank preserves its templates if they're still used in assessment templates or other banks
-- **Orphan Cleanup:** Templates are automatically soft-deleted only when removed from ALL banks and assessment templates
 
 **Question Templates**
 - `template_config` structure: `{code, question_spec, generation_options, entry_function}`

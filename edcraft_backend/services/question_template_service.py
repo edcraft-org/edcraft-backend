@@ -1,17 +1,8 @@
-from typing import TypedDict
 from uuid import UUID
 
 from edcraft_backend.exceptions import ResourceNotFoundError, UnauthorizedAccessError
-from edcraft_backend.models.assessment_template import AssessmentTemplate
 from edcraft_backend.models.question_template import QuestionTemplate
-from edcraft_backend.models.question_template_bank import QuestionTemplateBank
 from edcraft_backend.models.target_element import TargetElement
-from edcraft_backend.repositories.assessment_template_question_template_repository import (
-    AssessmentTemplateQuestionTemplateRepository,
-)
-from edcraft_backend.repositories.question_template_bank_question_template_repository import (
-    QuestionTemplateBankQuestionTemplateRepository,
-)
 from edcraft_backend.repositories.question_template_repository import (
     QuestionTemplateRepository,
 )
@@ -24,27 +15,16 @@ from edcraft_backend.schemas.question_template import (
 )
 
 
-class QuestionTemplateUsageDict(TypedDict):
-    """Dict type for question template usage."""
-
-    assessment_templates: list[AssessmentTemplate]
-    question_template_banks: list[QuestionTemplateBank]
-
-
 class QuestionTemplateService:
     """Service layer for QuestionTemplate business logic."""
 
     def __init__(
         self,
         question_template_repository: QuestionTemplateRepository,
-        assessment_template_qt_repository: AssessmentTemplateQuestionTemplateRepository,
         target_element_repository: TargetElementRepository,
-        qt_bank_qt_repository: QuestionTemplateBankQuestionTemplateRepository,
     ):
         self.template_repo = question_template_repository
-        self.assessment_template_assoc_repo = assessment_template_qt_repository
         self.target_element_repo = target_element_repository
-        self.qt_bank_assoc_repo = qt_bank_qt_repository
 
     async def create_template(
         self,
@@ -76,6 +56,52 @@ class QuestionTemplateService:
         await self.template_repo.db.refresh(created_template)
         return created_template
 
+    async def copy_question_template(
+        self, source: QuestionTemplate, new_owner_id: UUID
+    ) -> QuestionTemplate:
+        """Create an independent copy of a question template owned by new_owner_id.
+
+        Args:
+            source: Source template to copy
+            new_owner_id: User UUID who will own the copy
+
+        Returns:
+            Newly created QuestionTemplate with linked_from_template_id set to source.id
+        """
+        copy = QuestionTemplate(
+            owner_id=new_owner_id,
+            question_type=source.question_type,
+            question_text_template=source.question_text_template,
+            text_template_type=source.text_template_type,
+            description=source.description,
+            code=source.code,
+            entry_function=source.entry_function,
+            num_distractors=source.num_distractors,
+            output_type=source.output_type,
+            input_data_config=source.input_data_config,
+            linked_from_template_id=source.id,
+        )
+        created_copy = await self.template_repo.create(copy)
+
+        # Copy target elements
+        new_elements: list[TargetElement] = []
+        for te in source.target_elements:
+            new_te = TargetElement(
+                template_id=created_copy.id,
+                order=te.order,
+                element_type=te.element_type,
+                id_list=list(te.id_list),
+                name=te.name,
+                line_number=te.line_number,
+                modifier=te.modifier,
+            )
+            new_elements.append(new_te)
+        if new_elements:
+            await self.target_element_repo.create_many(new_elements)
+            await self.template_repo.db.refresh(created_copy)
+
+        return created_copy
+
     async def list_templates(
         self,
         user_id: UUID,
@@ -84,7 +110,6 @@ class QuestionTemplateService:
 
         Args:
             user_id: User UUID filter
-            question_type: Optional question type filter
 
         Returns:
             List of templates ordered by creation date
@@ -218,6 +243,52 @@ class QuestionTemplateService:
         template = await self.get_owned_template(user_id, template_id)
         return await self.template_repo.soft_delete(template)
 
+    async def sync_template(
+        self, qt: QuestionTemplate, source: QuestionTemplate
+    ) -> QuestionTemplate:
+        """Sync content of qt to match source.
+
+        Args:
+            qt: QuestionTemplate to be updated
+            source: QuestionTemplate to sync from
+
+        Returns:
+            Updated question template
+        """
+        # Overwrite content fields from source
+        qt.question_type = source.question_type
+        qt.question_text_template = source.question_text_template
+        qt.text_template_type = source.text_template_type
+        qt.description = source.description
+        qt.code = source.code
+        qt.entry_function = source.entry_function
+        qt.num_distractors = source.num_distractors
+        qt.output_type = source.output_type
+        qt.input_data_config = source.input_data_config
+        await self.template_repo.update(qt)
+
+        # Replace target elements
+        for te in qt.target_elements:
+            await self.target_element_repo.hard_delete(te)
+
+        new_elements = [
+            TargetElement(
+                template_id=qt.id,
+                order=te.order,
+                element_type=te.element_type,
+                id_list=list(te.id_list),
+                name=te.name,
+                line_number=te.line_number,
+                modifier=te.modifier,
+            )
+            for te in source.target_elements
+        ]
+        if new_elements:
+            await self.target_element_repo.create_many(new_elements)
+
+        await self.template_repo.db.refresh(qt)
+        return qt
+
     async def cleanup_orphaned_templates(self, owner_id: UUID) -> int:
         """Delete templates not used in any active assessment template.
 
@@ -235,35 +306,3 @@ class QuestionTemplateService:
             count += 1
 
         return count
-
-    async def get_question_template_usage(
-        self,
-        user_id: UUID,
-        question_template_id: UUID,
-    ) -> QuestionTemplateUsageDict:
-        """Get all resources that include this question template.
-
-        Args:
-            user_id: User UUID requesting resources
-            question_template_id: QuestionTemplate UUID
-
-        Returns:
-            Dict containing lists of associated resources
-
-        Raises:
-            ResourceNotFoundError: If question template not found
-            UnauthorizedAccessError: If user doesn't own the question template
-        """
-        await self.get_owned_template(user_id, question_template_id)
-        assessment_templates = await (
-            self.assessment_template_assoc_repo
-            .get_assessment_templates_by_question_template_id(question_template_id)
-        )
-        question_template_banks = await (
-            self.qt_bank_assoc_repo
-            .get_question_template_banks_by_question_template_id(question_template_id)
-        )
-        return {
-            "assessment_templates": assessment_templates,
-            "question_template_banks": question_template_banks,
-        }

@@ -10,10 +10,8 @@ from edcraft_backend.models.question_template import QuestionTemplate
 from edcraft_backend.schemas.question_template import (
     QuestionTemplateResponse,
     QuestionTemplateSummaryResponse,
-    QuestionTemplateUsageResponse,
     UpdateQuestionTemplateRequest,
 )
-from edcraft_backend.services.question_template_service import QuestionTemplateUsageDict
 
 router = APIRouter(prefix="/question-templates", tags=["question-templates"])
 
@@ -68,23 +66,5 @@ async def soft_delete_question_template(
     """Soft delete a question template."""
     try:
         await service.soft_delete_template(current_user.id, template_id)
-    except EdCraftBaseException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message) from e
-
-
-@router.get(
-    "/{question_template_id}/usage",
-    response_model=QuestionTemplateUsageResponse,
-)
-async def get_question_template_usage(
-    current_user: CurrentUserDep,
-    question_template_id: UUID,
-    service: QuestionTemplateServiceDep,
-) -> QuestionTemplateUsageDict:
-    """Get all resources that include this question template."""
-    try:
-        return await service.get_question_template_usage(
-            current_user.id, question_template_id
-        )
     except EdCraftBaseException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e

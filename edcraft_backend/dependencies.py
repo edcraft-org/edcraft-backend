@@ -9,9 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from edcraft_backend.database import get_db
 from edcraft_backend.models.user import User
 from edcraft_backend.repositories.assessment_repository import AssessmentRepository
-from edcraft_backend.repositories.assessment_template_question_template_repository import (
-    AssessmentTemplateQuestionTemplateRepository,
-)
 from edcraft_backend.repositories.assessment_template_repository import (
     AssessmentTemplateRepository,
 )
@@ -22,9 +19,6 @@ from edcraft_backend.repositories.one_time_token_repository import (
 )
 from edcraft_backend.repositories.question_bank_repository import QuestionBankRepository
 from edcraft_backend.repositories.question_repository import QuestionRepository
-from edcraft_backend.repositories.question_template_bank_question_template_repository import (
-    QuestionTemplateBankQuestionTemplateRepository,
-)
 from edcraft_backend.repositories.question_template_bank_repository import (
     QuestionTemplateBankRepository,
 )
@@ -111,20 +105,6 @@ def get_assessment_template_repository(
     return AssessmentTemplateRepository(db)
 
 
-def get_question_template_bank_question_template_repository(
-    db: AsyncSession = Depends(get_db),
-) -> QuestionTemplateBankQuestionTemplateRepository:
-    """Get QuestionTemplateBankQuestionTemplateRepository instance."""
-    return QuestionTemplateBankQuestionTemplateRepository(db)
-
-
-def get_assessment_template_question_template_repository(
-    db: AsyncSession = Depends(get_db),
-) -> AssessmentTemplateQuestionTemplateRepository:
-    """Get AssessmentTemplateQuestionTemplateRepository instance."""
-    return AssessmentTemplateQuestionTemplateRepository(db)
-
-
 def get_target_element_repository(
     db: AsyncSession = Depends(get_db),
 ) -> TargetElementRepository:
@@ -180,23 +160,12 @@ def get_question_template_service(
     template_repo: QuestionTemplateRepository = Depends(
         get_question_template_repository
     ),
-    assessment_template_ques_template_repo: AssessmentTemplateQuestionTemplateRepository = Depends(
-        get_assessment_template_question_template_repository
-    ),
     target_element_repo: TargetElementRepository = Depends(
         get_target_element_repository
     ),
-    qt_bank_qt_repo: QuestionTemplateBankQuestionTemplateRepository = Depends(
-        get_question_template_bank_question_template_repository
-    ),
 ) -> QuestionTemplateService:
     """Get QuestionTemplateService instance."""
-    return QuestionTemplateService(
-        template_repo,
-        assessment_template_ques_template_repo,
-        target_element_repo,
-        qt_bank_qt_repo,
-    )
+    return QuestionTemplateService(template_repo, target_element_repo)
 
 
 def get_folder_service(
@@ -275,16 +244,14 @@ def get_question_template_bank_service(
         get_question_template_bank_repository
     ),
     folder_svc: FolderService = Depends(get_folder_service),
-    qt_bank_qt_repo: QuestionTemplateBankQuestionTemplateRepository = Depends(
-        get_question_template_bank_question_template_repository
-    ),
+    qt_repo: QuestionTemplateRepository = Depends(get_question_template_repository),
     question_template_svc: QuestionTemplateService = Depends(
         get_question_template_service
     ),
 ) -> QuestionTemplateBankService:
     """Get QuestionTemplateBankService instance."""
     return QuestionTemplateBankService(
-        qt_bank_repo, folder_svc, qt_bank_qt_repo, question_template_svc
+        qt_bank_repo, folder_svc, qt_repo, question_template_svc
     )
 
 
@@ -296,16 +263,14 @@ def get_assessment_template_service(
     question_template_svc: QuestionTemplateService = Depends(
         get_question_template_service
     ),
-    assoc_repo: AssessmentTemplateQuestionTemplateRepository = Depends(
-        get_assessment_template_question_template_repository
-    ),
+    qt_repo: QuestionTemplateRepository = Depends(get_question_template_repository),
 ) -> AssessmentTemplateService:
     """Get AssessmentTemplateService instance."""
     return AssessmentTemplateService(
         template_repo,
         folder_svc,
         question_template_svc,
-        assoc_repo,
+        qt_repo,
     )
 
 

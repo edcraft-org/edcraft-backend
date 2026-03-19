@@ -15,16 +15,10 @@ from edcraft_backend.repositories.resource_collaborator_repository import (
 )
 from edcraft_backend.schemas.question import (
     CreateQuestionRequest,
+    MCQData,
+    MRQData,
+    ShortAnswerData,
     UpdateQuestionRequest,
-)
-from edcraft_backend.schemas.question import (
-    MCQData as MCQData,
-)
-from edcraft_backend.schemas.question import (
-    MRQData as MRQData,
-)
-from edcraft_backend.schemas.question import (
-    ShortAnswerData as ShortAnswerData,
 )
 from edcraft_backend.schemas.question_bank import (
     CreateQuestionBankRequest,
@@ -240,6 +234,8 @@ class QuestionBankService:
             user_id, question_bank_id
         )
         for question in question_bank.questions:
+            question.question_bank_id = None
+            await self.question_svc.question_repo.update(question)
             await self.question_svc.question_repo.soft_delete(question)
         return await self.question_bank_repo.soft_delete(question_bank)
 

@@ -6,14 +6,12 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from edcraft_backend.models.question_template import QuestionTemplate
 from edcraft_backend.models.user import User
 from tests.factories import (
     create_test_assessment_template,
     create_test_folder,
     create_test_question_template,
-    create_test_question_template_bank,
-    link_question_template_to_question_template_bank,
+    link_question_template_to_assessment_template,
 )
 
 
@@ -175,19 +173,17 @@ class TestGetAssessmentTemplate:
         )
         await db_session.commit()
 
-        # Link question templates in specific order
-        await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates/link",
-            json={"question_template_id": str(qt1.id)},
+        # Link question templates in specific order directly via DB
+        await link_question_template_to_assessment_template(
+            db_session, template.id, qt1.id, order=0
         )
-        await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates/link",
-            json={"question_template_id": str(qt2.id)},
+        await link_question_template_to_assessment_template(
+            db_session, template.id, qt2.id, order=1
         )
-        await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates/link",
-            json={"question_template_id": str(qt3.id)},
+        await link_question_template_to_assessment_template(
+            db_session, template.id, qt3.id, order=2
         )
+        await db_session.commit()
 
         response = await test_client.get(f"/assessment-templates/{template.id}")
 
@@ -363,117 +359,6 @@ class TestSoftDeleteAssessmentTemplate:
         response = await test_client.delete(f"/assessment-templates/{non_existent_id}")
 
         assert response.status_code == 404
-
-    @pytest.mark.asyncio
-    async def test_soft_delete_template_cleans_up_orphaned_question_templates(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that deleting template triggers cleanup of orphaned question templates."""
-        from sqlalchemy import select
-
-        from edcraft_backend.models.question_template import QuestionTemplate
-
-        template = await create_test_assessment_template(db_session, user)
-
-        orphaned_qt = await create_test_question_template(
-            db_session, user, question_text_template="Orphaned QT"
-        )
-
-        shared_qt = await create_test_question_template(
-            db_session, user, question_text_template="Shared QT"
-        )
-        other_template = await create_test_assessment_template(
-            db_session, user, title="Other Template"
-        )
-        await db_session.commit()
-
-        await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates/link",
-            json={"question_template_id": str(orphaned_qt.id)},
-        )
-
-        await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates/link",
-            json={"question_template_id": str(shared_qt.id)},
-        )
-        await test_client.post(
-            f"/assessment-templates/{other_template.id}/question-templates/link",
-            json={"question_template_id": str(shared_qt.id)},
-        )
-
-        response = await test_client.delete(f"/assessment-templates/{template.id}")
-        assert response.status_code == 204
-
-        orphaned_qt_id = orphaned_qt.id
-        shared_qt_id = shared_qt.id
-
-        db_session.expire_all()
-        orphaned_qt_result = await db_session.execute(
-            select(QuestionTemplate).where(QuestionTemplate.id == orphaned_qt_id)
-        )
-        orphaned_qt_db = orphaned_qt_result.scalar_one_or_none()
-        assert orphaned_qt_db is not None
-        assert (
-            orphaned_qt_db.deleted_at is not None
-        ), "Orphaned question template should be soft deleted"
-
-        shared_qt_result = await db_session.execute(
-            select(QuestionTemplate).where(QuestionTemplate.id == shared_qt_id)
-        )
-        shared_qt_db = shared_qt_result.scalar_one_or_none()
-        assert shared_qt_db is not None
-        assert (
-            shared_qt_db.deleted_at is None
-        ), "Shared question template should still be active"
-
-    @pytest.mark.asyncio
-    async def test_delete_template_preserves_question_template_still_in_use(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that deleting assessment template doesn't delete question template still used."""
-        from sqlalchemy import select
-
-
-        # Create assessment template and question template bank
-        assessment = await create_test_assessment_template(db_session, user)
-        question_bank = await create_test_question_template_bank(
-            db_session, user, title="Test Question Template Bank"
-        )
-
-        # Create a question used in both assessment template and question template bank
-        shared_question = await create_test_question_template(
-            db_session,
-            user,
-            question_text_template="Question in both assessment template and bank",
-        )
-        await db_session.commit()
-
-        # Link question to both assessment template and question template bank
-        await test_client.post(
-            f"/assessment-templates/{assessment.id}/question-templates/link",
-            json={"question_template_id": str(shared_question.id)},
-        )
-        await link_question_template_to_question_template_bank(
-            db_session, question_bank.id, shared_question.id
-        )
-        await db_session.commit()
-
-        # Delete the assessment
-        response = await test_client.delete(f"/assessment-templates/{assessment.id}")
-        assert response.status_code == 204
-
-        # Verify the question is still active (not deleted)
-        shared_q_id = shared_question.id
-        db_session.expire_all()
-
-        result = await db_session.execute(
-            select(QuestionTemplate).where(QuestionTemplate.id == shared_q_id)
-        )
-        question = result.scalar_one_or_none()
-        assert question is not None
-        assert (
-            question.deleted_at is None
-        ), "Question template should remain active when still used in question template bank"
 
 
 @pytest.mark.integration
@@ -762,7 +647,7 @@ class TestLinkQuestionTemplateToAssessmentTemplate:
     async def test_link_question_template_to_assessment_template_success(
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
-        """Test linking question template to assessment template successfully."""
+        """Test linking question template to assessment template creates a copy."""
         template = await create_test_assessment_template(db_session, user)
         qt = await create_test_question_template(db_session, user)
         await db_session.commit()
@@ -775,7 +660,8 @@ class TestLinkQuestionTemplateToAssessmentTemplate:
         assert response.status_code == 201
         data = response.json()
         assert len(data["question_templates"]) == 1
-        assert data["question_templates"][0]["id"] == str(qt.id)
+        assert data["question_templates"][0]["id"] != str(qt.id)
+        assert data["question_templates"][0]["linked_from_template_id"] == str(qt.id)
         assert data["question_templates"][0]["order"] == 0
 
     @pytest.mark.asyncio
@@ -806,9 +692,12 @@ class TestLinkQuestionTemplateToAssessmentTemplate:
         assert response.status_code == 201
         data = response.json()
         assert len(data["question_templates"]) == 3
-        assert data["question_templates"][0]["id"] == str(qt1.id)
-        assert data["question_templates"][1]["id"] == str(qt2.id)
-        assert data["question_templates"][2]["id"] == str(qt3.id)
+        assert data["question_templates"][0]["linked_from_template_id"] == str(qt1.id)
+        assert data["question_templates"][0]["id"] != str(qt1.id)
+        assert data["question_templates"][1]["linked_from_template_id"] == str(qt2.id)
+        assert data["question_templates"][1]["id"] != str(qt2.id)
+        assert data["question_templates"][2]["linked_from_template_id"] == str(qt3.id)
+        assert data["question_templates"][2]["id"] != str(qt3.id)
 
     @pytest.mark.asyncio
     async def test_link_question_template_default_order(
@@ -882,10 +771,10 @@ class TestLinkQuestionTemplateToAssessmentTemplate:
         )
         await db_session.commit()
 
-        await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates/link",
-            json={"question_template_id": str(qt1.id), "order": 0},
+        await link_question_template_to_assessment_template(
+            db_session, template.id, qt1.id, order=0
         )
+        await db_session.commit()
 
         response = await test_client.post(
             f"/assessment-templates/{template.id}/question-templates/link",
@@ -926,11 +815,11 @@ class TestLinkQuestionTemplateToAssessmentTemplate:
         await db_session.commit()
 
         # Add initial question templates
-        for qt in [qt1, qt2, qt3, qt4]:
-            await test_client.post(
-                f"/assessment-templates/{template.id}/question-templates/link",
-                json={"question_template_id": str(qt.id)},
+        for i, qt in enumerate([qt1, qt2, qt3, qt4]):
+            await link_question_template_to_assessment_template(
+                db_session, template.id, qt.id, order=i
             )
+        await db_session.commit()
 
         # Insert at position 2 (between QT2 and QT3)
         response = await test_client.post(
@@ -973,14 +862,13 @@ class TestLinkQuestionTemplateToAssessmentTemplate:
         await db_session.commit()
 
         # Add two question templates (count=2)
-        await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates/link",
-            json={"question_template_id": str(qt1.id)},
+        await link_question_template_to_assessment_template(
+            db_session, template.id, qt1.id, order=0
         )
-        await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates/link",
-            json={"question_template_id": str(qt2.id)},
+        await link_question_template_to_assessment_template(
+            db_session, template.id, qt2.id, order=1
         )
+        await db_session.commit()
 
         response = await test_client.post(
             f"/assessment-templates/{template.id}/question-templates/link",
@@ -1007,14 +895,15 @@ class TestRemoveQuestionTemplateFromAssessmentTemplate:
         await db_session.commit()
 
         # Link question template
-        await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates/link",
-            json={"question_template_id": str(qt.id), "order": 0},
+        await link_question_template_to_assessment_template(
+            db_session, template.id, qt.id, order=0
         )
+        await db_session.commit()
+        copy_id = str(qt.id)
 
         # Remove question template
         response = await test_client.delete(
-            f"/assessment-templates/{template.id}/question-templates/{qt.id}"
+            f"/assessment-templates/{template.id}/question-templates/{copy_id}"
         )
 
         assert response.status_code == 204
@@ -1034,25 +923,26 @@ class TestRemoveQuestionTemplateFromAssessmentTemplate:
         await db_session.commit()
 
         # Link both question templates
-        await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates/link",
-            json={"question_template_id": str(qt1.id), "order": 0},
+        await link_question_template_to_assessment_template(
+            db_session, template.id, qt1.id, order=0
         )
-        await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates/link",
-            json={"question_template_id": str(qt2.id), "order": 1},
+        await link_question_template_to_assessment_template(
+            db_session, template.id, qt2.id, order=1
         )
+        await db_session.commit()
+        copy1_id = str(qt1.id)
+        copy2_id = str(qt2.id)
 
         # Remove first question template
         await test_client.delete(
-            f"/assessment-templates/{template.id}/question-templates/{qt1.id}"
+            f"/assessment-templates/{template.id}/question-templates/{copy1_id}"
         )
 
         # Verify only second question template remains
         response = await test_client.get(f"/assessment-templates/{template.id}")
         data = response.json()
         assert len(data["question_templates"]) == 1
-        assert data["question_templates"][0]["id"] == str(qt2.id)
+        assert data["question_templates"][0]["id"] == copy2_id
 
     @pytest.mark.asyncio
     async def test_remove_question_template_from_nonexistent_assessment_template(
@@ -1103,21 +993,20 @@ class TestRemoveQuestionTemplateFromAssessmentTemplate:
         )
         await db_session.commit()
 
-        await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates/link",
-            json={"question_template_id": str(qt1.id), "order": 0},
+        await link_question_template_to_assessment_template(
+            db_session, template.id, qt1.id, order=0
         )
-        await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates/link",
-            json={"question_template_id": str(qt2.id), "order": 1},
+        await link_question_template_to_assessment_template(
+            db_session, template.id, qt2.id, order=1
         )
-        await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates/link",
-            json={"question_template_id": str(qt3.id), "order": 2},
+        await link_question_template_to_assessment_template(
+            db_session, template.id, qt3.id, order=2
         )
+        await db_session.commit()
+        copy2_id = str(qt2.id)
 
         await test_client.delete(
-            f"/assessment-templates/{template.id}/question-templates/{qt2.id}"
+            f"/assessment-templates/{template.id}/question-templates/{copy2_id}"
         )
 
         response = await test_client.get(f"/assessment-templates/{template.id}")
@@ -1129,75 +1018,145 @@ class TestRemoveQuestionTemplateFromAssessmentTemplate:
         assert data["question_templates"][1]["question_text_template"] == "QT3?"
         assert data["question_templates"][1]["order"] == 1
 
+
+@pytest.mark.integration
+@pytest.mark.assessment_templates
+class TestSyncQuestionTemplateInAssessmentTemplate:
+    """
+    Tests for
+    POST /assessment-templates/{template_id}/question-templates/{question_template_id}/sync
+    endpoint.
+    """
+
     @pytest.mark.asyncio
-    async def test_remove_question_template_cleans_up_orphaned_template(
+    async def test_sync_updates_copy_from_source(
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
-        """Test that removing question template triggers cleanup if it becomes orphaned."""
-        from sqlalchemy import select
-
-        from edcraft_backend.models.question_template import QuestionTemplate
-
+        """Test that sync overwrites copy content with the current source content."""
         template = await create_test_assessment_template(db_session, user)
-
-        orphaned_qt = await create_test_question_template(
-            db_session, user, question_text_template="Will be orphaned"
-        )
-
-        shared_qt = await create_test_question_template(
-            db_session, user, question_text_template="Shared"
-        )
-        other_template = await create_test_assessment_template(
-            db_session, user, title="Other Template"
+        source = await create_test_question_template(
+            db_session, user, question_text_template="Original text?"
         )
         await db_session.commit()
 
-        await test_client.post(
+        # Link (creates copy)
+        link_resp = await test_client.post(
             f"/assessment-templates/{template.id}/question-templates/link",
-            json={"question_template_id": str(orphaned_qt.id)},
+            json={"question_template_id": str(source.id)},
         )
-        await test_client.post(
+        copy_id = link_resp.json()["question_templates"][0]["id"]
+
+        # Edit the copy independently
+        await test_client.patch(
+            f"/question-templates/{copy_id}",
+            json={"question_text_template": "Edited in assessment template?"},
+        )
+
+        # Edit the source
+        await test_client.patch(
+            f"/question-templates/{str(source.id)}",
+            json={"question_text_template": "Updated source text?"},
+        )
+
+        # Sync the copy
+        response = await test_client.post(
+            f"/assessment-templates/{template.id}/question-templates/{copy_id}/sync"
+        )
+
+        assert response.status_code == 200
+        question_templates = response.json()["question_templates"]
+        copy = next(qt for qt in question_templates if qt["id"] == copy_id)
+        assert copy["question_text_template"] == "Updated source text?"
+        assert copy["linked_from_template_id"] == str(source.id)
+
+    @pytest.mark.asyncio
+    async def test_sync_without_source_link_returns_400(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that syncing a question template with no source link returns 400."""
+        template = await create_test_assessment_template(db_session, user)
+        qt = await create_test_question_template(db_session, user)
+        await db_session.commit()
+
+        await link_question_template_to_assessment_template(
+            db_session, template.id, qt.id, order=0
+        )
+        await db_session.commit()
+
+        response = await test_client.post(
+            f"/assessment-templates/{template.id}/question-templates/{qt.id}/sync"
+        )
+
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_sync_question_template_not_in_assessment_template_returns_404(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that syncing a question template not in the assessment template returns 404."""
+        import uuid
+
+        template = await create_test_assessment_template(db_session, user)
+        await db_session.commit()
+
+        response = await test_client.post(
+            f"/assessment-templates/{template.id}/question-templates/{uuid.uuid4()}/sync"
+        )
+
+        assert response.status_code == 404
+
+
+@pytest.mark.integration
+@pytest.mark.assessment_templates
+class TestUnlinkQuestionTemplateInAssessmentTemplate:
+    """
+    Tests for
+    POST /assessment-templates/{template_id}/question-templates/{question_template_id}/unlink
+    endpoint.
+    """
+
+    @pytest.mark.asyncio
+    async def test_unlink_severs_source_reference(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that unlink sets linked_from_template_id to null."""
+        template = await create_test_assessment_template(db_session, user)
+        source = await create_test_question_template(
+            db_session, user, question_text_template="Source text?"
+        )
+        await db_session.commit()
+
+        link_resp = await test_client.post(
             f"/assessment-templates/{template.id}/question-templates/link",
-            json={"question_template_id": str(shared_qt.id)},
+            json={"question_template_id": str(source.id)},
+        )
+        copy_id = link_resp.json()["question_templates"][0]["id"]
+
+        response = await test_client.post(
+            f"/assessment-templates/{template.id}/question-templates/{copy_id}/unlink"
         )
 
-        await test_client.post(
-            f"/assessment-templates/{other_template.id}/question-templates/link",
-            json={"question_template_id": str(shared_qt.id)},
+        assert response.status_code == 200
+        question_templates = response.json()["question_templates"]
+        copy = next(qt for qt in question_templates if qt["id"] == copy_id)
+        assert copy["linked_from_template_id"] is None
+        assert copy["question_text_template"] == "Source text?"
+
+    @pytest.mark.asyncio
+    async def test_unlink_question_template_not_in_assessment_template_returns_404(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that unlinking a question template not in the assessment template returns 404."""
+        import uuid
+
+        template = await create_test_assessment_template(db_session, user)
+        await db_session.commit()
+
+        response = await test_client.post(
+            f"/assessment-templates/{template.id}/question-templates/{uuid.uuid4()}/unlink"
         )
 
-        response = await test_client.delete(
-            f"/assessment-templates/{template.id}/question-templates/{orphaned_qt.id}"
-        )
-        assert response.status_code == 204
-
-        template_id = template.id
-        orphaned_qt_id = orphaned_qt.id
-        shared_qt_id = shared_qt.id
-
-        db_session.expire_all()
-        orphaned_qt_result = await db_session.execute(
-            select(QuestionTemplate).where(QuestionTemplate.id == orphaned_qt_id)
-        )
-        orphaned_qt_db = orphaned_qt_result.scalar_one_or_none()
-        assert orphaned_qt_db is not None
-        assert (
-            orphaned_qt_db.deleted_at is not None
-        ), "Question template should be soft deleted when orphaned"
-
-        await test_client.delete(
-            f"/assessment-templates/{template_id}/question-templates/{shared_qt_id}"
-        )
-
-        db_session.expire_all()
-        shared_qt_result = await db_session.execute(
-            select(QuestionTemplate).where(QuestionTemplate.id == shared_qt_id)
-        )
-        shared_qt_db = shared_qt_result.scalar_one_or_none()
-        assert shared_qt_db is not None
-        assert (
-            shared_qt_db.deleted_at is None
-        ), "Shared question template should remain active while still in use"
+        assert response.status_code == 404
 
 
 @pytest.mark.integration
@@ -1223,25 +1182,26 @@ class TestReorderQuestionTemplates:
         await db_session.commit()
 
         # Link question templates in initial order
-        await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates/link",
-            json={"question_template_id": str(qt1.id), "order": 0},
+        await link_question_template_to_assessment_template(
+            db_session, template.id, qt1.id, order=0
         )
-        await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates/link",
-            json={"question_template_id": str(qt2.id), "order": 1},
+        await link_question_template_to_assessment_template(
+            db_session, template.id, qt2.id, order=1
         )
-        await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates/link",
-            json={"question_template_id": str(qt3.id), "order": 2},
+        await link_question_template_to_assessment_template(
+            db_session, template.id, qt3.id, order=2
         )
+        await db_session.commit()
+        copy1_id = str(qt1.id)
+        copy2_id = str(qt2.id)
+        copy3_id = str(qt3.id)
 
         # Reorder: reverse the order
         reorder_data: dict[str, Any] = {
             "question_template_orders": [
-                {"question_template_id": str(qt3.id), "order": 0},
-                {"question_template_id": str(qt2.id), "order": 1},
-                {"question_template_id": str(qt1.id), "order": 2},
+                {"question_template_id": copy3_id, "order": 0},
+                {"question_template_id": copy2_id, "order": 1},
+                {"question_template_id": copy1_id, "order": 2},
             ]
         }
         response = await test_client.patch(
@@ -1260,7 +1220,7 @@ class TestReorderQuestionTemplates:
     async def test_reorder_question_templates_requires_all_questions(
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
-        """Test reordering only some question templates (partial update)."""
+        """Test reordering only some question templates (partial update) fails."""
         template = await create_test_assessment_template(db_session, user)
         qt1 = await create_test_question_template(db_session, user)
         qt2 = await create_test_question_template(db_session, user)
@@ -1268,24 +1228,24 @@ class TestReorderQuestionTemplates:
         await db_session.commit()
 
         # Link question templates
-        await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates/link",
-            json={"question_template_id": str(qt1.id), "order": 0},
+        await link_question_template_to_assessment_template(
+            db_session, template.id, qt1.id, order=0
         )
-        await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates/link",
-            json={"question_template_id": str(qt2.id), "order": 1},
+        await link_question_template_to_assessment_template(
+            db_session, template.id, qt2.id, order=1
         )
-        await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates/link",
-            json={"question_template_id": str(qt3.id), "order": 2},
+        await link_question_template_to_assessment_template(
+            db_session, template.id, qt3.id, order=2
         )
+        await db_session.commit()
+        copy1_id = str(qt1.id)
+        copy2_id = str(qt2.id)
 
         # Reorder: only swap first two
         reorder_data: dict[str, Any] = {
             "question_template_orders": [
-                {"question_template_id": str(qt2.id), "order": 0},
-                {"question_template_id": str(qt1.id), "order": 1},
+                {"question_template_id": copy2_id, "order": 0},
+                {"question_template_id": copy1_id, "order": 1},
             ]
         }
         response = await test_client.patch(
@@ -1336,25 +1296,26 @@ class TestReorderQuestionTemplates:
         await db_session.commit()
 
         # Add question templates
-        await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates/link",
-            json={"question_template_id": str(qt1.id)},
+        await link_question_template_to_assessment_template(
+            db_session, template.id, qt1.id, order=0
         )
-        await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates/link",
-            json={"question_template_id": str(qt2.id)},
+        await link_question_template_to_assessment_template(
+            db_session, template.id, qt2.id, order=1
         )
-        await test_client.post(
-            f"/assessment-templates/{template.id}/question-templates/link",
-            json={"question_template_id": str(qt3.id)},
+        await link_question_template_to_assessment_template(
+            db_session, template.id, qt3.id, order=2
         )
+        await db_session.commit()
+        copy1_id = str(qt1.id)
+        copy2_id = str(qt2.id)
+        copy3_id = str(qt3.id)
 
         # Reorder with gaps (order: 5, 10, 100)
         reorder_data: dict[str, Any] = {
             "question_template_orders": [
-                {"question_template_id": str(qt1.id), "order": 100},
-                {"question_template_id": str(qt2.id), "order": 5},
-                {"question_template_id": str(qt3.id), "order": 10},
+                {"question_template_id": copy1_id, "order": 100},
+                {"question_template_id": copy2_id, "order": 5},
+                {"question_template_id": copy3_id, "order": 10},
             ]
         }
         response = await test_client.patch(

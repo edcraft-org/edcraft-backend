@@ -1,24 +1,21 @@
 from uuid import UUID
 
 from edcraft_backend.exceptions import (
-    DuplicateResourceError,
     ResourceNotFoundError,
     UnauthorizedAccessError,
+    ValidationError,
 )
+from edcraft_backend.models.question_template import QuestionTemplate
 from edcraft_backend.models.question_template_bank import QuestionTemplateBank
-from edcraft_backend.models.question_template_bank_question_template import (
-    QuestionTemplateBankQuestionTemplate,
-)
-from edcraft_backend.repositories.question_template_bank_question_template_repository import (
-    QuestionTemplateBankQuestionTemplateRepository,
-)
 from edcraft_backend.repositories.question_template_bank_repository import (
     QuestionTemplateBankRepository,
+)
+from edcraft_backend.repositories.question_template_repository import (
+    QuestionTemplateRepository,
 )
 from edcraft_backend.schemas.question_template import CreateQuestionTemplateRequest
 from edcraft_backend.schemas.question_template_bank import (
     CreateQuestionTemplateBankRequest,
-    QuestionTemplateBankQuestionTemplateResponse,
     QuestionTemplateBankWithTemplatesResponse,
     UpdateQuestionTemplateBankRequest,
 )
@@ -33,12 +30,12 @@ class QuestionTemplateBankService:
         self,
         question_template_bank_repository: QuestionTemplateBankRepository,
         folder_svc: FolderService,
-        qt_bank_qt_repository: QuestionTemplateBankQuestionTemplateRepository,
+        question_template_repository: QuestionTemplateRepository,
         question_template_service: QuestionTemplateService,
     ):
         self.question_template_bank_repo = question_template_bank_repository
         self.folder_svc = folder_svc
-        self.assoc_repo = qt_bank_qt_repository
+        self.qt_repo = question_template_repository
         self.question_template_svc = question_template_service
 
     async def get_owned_question_template_bank(
@@ -125,7 +122,6 @@ class QuestionTemplateBankService:
                 filters={"owner_id": user_id},
                 order_by=QuestionTemplateBank.updated_at.desc(),
             )
-
         return question_template_banks
 
     async def get_question_template_bank(
@@ -146,6 +142,60 @@ class QuestionTemplateBankService:
         """
         return await self.get_owned_question_template_bank(
             user_id, question_template_bank_id
+        )
+
+    async def _get_question_template_bank_with_templates(
+        self, user_id: UUID, question_template_bank_id: UUID
+    ) -> QuestionTemplateBank:
+        """Get question template bank with all templates loaded.
+
+        Args:
+            user_id: User UUID
+            question_template_bank_id: QuestionTemplateBank UUID
+
+        Returns:
+            QuestionTemplateBank with templates
+
+        Raises:
+            ResourceNotFoundError: If question template bank not found
+            UnauthorizedAccessError: If user doesn't own the question template bank
+        """
+        question_template_bank = (
+            await self.question_template_bank_repo.get_by_id_with_templates(
+                question_template_bank_id
+            )
+        )
+        if not question_template_bank:
+            raise ResourceNotFoundError(
+                "QuestionTemplateBank", str(question_template_bank_id)
+            )
+        if question_template_bank.owner_id != user_id:
+            raise UnauthorizedAccessError(
+                "QuestionTemplateBank", str(question_template_bank_id)
+            )
+        return question_template_bank
+
+    async def get_question_template_bank_with_templates(
+        self, user_id: UUID, question_template_bank_id: UUID
+    ) -> QuestionTemplateBankWithTemplatesResponse:
+        """Get question template bank with all templates loaded.
+
+        Args:
+            user_id: User UUID
+            question_template_bank_id: QuestionTemplateBank UUID
+
+        Returns:
+            QuestionTemplateBank with templates
+
+        Raises:
+            ResourceNotFoundError: If question template bank not found
+            UnauthorizedAccessError: If user doesn't own the question template bank
+        """
+        question_template_bank = await self._get_question_template_bank_with_templates(
+            user_id, question_template_bank_id
+        )
+        return QuestionTemplateBankWithTemplatesResponse.model_validate(
+            question_template_bank
         )
 
     async def update_question_template_bank(
@@ -197,93 +247,38 @@ class QuestionTemplateBankService:
             ResourceNotFoundError: If question template bank not found
             UnauthorizedAccessError: If user doesn't own the question template bank
         """
-        question_template_bank = await self.get_owned_question_template_bank(
+        question_template_bank = await self._get_question_template_bank_with_templates(
             user_id, question_template_bank_id
         )
-        deleted_bank = await self.question_template_bank_repo.soft_delete(
+        for qt in question_template_bank.question_templates:
+            qt.question_template_bank_id = None
+            await self.qt_repo.update(qt)
+            await self.qt_repo.soft_delete(qt)
+        return await self.question_template_bank_repo.soft_delete(
             question_template_bank
         )
-        await self.question_template_svc.cleanup_orphaned_templates(
-            question_template_bank.owner_id
-        )
-        return deleted_bank
 
-    async def get_question_template_bank_with_templates(
-        self, user_id: UUID, question_template_bank_id: UUID
-    ) -> QuestionTemplateBankWithTemplatesResponse:
-        """Get question template bank with all templates loaded.
+    async def _attach_qt_to_qt_bank(
+        self,
+        question_template_bank: QuestionTemplateBank,
+        question_template: QuestionTemplate,
+    ) -> None:
+        """Set the question template's question_template_bank FK."""
+        question_template.question_template_bank_id = question_template_bank.id
+        await self.qt_repo.update(question_template)
+        self.question_template_bank_repo.db.expire(question_template_bank)
 
-        Args:
-            user_id: User UUID
-            question_template_bank_id: QuestionTemplateBank UUID
-
-        Returns:
-            QuestionTemplateBank with templates
-
-        Raises:
-            ResourceNotFoundError: If question template bank not found
-            UnauthorizedAccessError: If user doesn't own the question template bank
-        """
-        question_template_bank = (
-            await self.question_template_bank_repo.get_by_id_with_templates(
-                question_template_bank_id
-            )
-        )
-        if not question_template_bank:
+    async def _require_question_template_in_bank(
+        self, qt_bank_id: UUID, qt_id: UUID
+    ) -> QuestionTemplate:
+        """Fetch question template and verify it belongs to the given bank."""
+        qt = await self.qt_repo.get_by_id(qt_id)
+        if not qt or qt.question_template_bank_id != qt_bank_id:
             raise ResourceNotFoundError(
-                "QuestionTemplateBank", str(question_template_bank_id)
+                "QuestionTemplate",
+                f"question_template_bank={qt_bank_id}, question_template={qt_id}",
             )
-        if question_template_bank.owner_id != user_id:
-            raise UnauthorizedAccessError(
-                "QuestionTemplateBank", str(question_template_bank_id)
-            )
-
-        # Filter out soft-deleted templates
-        templates: list[QuestionTemplateBankQuestionTemplateResponse] = []
-        for assoc in question_template_bank.template_associations:
-            if assoc.question_template and assoc.question_template.deleted_at is None:
-                qt_data = {
-                    "id": assoc.question_template.id,
-                    "owner_id": assoc.question_template.owner_id,
-                    "question_type": assoc.question_template.question_type,
-                    "question_text_template": assoc.question_template.question_text_template,
-                    "text_template_type": assoc.question_template.text_template_type,
-                    "input_data_config": assoc.question_template.input_data_config,
-                    "description": assoc.question_template.description,
-                    "code": assoc.question_template.code,
-                    "entry_function": assoc.question_template.entry_function,
-                    "num_distractors": assoc.question_template.num_distractors,
-                    "output_type": assoc.question_template.output_type,
-                    "target_elements": [
-                        {
-                            "template_id": te.template_id,
-                            "order": te.order,
-                            "element_type": te.element_type,
-                            "id_list": te.id_list,
-                            "name": te.name,
-                            "line_number": te.line_number,
-                            "modifier": te.modifier,
-                        }
-                        for te in assoc.question_template.target_elements
-                    ],
-                    "created_at": assoc.question_template.created_at,
-                    "updated_at": assoc.question_template.updated_at,
-                    "added_at": assoc.added_at,
-                }
-                templates.append(
-                    QuestionTemplateBankQuestionTemplateResponse.model_validate(qt_data)
-                )
-
-        return QuestionTemplateBankWithTemplatesResponse(
-            id=question_template_bank.id,
-            owner_id=question_template_bank.owner_id,
-            folder_id=question_template_bank.folder_id,
-            title=question_template_bank.title,
-            description=question_template_bank.description,
-            created_at=question_template_bank.created_at,
-            updated_at=question_template_bank.updated_at,
-            question_templates=templates,
-        )
+        return qt
 
     async def add_question_template_to_bank(
         self,
@@ -291,41 +286,14 @@ class QuestionTemplateBankService:
         question_template_bank_id: UUID,
         question_template: CreateQuestionTemplateRequest,
     ) -> QuestionTemplateBankWithTemplatesResponse:
-        """Add a question template to a question template bank.
-
-        Args:
-            user_id: User UUID
-            question_template_bank_id: QuestionTemplateBank UUID
-            question_template: CreateQuestionTemplateRequest object
-
-        Returns:
-            Updated question template bank with templates
-
-        Raises:
-            ResourceNotFoundError: If question template bank not found
-            UnauthorizedAccessError: If user doesn't own the question template bank
-        """
-        # Verify bank exists and ownership
+        """Add a new question template to a question template bank."""
         question_template_bank = await self.get_owned_question_template_bank(
             user_id, question_template_bank_id
         )
-
-        # Create question template
         template_entity = await self.question_template_svc.create_template(
             user_id, question_template
         )
-
-        # Create association
-        assoc = QuestionTemplateBankQuestionTemplate(
-            question_template_bank_id=question_template_bank_id,
-            question_template_id=template_entity.id,
-        )
-        await self.assoc_repo.create(assoc)
-
-        # Expire the cached bank to force fresh query
-        self.question_template_bank_repo.db.expire(question_template_bank)
-
-        # Return updated bank with templates
+        await self._attach_qt_to_qt_bank(question_template_bank, template_entity)
         return await self.get_question_template_bank_with_templates(
             user_id, question_template_bank_id
         )
@@ -336,7 +304,8 @@ class QuestionTemplateBankService:
         question_template_bank_id: UUID,
         question_template_id: UUID,
     ) -> QuestionTemplateBankWithTemplatesResponse:
-        """Link an existing question template to a question template bank.
+        """Copy a question template into a question template bank.
+        Link to source question template.
 
         Args:
             user_id: User UUID
@@ -351,39 +320,15 @@ class QuestionTemplateBankService:
             DuplicateResourceError: If template already linked to bank
             UnauthorizedAccessError: If user doesn't own resources
         """
-        # Verify bank exists and ownership
         question_template_bank = await self.get_owned_question_template_bank(
             user_id, question_template_bank_id
         )
-
-        # Verify template exists and ownership
-        await self.question_template_svc.get_owned_template(
+        source = await self.question_template_svc.get_owned_template(
             user_id, question_template_id
         )
 
-        # Check for existing association
-        existing_assoc = await self.assoc_repo.find_association(
-            question_template_bank_id, question_template_id
-        )
-        if existing_assoc:
-            raise DuplicateResourceError(
-                "QuestionTemplateBankQuestionTemplate",
-                "question_template_id/question_template_bank_id",
-                f"question_template_bank={question_template_bank_id}, \
-                question_template={question_template_id}",
-            )
-
-        # Create association
-        assoc = QuestionTemplateBankQuestionTemplate(
-            question_template_bank_id=question_template_bank_id,
-            question_template_id=question_template_id,
-        )
-        await self.assoc_repo.create(assoc)
-
-        # Expire the cached bank to force fresh query
-        self.question_template_bank_repo.db.expire(question_template_bank)
-
-        # Return updated bank with templates
+        copy = await self.question_template_svc.copy_question_template(source, user_id)
+        await self._attach_qt_to_qt_bank(question_template_bank, copy)
         return await self.get_question_template_bank_with_templates(
             user_id, question_template_bank_id
         )
@@ -394,31 +339,86 @@ class QuestionTemplateBankService:
         qt_bank_id: UUID,
         qt_id: UUID,
     ) -> None:
-        """Remove a question template from a bank and clean up if orphaned.
+        """Remove a question from a question bank and soft-delete it.
 
         Args:
             user_id: User UUID
-            qt_bank_id: QuestionTemplateBank UUID
-            qt_id: QuestionTemplate UUID
+            question_bank_id: QuestionBank UUID
+            question_id: Question UUID
 
         Raises:
-            ResourceNotFoundError: If association not found
-            UnauthorizedAccessError: If user doesn't own the question template bank
+            ResourceNotFoundError: If question template not found in bank
+            UnauthorizedAccessError: If user doesn't own the bank
         """
-        question_template_bank = await self.get_owned_question_template_bank(
-            user_id, qt_bank_id
+        await self.get_owned_question_template_bank(user_id, qt_bank_id)
+        qt = await self._require_question_template_in_bank(qt_bank_id, qt_id)
+
+        qt.question_template_bank_id = None
+        await self.qt_repo.update(qt)
+        await self.qt_repo.soft_delete(qt)
+
+    async def sync_question_template_in_bank(
+        self,
+        user_id: UUID,
+        question_template_bank_id: UUID,
+        question_template_id: UUID,
+    ) -> QuestionTemplateBankWithTemplatesResponse:
+        """Sync a linked question template's content from its source template.
+
+        Args:
+            user_id: User UUID
+            question_template_bank_id: QuestionTemplateBank UUID
+            question_template_id: UUID of the question template copy in this bank
+
+        Returns:
+            Updated bank with question templates
+
+        Raises:
+            ResourceNotFoundError: If bank, template, or source not found
+            ValidationError: If template has no source link
+            UnauthorizedAccessError: If user doesn't own the bank
+        """
+        await self.get_owned_question_template_bank(user_id, question_template_bank_id)
+        qt = await self._require_question_template_in_bank(
+            question_template_bank_id, question_template_id
         )
 
-        assoc = await self.assoc_repo.find_association(
-            qt_bank_id, qt_id
-        )
-        if not assoc:
-            raise ResourceNotFoundError(
-                "QuestionTemplateBankQuestionTemplate",
-                f"question_template_bank={qt_bank_id}, question_template={qt_id}",
-            )
+        if not qt.linked_from_template_id:
+            raise ValidationError("Question template has no source link to sync from.")
 
-        await self.assoc_repo.hard_delete(assoc)
-        await self.question_template_svc.cleanup_orphaned_templates(
-            question_template_bank.owner_id
+        source = await self.question_template_svc.get_template(
+            user_id, qt.linked_from_template_id
+        )
+        await self.question_template_svc.sync_template(qt, source)
+
+        return await self.get_question_template_bank_with_templates(
+            user_id, question_template_bank_id
+        )
+
+    async def unlink_question_template_in_bank(
+        self,
+        user_id: UUID,
+        question_template_bank_id: UUID,
+        question_template_id: UUID,
+    ) -> QuestionTemplateBankWithTemplatesResponse:
+        """Remove the source link from a question template copy (make it independent).
+
+        Args:
+            user_id: User UUID
+            question_template_bank_id: QuestionTemplateBank UUID
+            question_template_id: UUID of the question template copy
+
+        Returns:
+            Updated bank with question templates
+        """
+        await self.get_owned_question_template_bank(user_id, question_template_bank_id)
+        qt = await self._require_question_template_in_bank(
+            question_template_bank_id, question_template_id
+        )
+
+        qt.linked_from_template_id = None
+        await self.qt_repo.update(qt)
+
+        return await self.get_question_template_bank_with_templates(
+            user_id, question_template_bank_id
         )

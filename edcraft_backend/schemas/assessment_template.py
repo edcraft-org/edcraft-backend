@@ -41,13 +41,6 @@ class AssessmentTemplateResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class AssessmentTemplateQuestionTemplateResponse(QuestionTemplateResponse):
-    """Schema for a question template within an assessment template, including order."""
-
-    order: int
-    added_at: datetime
-
-
 class AssessmentTemplateWithQuestionTemplatesResponse(BaseModel):
     """Schema for assessment template with its question templates."""
 
@@ -58,7 +51,7 @@ class AssessmentTemplateWithQuestionTemplatesResponse(BaseModel):
     description: str | None
     created_at: datetime
     updated_at: datetime
-    question_templates: list[AssessmentTemplateQuestionTemplateResponse] = []
+    question_templates: list[QuestionTemplateResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
 

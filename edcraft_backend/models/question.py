@@ -83,6 +83,11 @@ class Question(EntityBase):
     template: Mapped["QuestionTemplate | None"] = relationship(
         back_populates="questions"
     )
+    linked_from_question: Mapped[Optional["Question"]] = relationship(
+        "Question",
+        foreign_keys=[linked_from_question_id],
+        remote_side="Question.id",
+    )
     assessment: Mapped[Optional["Assessment"]] = relationship(
         back_populates="questions",
         foreign_keys=[assessment_id],

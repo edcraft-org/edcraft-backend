@@ -14,7 +14,6 @@ from edcraft_backend.schemas.assessment import (
 
 # Assessment Template schemas
 from edcraft_backend.schemas.assessment_template import (
-    AssessmentTemplateQuestionTemplateResponse,
     AssessmentTemplateResponse,
     AssessmentTemplateWithQuestionTemplatesResponse,
     CreateAssessmentTemplateRequest,
@@ -108,7 +107,6 @@ __all__ = [
     "CreateAssessmentTemplateRequest",
     "InsertQuestionTemplateIntoAssessmentTemplateRequest",
     "LinkQuestionTemplateToAssessmentTemplateRequest",
-    "AssessmentTemplateQuestionTemplateResponse",
     "ReorderQuestionTemplatesInAssessmentTemplateRequest",
     "AssessmentTemplateResponse",
     "UpdateAssessmentTemplateRequest",
@@ -120,8 +118,3 @@ __all__ = [
     "GenerateIntoAssessmentRequest",
     "QuestionGenerationRequest",
 ]
-
-# Rebuild models with forward references to resolve them after all schemas are loaded
-from edcraft_backend.schemas.question_template import QuestionTemplateUsageResponse
-
-QuestionTemplateUsageResponse.model_rebuild()

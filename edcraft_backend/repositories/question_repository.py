@@ -60,7 +60,7 @@ class QuestionRepository(EntityRepository[Question]):
         for question in questions:
             if question.order is not None:
                 question.order += 1
-            await self.update(question)
+                await self.update(question)
 
         await self.db.flush()
 

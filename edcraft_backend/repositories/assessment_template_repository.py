@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from edcraft_backend.models.assessment_template import AssessmentTemplate
+from edcraft_backend.models.question_template import QuestionTemplate
 from edcraft_backend.repositories.base import EntityRepository
 
 
@@ -28,16 +29,12 @@ class AssessmentTemplateRepository(EntityRepository[AssessmentTemplate]):
         Returns:
             AssessmentTemplate with question templates loaded, or None if not found
         """
-        from edcraft_backend.models.assessment_template_question_template import (
-            AssessmentTemplateQuestionTemplate,
-        )
-
         stmt = (
             select(AssessmentTemplate)
             .where(AssessmentTemplate.id == template_id)
             .options(
-                selectinload(AssessmentTemplate.template_associations).selectinload(
-                    AssessmentTemplateQuestionTemplate.question_template
+                selectinload(AssessmentTemplate.question_templates).selectinload(
+                    QuestionTemplate.target_elements
                 )
             )
             .execution_options(populate_existing=True)

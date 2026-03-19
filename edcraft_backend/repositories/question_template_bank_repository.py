@@ -4,10 +4,8 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from edcraft_backend.models.question_template import QuestionTemplate
 from edcraft_backend.models.question_template_bank import QuestionTemplateBank
-from edcraft_backend.models.question_template_bank_question_template import (
-    QuestionTemplateBankQuestionTemplate,
-)
 from edcraft_backend.repositories.base import EntityRepository
 
 
@@ -35,8 +33,8 @@ class QuestionTemplateBankRepository(EntityRepository[QuestionTemplateBank]):
             select(QuestionTemplateBank)
             .where(QuestionTemplateBank.id == question_template_bank_id)
             .options(
-                selectinload(QuestionTemplateBank.template_associations).selectinload(
-                    QuestionTemplateBankQuestionTemplate.question_template
+                selectinload(QuestionTemplateBank.question_templates).selectinload(
+                    QuestionTemplate.target_elements
                 )
             )
             .execution_options(populate_existing=True)

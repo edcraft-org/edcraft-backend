@@ -254,6 +254,9 @@ class AssessmentService:
         )
 
         for question in assessment.questions:
+            question.assessment_id = None
+            question.order = None
+            await self.question_svc.question_repo.update(question)
             await self.question_svc.question_repo.soft_delete(question)
 
         return await self.assessment_repo.soft_delete(assessment)
@@ -556,14 +559,14 @@ class AssessmentService:
         sorted_orders = sorted(question_orders, key=lambda x: x.order)
         question_map = {q.id: q for q in assessment.questions}
 
-        # Phase 1: temporarily offset all orders to negative to avoid unique constraint violations
+        # temporarily offset all orders to negative to avoid unique constraint violations
         for q in assessment.questions:
             if q.order is not None:
                 q.order = -(q.order + 1)
-            await self.question_svc.question_repo.update(q)
+                await self.question_svc.question_repo.update(q)
         await self.assessment_repo.db.flush()
 
-        # Phase 2: apply final normalized orders (0, 1, 2, ...)
+        # apply final normalized orders (0, 1, 2, ...)
         for idx, item in enumerate(sorted_orders):
             question_map[item.question_id].order = idx
             await self.question_svc.question_repo.update(question_map[item.question_id])

@@ -3,20 +3,25 @@
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import JSON, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    Enum,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from edcraft_backend.models.base import EntityBase
 from edcraft_backend.models.enums import OutputType, QuestionType, TextTemplateType
 
 if TYPE_CHECKING:
-    from edcraft_backend.models.assessment_template_question_template import (
-        AssessmentTemplateQuestionTemplate,
-    )
+    from edcraft_backend.models.assessment_template import AssessmentTemplate
     from edcraft_backend.models.question import Question
-    from edcraft_backend.models.question_template_bank_question_template import (
-        QuestionTemplateBankQuestionTemplate,
-    )
+    from edcraft_backend.models.question_template_bank import QuestionTemplateBank
     from edcraft_backend.models.target_element import TargetElement
     from edcraft_backend.models.user import User
 
@@ -33,6 +38,24 @@ class QuestionTemplate(EntityBase):
     owner_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    assessment_template_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("assessment_templates.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    question_template_bank_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("question_template_banks.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    linked_from_template_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("question_templates.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    # Order within assessment template (only relevant when assessment_template_id is set)
+    order: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Basic Fields
     question_type: Mapped[QuestionType] = mapped_column(
@@ -76,6 +99,21 @@ class QuestionTemplate(EntityBase):
     # Relationships
     owner: Mapped["User"] = relationship(back_populates="question_templates")
 
+    # Container relationships
+    assessment_template: Mapped["AssessmentTemplate | None"] = relationship(
+        back_populates="question_templates"
+    )
+    question_template_bank: Mapped["QuestionTemplateBank | None"] = relationship(
+        back_populates="question_templates"
+    )
+
+    # Source template
+    linked_from_template: Mapped["QuestionTemplate | None"] = relationship(
+        "QuestionTemplate",
+        foreign_keys=[linked_from_template_id],
+        remote_side="QuestionTemplate.id",
+    )
+
     # One-to-many: A template can create many questions
     questions: Mapped[list["Question"]] = relationship(
         back_populates="template", lazy="selectin"
@@ -89,22 +127,16 @@ class QuestionTemplate(EntityBase):
         order_by="TargetElement.order",
     )
 
-    # Many-to-many relationship with assessment templates
-    assessment_template_associations: Mapped[
-        list["AssessmentTemplateQuestionTemplate"]
-    ] = relationship(
-        back_populates="question_template",
-        cascade="all, delete-orphan",
-        lazy="selectin",
-    )
-
-    # Many-to-many relationship with question template banks
-    question_template_bank_associations: Mapped[
-        list["QuestionTemplateBankQuestionTemplate"]
-    ] = relationship(
-        back_populates="question_template",
-        cascade="all, delete-orphan",
-        lazy="selectin",
+    __table_args__ = (
+        CheckConstraint(
+            "assessment_template_id IS NULL OR question_template_bank_id IS NULL",
+            name="ck_question_template_single_container",
+        ),
+        UniqueConstraint(
+            "assessment_template_id",
+            "order",
+            name="uq_question_template_assessment_template_order",
+        ),
     )
 
     def __repr__(self) -> str:

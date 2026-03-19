@@ -6,9 +6,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from edcraft_backend.models.question_template import QuestionTemplate
-from edcraft_backend.models.question_template_bank_question_template import (
-    QuestionTemplateBankQuestionTemplate,
-)
 from edcraft_backend.models.user import User
 from tests.factories import (
     create_question_template_bank_with_templates,
@@ -340,52 +337,6 @@ class TestSoftDeleteQuestionTemplateBank:
         response = await test_client.delete(f"/question-template-banks/{fake_id}")
         assert response.status_code == 404
 
-    @pytest.mark.asyncio
-    async def test_soft_delete_cleans_up_orphaned_templates(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that deleting a bank soft-deletes orphaned templates."""
-        bank = await create_test_question_template_bank(db_session, user)
-        other_bank = await create_test_question_template_bank(db_session, user)
-
-        orphaned_template = await create_test_question_template(
-            db_session, user, question_text_template="Orphaned template"
-        )
-        shared_template = await create_test_question_template(
-            db_session, user, question_text_template="Shared template"
-        )
-
-        await link_question_template_to_question_template_bank(
-            db_session, bank.id, orphaned_template.id
-        )
-        await link_question_template_to_question_template_bank(
-            db_session, bank.id, shared_template.id
-        )
-        await link_question_template_to_question_template_bank(
-            db_session, other_bank.id, shared_template.id
-        )
-        await db_session.commit()
-
-        # Delete the bank
-        response = await test_client.delete(f"/question-template-banks/{bank.id}")
-        assert response.status_code == 204
-
-        orphaned_template_id = orphaned_template.id
-        shared_template_id = shared_template.id
-
-        db_session.expire_all()
-        orphaned_template_result = await db_session.execute(
-            select(QuestionTemplate).where(QuestionTemplate.id == orphaned_template_id)
-        )
-        orphaned_template = orphaned_template_result.scalar_one()
-        assert orphaned_template.deleted_at is not None
-
-        shared_template_result = await db_session.execute(
-            select(QuestionTemplate).where(QuestionTemplate.id == shared_template_id)
-        )
-        shared_template = shared_template_result.scalar_one()
-        assert shared_template.deleted_at is None
-
 
 @pytest.mark.integration
 @pytest.mark.question_template_banks
@@ -472,7 +423,7 @@ class TestLinkQuestionTemplateToBank:
     async def test_link_question_template_success(
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
-        """Test linking an existing question template to a bank."""
+        """Test linking an existing question template to a bank creates a copy."""
         bank = await create_test_question_template_bank(db_session, user)
         template = await create_test_question_template(
             db_session, user, question_text_template="Existing template"
@@ -487,27 +438,10 @@ class TestLinkQuestionTemplateToBank:
         assert response.status_code == 201
         data = response.json()
         assert len(data["question_templates"]) == 1
-        assert data["question_templates"][0]["id"] == str(template.id)
-
-    @pytest.mark.asyncio
-    async def test_link_question_template_duplicate_fails(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that linking the same template twice fails."""
-        bank, templates = await create_question_template_bank_with_templates(
-            db_session, user, num_templates=1
+        assert data["question_templates"][0]["id"] != str(template.id)
+        assert data["question_templates"][0]["linked_from_template_id"] == str(
+            template.id
         )
-        template = templates[0]
-        await db_session.commit()
-
-        # Try to link the same template again
-        response = await test_client.post(
-            f"/question-template-banks/{bank.id}/question-templates/link",
-            json={"question_template_id": str(template.id)},
-        )
-
-        assert response.status_code == 409
-        assert "already" in response.json()["detail"].lower()
 
     @pytest.mark.asyncio
     async def test_link_question_template_not_found(
@@ -569,15 +503,15 @@ class TestRemoveQuestionTemplateFromBank:
         assert response.status_code == 204
 
         # Verify association is removed
+        template_to_remove_id = template_to_remove.id
+        bank_id = bank.id
+        db_session.expire_all()
         result = await db_session.execute(
-            select(QuestionTemplateBankQuestionTemplate).where(
-                QuestionTemplateBankQuestionTemplate.question_template_bank_id
-                == bank.id,
-                QuestionTemplateBankQuestionTemplate.question_template_id
-                == template_to_remove.id,
-            )
+            select(QuestionTemplate).where(QuestionTemplate.id == template_to_remove_id)
         )
-        assert result.scalar_one_or_none() is None
+        removed_template = result.scalar_one_or_none()
+        if removed_template is not None:
+            assert removed_template.question_template_bank_id != bank_id
 
     @pytest.mark.asyncio
     async def test_remove_question_template_preserves_others(
@@ -663,101 +597,131 @@ class TestRemoveQuestionTemplateFromBank:
 
 @pytest.mark.integration
 @pytest.mark.question_template_banks
-class TestOrphanCleanup:
-    """Tests for orphan cleanup logic across banks and assessment templates."""
+class TestSyncQuestionTemplateInBank:
+    """Tests for POST /question-template-banks/{id}/question-templates/{template_id}/sync."""
 
     @pytest.mark.asyncio
-    async def test_template_orphaned_when_removed_from_all_sources(
+    async def test_sync_updates_copy_from_source(
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
-        """Test template is orphaned when removed from all banks and assessments."""
+        """Test that sync overwrites copy content with the current source content."""
         bank = await create_test_question_template_bank(db_session, user)
-        template = await create_test_question_template(db_session, user)
-        await link_question_template_to_question_template_bank(
-            db_session, bank.id, template.id
+        source = await create_test_question_template(
+            db_session, user, question_text_template="Original text?"
         )
         await db_session.commit()
 
-        # Remove from bank (only source)
-        await test_client.delete(
-            f"/question-template-banks/{bank.id}/question-templates/{template.id}"
+        # Link (creates copy)
+        link_resp = await test_client.post(
+            f"/question-template-banks/{bank.id}/question-templates/link",
+            json={"question_template_id": str(source.id)},
+        )
+        copy_id = link_resp.json()["question_templates"][0]["id"]
+
+        # Edit the copy independently
+        await test_client.patch(
+            f"/question-templates/{copy_id}",
+            json={"question_text_template": "Edited in bank?"},
         )
 
-        # Template should be orphaned
-        result = await db_session.execute(
-            select(QuestionTemplate).where(QuestionTemplate.id == template.id)
+        # Edit the source
+        await test_client.patch(
+            f"/question-templates/{str(source.id)}",
+            json={"question_text_template": "Updated source text?"},
         )
-        orphaned_template = result.scalar_one()
-        await db_session.refresh(orphaned_template)
-        assert orphaned_template.deleted_at is not None
+
+        # Sync the copy
+        response = await test_client.post(
+            f"/question-template-banks/{bank.id}/question-templates/{copy_id}/sync"
+        )
+
+        assert response.status_code == 200
+        question_templates = response.json()["question_templates"]
+        copy = next(qt for qt in question_templates if qt["id"] == copy_id)
+        assert copy["question_text_template"] == "Updated source text?"
+        assert copy["linked_from_template_id"] == str(source.id)
 
     @pytest.mark.asyncio
-    async def test_template_not_orphaned_if_in_assessment_template(
+    async def test_sync_without_source_link_returns_400(
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
-        """Test template is NOT orphaned if still in an assessment template."""
-        from tests.factories import (
-            create_test_assessment_template,
-            link_question_template_to_assessment_template,
+        """Test that syncing a question template with no source link returns 400."""
+        bank = await create_test_question_template_bank(db_session, user)
+        qt = await create_test_question_template(db_session, user)
+        await db_session.commit()
+
+        await link_question_template_to_question_template_bank(
+            db_session, bank.id, qt.id
         )
+        await db_session.commit()
+
+        response = await test_client.post(
+            f"/question-template-banks/{bank.id}/question-templates/{qt.id}/sync"
+        )
+
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_sync_question_template_not_in_bank_returns_404(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that syncing a question template not in the bank returns 404."""
+        import uuid
 
         bank = await create_test_question_template_bank(db_session, user)
-        assessment_template = await create_test_assessment_template(db_session, user)
-        template = await create_test_question_template(db_session, user)
-
-        # Link to both bank and assessment template
-        await link_question_template_to_question_template_bank(
-            db_session, bank.id, template.id
-        )
-        await link_question_template_to_assessment_template(
-            db_session, assessment_template.id, template.id, order=0
-        )
         await db_session.commit()
 
-        # Remove from bank
-        await test_client.delete(
-            f"/question-template-banks/{bank.id}/question-templates/{template.id}"
+        response = await test_client.post(
+            f"/question-template-banks/{bank.id}/question-templates/{uuid.uuid4()}/sync"
         )
 
-        # Template should NOT be orphaned (still in assessment template)
-        result = await db_session.execute(
-            select(QuestionTemplate).where(QuestionTemplate.id == template.id)
-        )
-        template_check = result.scalar_one()
-        await db_session.refresh(template_check)
-        assert template_check.deleted_at is None
+        assert response.status_code == 404
+
+
+@pytest.mark.integration
+@pytest.mark.question_template_banks
+class TestUnlinkQuestionTemplateInBank:
+    """Tests for POST /question-template-banks/{id}/question-templates/{template_id}/unlink."""
 
     @pytest.mark.asyncio
-    async def test_template_not_orphaned_if_in_another_bank(
+    async def test_unlink_severs_source_reference(
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
-        """Test template is NOT orphaned if still in another bank."""
-        bank1 = await create_test_question_template_bank(
-            db_session, user, title="Bank 1"
-        )
-        bank2 = await create_test_question_template_bank(
-            db_session, user, title="Bank 2"
-        )
-        template = await create_test_question_template(db_session, user)
-
-        # Link to both banks
-        await link_question_template_to_question_template_bank(
-            db_session, bank1.id, template.id
-        )
-        await link_question_template_to_question_template_bank(
-            db_session, bank2.id, template.id
+        """Test that unlink sets linked_from_template_id to null."""
+        bank = await create_test_question_template_bank(db_session, user)
+        source = await create_test_question_template(
+            db_session, user, question_text_template="Source text?"
         )
         await db_session.commit()
 
-        # Remove from bank1
-        await test_client.delete(
-            f"/question-template-banks/{bank1.id}/question-templates/{template.id}"
+        link_resp = await test_client.post(
+            f"/question-template-banks/{bank.id}/question-templates/link",
+            json={"question_template_id": str(source.id)},
+        )
+        copy_id = link_resp.json()["question_templates"][0]["id"]
+
+        response = await test_client.post(
+            f"/question-template-banks/{bank.id}/question-templates/{copy_id}/unlink"
         )
 
-        # Template should NOT be orphaned (still in bank2)
-        result = await db_session.execute(
-            select(QuestionTemplate).where(QuestionTemplate.id == template.id)
+        assert response.status_code == 200
+        question_templates = response.json()["question_templates"]
+        copy = next(qt for qt in question_templates if qt["id"] == copy_id)
+        assert copy["linked_from_template_id"] is None
+        assert copy["question_text_template"] == "Source text?"
+
+    @pytest.mark.asyncio
+    async def test_unlink_question_template_not_in_bank_returns_404(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that unlinking a question template not in the bank returns 404."""
+        import uuid
+
+        bank = await create_test_question_template_bank(db_session, user)
+        await db_session.commit()
+
+        response = await test_client.post(
+            f"/question-template-banks/{bank.id}/question-templates/{uuid.uuid4()}/unlink"
         )
-        template_check = result.scalar_one()
-        await db_session.refresh(template_check)
-        assert template_check.deleted_at is None
+
+        assert response.status_code == 404

@@ -41,12 +41,6 @@ class QuestionTemplateBankResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class QuestionTemplateBankQuestionTemplateResponse(QuestionTemplateResponse):
-    """Response schema for question template in question template bank context."""
-
-    added_at: datetime
-
-
 class QuestionTemplateBankWithTemplatesResponse(BaseModel):
     """Schema for question template bank with its question templates."""
 
@@ -57,7 +51,7 @@ class QuestionTemplateBankWithTemplatesResponse(BaseModel):
     description: str | None
     created_at: datetime
     updated_at: datetime
-    question_templates: list[QuestionTemplateBankQuestionTemplateResponse] = []
+    question_templates: list[QuestionTemplateResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
 
