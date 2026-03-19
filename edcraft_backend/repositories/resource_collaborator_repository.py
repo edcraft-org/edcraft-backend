@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from edcraft_backend.models.assessment import Assessment
-from edcraft_backend.models.assessment_question import AssessmentQuestion
 from edcraft_backend.models.enums import (
     CollaboratorRole,
     ResourceType,
@@ -99,7 +98,7 @@ class ResourceCollaboratorRepository(AssociationRepository[ResourceCollaborator]
             CollaboratorRole if user is a collaborator, None otherwise
         """
         collab = await self.find_collaborator(resource_type, resource_id, user_id)
-        return collab.role if collab else None
+        return CollaboratorRole(collab.role) if collab else None
 
     async def check_permission(
         self,
@@ -197,12 +196,12 @@ class ResourceCollaboratorRepository(AssociationRepository[ResourceCollaborator]
         collab_condition = (
             select(ResourceCollaborator.id)
             .join(
-                AssessmentQuestion,
-                AssessmentQuestion.assessment_id == ResourceCollaborator.resource_id,
+                Question,
+                Question.assessment_id == ResourceCollaborator.resource_id,
             )
             .where(
                 ResourceCollaborator.resource_type == ResourceType.ASSESSMENT,
-                AssessmentQuestion.question_id == question_id,
+                Question.id == question_id,
                 ResourceCollaborator.user_id == user_id,
                 ResourceCollaborator.role.in_(acceptable_roles),
             )
@@ -215,13 +214,13 @@ class ResourceCollaboratorRepository(AssociationRepository[ResourceCollaborator]
         # For VIEWER, also allow access if question is in any public assessment
         if min_role == CollaboratorRole.VIEWER:
             public_stmt = (
-                select(AssessmentQuestion.id)
+                select(Question.id)
                 .join(
                     Assessment,
-                    Assessment.id == AssessmentQuestion.assessment_id,
+                    Assessment.id == Question.assessment_id,
                 )
                 .where(
-                    AssessmentQuestion.question_id == question_id,
+                    Question.id == question_id,
                     Assessment.visibility == ResourceVisibility.PUBLIC,
                     Assessment.deleted_at.is_(None),
                 )

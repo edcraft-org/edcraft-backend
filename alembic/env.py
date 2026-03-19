@@ -13,14 +13,12 @@ from edcraft_backend.config import settings
 # Import all models for autogenerate support
 from edcraft_backend.models import (  # noqa: F401
     Assessment,
-    AssessmentQuestion,
     AssessmentTemplate,
     AssessmentTemplateQuestionTemplate,
     Folder,
     OAuthAccount,
     Question,
     QuestionBank,
-    QuestionBankQuestion,
     QuestionTemplate,
     QuestionTemplateBank,
     QuestionTemplateBankQuestionTemplate,

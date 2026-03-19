@@ -5,7 +5,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from edcraft_backend.models.question_bank import QuestionBank
-from edcraft_backend.models.question_bank_question import QuestionBankQuestion
 from edcraft_backend.repositories.base import EntityRepository
 
 
@@ -32,11 +31,7 @@ class QuestionBankRepository(EntityRepository[QuestionBank]):
         stmt = (
             select(QuestionBank)
             .where(QuestionBank.id == question_bank_id)
-            .options(
-                selectinload(QuestionBank.question_associations).selectinload(
-                    QuestionBankQuestion.question
-                )
-            )
+            .options(selectinload(QuestionBank.questions))
             .execution_options(populate_existing=True)
         )
 

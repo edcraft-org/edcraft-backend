@@ -8,7 +8,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from edcraft_backend.models.assessment import Assessment
-from edcraft_backend.models.assessment_question import AssessmentQuestion
 from edcraft_backend.models.assessment_template import AssessmentTemplate
 from edcraft_backend.models.assessment_template_question_template import (
     AssessmentTemplateQuestionTemplate,
@@ -17,7 +16,6 @@ from edcraft_backend.models.enums import CollaboratorRole, ResourceType
 from edcraft_backend.models.folder import Folder
 from edcraft_backend.models.question import Question
 from edcraft_backend.models.question_bank import QuestionBank
-from edcraft_backend.models.question_bank_question import QuestionBankQuestion
 from edcraft_backend.models.question_data import MCQData, MRQData, ShortAnswerData
 from edcraft_backend.models.question_template import QuestionTemplate
 from edcraft_backend.models.question_template_bank import QuestionTemplateBank
@@ -440,9 +438,9 @@ async def create_test_question_template_bank(
 
 async def link_question_to_assessment(
     db: AsyncSession, assessment_id: UUID, question_id: UUID, order: int = 0
-) -> AssessmentQuestion:
+) -> Question:
     """
-    Create AssessmentQuestion association linking a question to an assessment.
+    Link a question to an assessment.
 
     Args:
         db: Database session
@@ -451,23 +449,21 @@ async def link_question_to_assessment(
         order: Display order of the question in the assessment
 
     Returns:
-        Created AssessmentQuestion instance
+        Updated Question instance
     """
-    assoc = AssessmentQuestion(
-        assessment_id=assessment_id,
-        question_id=question_id,
-        order=order,
-    )
-    db.add(assoc)
+    result = await db.execute(select(Question).where(Question.id == question_id))
+    question = result.scalar_one()
+    question.assessment_id = assessment_id
+    question.order = order
     await db.flush()
-    return assoc
+    return question
 
 
 async def link_question_to_question_bank(
     db: AsyncSession, question_bank_id: UUID, question_id: UUID
-) -> QuestionBankQuestion:
+) -> Question:
     """
-    Create QuestionBankQuestion association linking a question to a question bank.
+    Link a question to a question bank.
 
     Args:
         db: Database session
@@ -475,16 +471,13 @@ async def link_question_to_question_bank(
         question_id: ID of the question to link
 
     Returns:
-        Created QuestionBankQuestion instance
+        Updated Question instance
     """
-
-    assoc = QuestionBankQuestion(
-        question_bank_id=question_bank_id,
-        question_id=question_id,
-    )
-    db.add(assoc)
+    result = await db.execute(select(Question).where(Question.id == question_id))
+    question = result.scalar_one()
+    question.question_bank_id = question_bank_id
     await db.flush()
-    return assoc
+    return question
 
 
 async def link_question_template_to_assessment_template(

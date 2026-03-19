@@ -3,14 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
-
-if TYPE_CHECKING:
-    from edcraft_backend.schemas.assessment import AssessmentResponse
-    from edcraft_backend.schemas.question_bank import QuestionBankResponse
 
 
 # Data schemas for different question types
@@ -107,6 +103,9 @@ class BaseQuestionResponse(BaseModel):
     owner_id: UUID
     template_id: UUID | None
     linked_from_question_id: UUID | None = None
+    assessment_id: UUID | None = None
+    question_bank_id: UUID | None = None
+    order: int | None = None
     question_text: str
     created_at: datetime
     updated_at: datetime
@@ -136,12 +135,3 @@ class ShortAnswerResponse(BaseQuestionResponse):
 
 
 QuestionResponse = MCQResponse | MRQResponse | ShortAnswerResponse
-
-
-class QuestionUsageResponse(BaseModel):
-    """Response schema for question usage information."""
-
-    assessments: list[AssessmentResponse] = []
-    question_banks: list[QuestionBankResponse] = []
-
-    model_config = ConfigDict(from_attributes=True)

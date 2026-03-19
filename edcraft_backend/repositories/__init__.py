@@ -1,4 +1,3 @@
-from edcraft_backend.repositories.assessment_question_repository import AssessmentQuestionRepository
 from edcraft_backend.repositories.assessment_repository import AssessmentRepository
 from edcraft_backend.repositories.assessment_template_question_template_repository import (
     AssessmentTemplateQuestionTemplateRepository,
@@ -20,7 +19,6 @@ __all__ = [
     "QuestionTemplateRepository",
     "AssessmentRepository",
     "AssessmentTemplateRepository",
-    "AssessmentQuestionRepository",
     "AssessmentTemplateQuestionTemplateRepository",
     "TargetElementRepository",
 ]

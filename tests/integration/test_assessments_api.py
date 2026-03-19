@@ -455,8 +455,7 @@ class TestUpdateAssessment:
 
         response = await unauth_client.get(f"/assessments/{assessment.id}")
 
-        assert response.status_code == 404
-        assert "not found" in response.json()["detail"].lower()
+        assert response.status_code == 403
 
     @pytest.mark.asyncio
     async def test_get_public_assessment_by_non_owner(
@@ -505,8 +504,7 @@ class TestUpdateAssessment:
 
             response = await client2.get(f"/assessments/{assessment.id}")
 
-        assert response.status_code == 404  # Returns 404, not 403, for security
-        assert "not found" in response.json()["detail"].lower()
+        assert response.status_code == 403
 
     @pytest.mark.asyncio
     async def test_get_private_assessment_by_owner_succeeds(

@@ -8,9 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from edcraft_backend.database import get_db
 from edcraft_backend.models.user import User
-from edcraft_backend.repositories.assessment_question_repository import (
-    AssessmentQuestionRepository,
-)
 from edcraft_backend.repositories.assessment_repository import AssessmentRepository
 from edcraft_backend.repositories.assessment_template_question_template_repository import (
     AssessmentTemplateQuestionTemplateRepository,
@@ -22,9 +19,6 @@ from edcraft_backend.repositories.folder_repository import FolderRepository
 from edcraft_backend.repositories.oauth_account_repository import OAuthAccountRepository
 from edcraft_backend.repositories.one_time_token_repository import (
     OneTimeTokenRepository,
-)
-from edcraft_backend.repositories.question_bank_question_repository import (
-    QuestionBankQuestionRepository,
 )
 from edcraft_backend.repositories.question_bank_repository import QuestionBankRepository
 from edcraft_backend.repositories.question_repository import QuestionRepository
@@ -117,20 +111,6 @@ def get_assessment_template_repository(
     return AssessmentTemplateRepository(db)
 
 
-def get_assessment_question_repository(
-    db: AsyncSession = Depends(get_db),
-) -> AssessmentQuestionRepository:
-    """Get AssessmentQuestionRepository instance."""
-    return AssessmentQuestionRepository(db)
-
-
-def get_question_bank_question_repository(
-    db: AsyncSession = Depends(get_db),
-) -> QuestionBankQuestionRepository:
-    """Get QuestionBankQuestionRepository instance."""
-    return QuestionBankQuestionRepository(db)
-
-
 def get_question_template_bank_question_template_repository(
     db: AsyncSession = Depends(get_db),
 ) -> QuestionTemplateBankQuestionTemplateRepository:
@@ -188,23 +168,12 @@ def get_email_service() -> EmailService:
 
 def get_question_service(
     question_repo: QuestionRepository = Depends(get_question_repository),
-    assessment_question_repo: AssessmentQuestionRepository = Depends(
-        get_assessment_question_repository
-    ),
-    question_bank_question_repo: QuestionBankQuestionRepository = Depends(
-        get_question_bank_question_repository
-    ),
     collaborator_repo: ResourceCollaboratorRepository = Depends(
         get_resource_collaborator_repository
     ),
 ) -> QuestionService:
     """Get QuestionService instance."""
-    return QuestionService(
-        question_repo,
-        assessment_question_repo,
-        question_bank_question_repo,
-        collaborator_repo,
-    )
+    return QuestionService(question_repo, collaborator_repo)
 
 
 def get_question_template_service(
@@ -268,9 +237,6 @@ def get_user_service(
 def get_assessment_service(
     assessment_repo: AssessmentRepository = Depends(get_assessment_repository),
     folder_svc: FolderService = Depends(get_folder_service),
-    assessment_question_repo: AssessmentQuestionRepository = Depends(
-        get_assessment_question_repository
-    ),
     question_svc: QuestionService = Depends(get_question_service),
     collaborator_repo: ResourceCollaboratorRepository = Depends(
         get_resource_collaborator_repository
@@ -281,7 +247,6 @@ def get_assessment_service(
     return AssessmentService(
         assessment_repo,
         folder_svc,
-        assessment_question_repo,
         question_svc,
         collaborator_repo,
         user_repo,
@@ -291,9 +256,6 @@ def get_assessment_service(
 def get_question_bank_service(
     question_bank_repo: QuestionBankRepository = Depends(get_question_bank_repository),
     folder_svc: FolderService = Depends(get_folder_service),
-    question_bank_question_repo: QuestionBankQuestionRepository = Depends(
-        get_question_bank_question_repository
-    ),
     question_svc: QuestionService = Depends(get_question_service),
     collaborator_repo: ResourceCollaboratorRepository = Depends(
         get_resource_collaborator_repository
@@ -303,7 +265,6 @@ def get_question_bank_service(
     return QuestionBankService(
         question_bank_repo,
         folder_svc,
-        question_bank_question_repo,
         question_svc,
         collaborator_repo,
     )

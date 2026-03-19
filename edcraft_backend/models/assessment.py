@@ -8,8 +8,8 @@ from edcraft_backend.models.base import EntityBase
 from edcraft_backend.models.enums import ResourceVisibility
 
 if TYPE_CHECKING:
-    from edcraft_backend.models.assessment_question import AssessmentQuestion
     from edcraft_backend.models.folder import Folder
+    from edcraft_backend.models.question import Question
     from edcraft_backend.models.user import User
 
 
@@ -40,12 +40,13 @@ class Assessment(EntityBase):
     owner: Mapped["User"] = relationship(back_populates="assessments")
     folder: Mapped["Folder"] = relationship(back_populates="assessments")
 
-    # Many-to-many relationship with questions, ordered by order field
-    question_associations: Mapped[list["AssessmentQuestion"]] = relationship(
+    # One-to-many relationship with questions, ordered by order field
+    questions: Mapped[list["Question"]] = relationship(
         back_populates="assessment",
         cascade="all, delete-orphan",
         lazy="selectin",
-        order_by="AssessmentQuestion.order",
+        order_by="Question.order",
+        foreign_keys="Question.assessment_id",
     )
 
     def __repr__(self) -> str:

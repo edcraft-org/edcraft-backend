@@ -9,10 +9,8 @@ from edcraft_backend.exceptions import EdCraftBaseException
 from edcraft_backend.models.question import Question
 from edcraft_backend.schemas.question import (
     QuestionResponse,
-    QuestionUsageResponse,
     UpdateQuestionRequest,
 )
-from edcraft_backend.services.question_service import QuestionUsageDict
 
 router = APIRouter(prefix="/questions", tags=["questions"])
 
@@ -67,14 +65,3 @@ async def soft_delete_question(
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
 
-@router.get("/{question_id}/usage", response_model=QuestionUsageResponse)
-async def get_question_usage(
-    current_user: CurrentUserDep,
-    question_id: UUID,
-    service: QuestionServiceDep,
-) -> QuestionUsageDict:
-    """Get all resources that include this question."""
-    try:
-        return await service.get_question_usage(current_user.id, question_id)
-    except EdCraftBaseException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message) from e

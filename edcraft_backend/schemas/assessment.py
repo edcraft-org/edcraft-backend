@@ -13,9 +13,7 @@ from edcraft_backend.models.enums import (
 )
 from edcraft_backend.schemas.question import (
     CreateQuestionRequest,
-    MCQResponse,
-    MRQResponse,
-    ShortAnswerResponse,
+    QuestionResponse,
 )
 
 
@@ -52,32 +50,6 @@ class AssessmentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class AssessmentMCQResponse(MCQResponse):
-    """Response schema for MCQ question in assessment context."""
-
-    order: int
-    added_at: datetime
-
-
-class AssessmentMRQResponse(MRQResponse):
-    """Response schema for MRQ question in assessment context."""
-
-    order: int
-    added_at: datetime
-
-
-class AssessmentShortAnswerResponse(ShortAnswerResponse):
-    """Response schema for short answer question in assessment context."""
-
-    order: int
-    added_at: datetime
-
-
-AssessmentQuestionResponse = (
-    AssessmentMCQResponse | AssessmentMRQResponse | AssessmentShortAnswerResponse
-)
-
-
 class AssessmentWithQuestionsResponse(BaseModel):
     """Schema for assessment with its questions."""
 
@@ -89,7 +61,7 @@ class AssessmentWithQuestionsResponse(BaseModel):
     visibility: ResourceVisibility
     created_at: datetime
     updated_at: datetime
-    questions: list[AssessmentQuestionResponse] = []
+    questions: list[QuestionResponse] = []
     my_role: CollaboratorRole | None = None
 
     model_config = ConfigDict(from_attributes=True)

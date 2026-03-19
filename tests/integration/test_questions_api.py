@@ -6,13 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from edcraft_backend.models.user import User
 from tests.factories import (
-    create_test_assessment,
     create_test_question,
-    create_test_question_bank,
     create_test_question_template,
-    create_test_user,
-    link_question_to_assessment,
-    link_question_to_question_bank,
 )
 
 
@@ -329,67 +324,5 @@ class TestSoftDeleteQuestion:
 
         non_existent_id = uuid.uuid4()
         response = await test_client.delete(f"/questions/{non_existent_id}")
-
-        assert response.status_code == 404
-
-
-@pytest.mark.integration
-@pytest.mark.questions
-class TestGetUsageForQuestion:
-    """Tests for GET /questions/{question_id}/usage endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_get_question_usage_success(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test getting question usage returns both assessments and banks."""
-        question = await create_test_question(db_session, user)
-        assessment = await create_test_assessment(
-            db_session, user, title="Test Assessment"
-        )
-        question_bank = await create_test_question_bank(
-            db_session, user, title="Test Bank"
-        )
-        await db_session.commit()
-
-        await link_question_to_assessment(db_session, assessment.id, question.id)
-        await link_question_to_question_bank(db_session, question_bank.id, question.id)
-        await db_session.commit()
-
-        response = await test_client.get(f"/questions/{question.id}/usage")
-
-        assert response.status_code == 200
-        data = response.json()
-
-        assert "assessments" in data
-        assert "question_banks" in data
-
-        assert len(data["assessments"]) == 1
-        assert len(data["question_banks"]) == 1
-        assert data["assessments"][0]["id"] == str(assessment.id)
-        assert data["question_banks"][0]["id"] == str(question_bank.id)
-
-    @pytest.mark.asyncio
-    async def test_get_question_usage_unauthorized(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test accessing question usage for question not owned by current user."""
-        other_user = await create_test_user(db_session, email="other@test.com")
-        question = await create_test_question(db_session, other_user)
-        await db_session.commit()
-
-        response = await test_client.get(f"/questions/{question.id}/usage")
-
-        assert response.status_code == 403
-
-    @pytest.mark.asyncio
-    async def test_get_question_usage_not_found(
-        self, test_client: AsyncClient, user: User
-    ) -> None:
-        """Test getting question usage for non-existent question."""
-        import uuid
-
-        non_existent_id = uuid.uuid4()
-        response = await test_client.get(f"/questions/{non_existent_id}/usage")
 
         assert response.status_code == 404

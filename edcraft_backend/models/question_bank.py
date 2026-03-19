@@ -8,7 +8,7 @@ from edcraft_backend.models.base import EntityBase
 
 if TYPE_CHECKING:
     from edcraft_backend.models.folder import Folder
-    from edcraft_backend.models.question_bank_question import QuestionBankQuestion
+    from edcraft_backend.models.question import Question
     from edcraft_backend.models.user import User
 
 
@@ -33,11 +33,12 @@ class QuestionBank(EntityBase):
     owner: Mapped["User"] = relationship(back_populates="question_banks")
     folder: Mapped["Folder"] = relationship(back_populates="question_banks")
 
-    # Many-to-many relationship with questions
-    question_associations: Mapped[list["QuestionBankQuestion"]] = relationship(
+    # One-to-many relationship with questions
+    questions: Mapped[list["Question"]] = relationship(
         back_populates="question_bank",
         cascade="all, delete-orphan",
         lazy="selectin",
+        foreign_keys="Question.question_bank_id",
     )
 
     def __repr__(self) -> str:

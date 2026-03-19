@@ -1,18 +1,9 @@
-from typing import TypedDict
 from uuid import UUID
 
 from edcraft_backend.exceptions import ResourceNotFoundError, UnauthorizedAccessError
-from edcraft_backend.models.assessment import Assessment
 from edcraft_backend.models.enums import CollaboratorRole
 from edcraft_backend.models.question import Question
-from edcraft_backend.models.question_bank import QuestionBank
 from edcraft_backend.models.question_data import MCQData, MRQData, ShortAnswerData
-from edcraft_backend.repositories.assessment_question_repository import (
-    AssessmentQuestionRepository,
-)
-from edcraft_backend.repositories.question_bank_question_repository import (
-    QuestionBankQuestionRepository,
-)
 from edcraft_backend.repositories.question_repository import QuestionRepository
 from edcraft_backend.repositories.resource_collaborator_repository import (
     ResourceCollaboratorRepository,
@@ -35,48 +26,16 @@ from edcraft_backend.schemas.question import (
 )
 
 
-class QuestionUsageDict(TypedDict):
-    """Dict type for question usage."""
-
-    assessments: list[Assessment]
-    question_banks: list[QuestionBank]
-
-
 class QuestionService:
     """Service layer for Question business logic."""
 
     def __init__(
         self,
         question_repository: QuestionRepository,
-        assessment_question_repository: AssessmentQuestionRepository,
-        question_bank_question_repository: QuestionBankQuestionRepository,
         collaborator_repository: ResourceCollaboratorRepository,
     ):
         self.question_repo = question_repository
-        self.assessment_assoc_repo = assessment_question_repository
-        self.question_bank_assoc_repo = question_bank_question_repository
         self.collaborator_repo = collaborator_repository
-
-    async def get_owned_question(self, user_id: UUID, question_id: UUID) -> Question:
-        """Get question and verify ownership.
-
-        Args:
-            user_id: User UUID requesting resources
-            question_id: Question UUID
-
-        Returns:
-            Question entity
-
-        Raises:
-            ResourceNotFoundError: If question not found
-            UnauthorizedAccessError: If user doesn't own the question
-        """
-        question = await self.question_repo.get_by_id(question_id)
-        if not question:
-            raise ResourceNotFoundError("Question", str(question_id))
-        if question.owner_id != user_id:
-            raise UnauthorizedAccessError("Question", str(question_id))
-        return question
 
     async def create_question(
         self, user_id: UUID, question_data: CreateQuestionRequest
@@ -136,21 +95,37 @@ class QuestionService:
             order_by=Question.created_at.desc(),
         )
 
-    async def get_question(self, user_id: UUID, question_id: UUID) -> Question:
-        """Get a question by ID and verify ownership.
+    async def get_question(
+        self,
+        user_id: UUID,
+        question_id: UUID,
+        min_role: CollaboratorRole = CollaboratorRole.VIEWER,
+    ) -> Question:
+        """Get a question by ID and verify access.
 
         Args:
             user_id: User UUID requesting resources
             question_id: Question UUID
+            min_role: Minimum collaborator role required for access
 
         Returns:
             Question entity
 
         Raises:
             ResourceNotFoundError: If question not found
-            UnauthorizedAccessError: If user doesn't own the question
+            UnauthorizedAccessError: If user have viewer access to the question
         """
-        return await self.get_owned_question(user_id, question_id)
+        question = await self.question_repo.get_by_id(question_id)
+        if not question:
+            raise ResourceNotFoundError("Question", str(question_id))
+
+        has_perm = await self.collaborator_repo.check_question_permission(
+            question_id, user_id, min_role
+        )
+        if not has_perm:
+            raise UnauthorizedAccessError("Question", str(question_id))
+
+        return question
 
     async def update_question(
         self,
@@ -249,7 +224,7 @@ class QuestionService:
             ResourceNotFoundError: If question not found
             UnauthorizedAccessError: If user doesn't own the question
         """
-        question = await self.get_owned_question(user_id, question_id)
+        question = await self.get_question(user_id, question_id, CollaboratorRole.OWNER)
         return await self.question_repo.soft_delete(question)
 
     async def copy_question(self, source: Question, new_owner_id: UUID) -> Question:
@@ -304,32 +279,3 @@ class QuestionService:
             count += 1
 
         return count
-
-    async def get_question_usage(
-        self,
-        user_id: UUID,
-        question_id: UUID,
-    ) -> QuestionUsageDict:
-        """Get all assessments that include this question.
-
-        Args:
-            user_id: User UUID requesting resources
-            question_id: Question UUID
-
-        Returns:
-            Dict containing lists of associated resources
-
-        Raises:
-            ResourceNotFoundError: If question not found
-            UnauthorizedAccessError: If user doesn't own the question
-        """
-        await self.get_owned_question(user_id, question_id)
-        assessments = await self.assessment_assoc_repo.get_assessments_by_question_id(
-            question_id
-        )
-        question_banks = (
-            await self.question_bank_assoc_repo.get_question_banks_by_question_id(
-                question_id
-            )
-        )
-        return {"assessments": assessments, "question_banks": question_banks}

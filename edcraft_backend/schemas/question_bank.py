@@ -7,9 +7,7 @@ from pydantic import BaseModel, ConfigDict
 
 from edcraft_backend.schemas.question import (
     CreateQuestionRequest,
-    MCQResponse,
-    MRQResponse,
-    ShortAnswerResponse,
+    QuestionResponse,
 )
 
 
@@ -43,29 +41,6 @@ class QuestionBankResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class QuestionBankMCQResponse(MCQResponse):
-    """Response schema for MCQ question in question bank context."""
-
-    added_at: datetime
-
-
-class QuestionBankMRQResponse(MRQResponse):
-    """Response schema for MRQ question in question bank context."""
-
-    added_at: datetime
-
-
-class QuestionBankShortAnswerResponse(ShortAnswerResponse):
-    """Response schema for short answer question in question bank context."""
-
-    added_at: datetime
-
-
-QuestionBankQuestionResponse = (
-    QuestionBankMCQResponse | QuestionBankMRQResponse | QuestionBankShortAnswerResponse
-)
-
-
 class QuestionBankWithQuestionsResponse(BaseModel):
     """Schema for question bank with its questions."""
 
@@ -76,7 +51,7 @@ class QuestionBankWithQuestionsResponse(BaseModel):
     description: str
     created_at: datetime
     updated_at: datetime
-    questions: list[QuestionBankQuestionResponse] = []
+    questions: list[QuestionResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
 

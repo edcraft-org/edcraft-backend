@@ -31,16 +31,10 @@ class AssessmentRepository(EntityRepository[Assessment]):
         Returns:
             Assessment with questions loaded and ordered, or None if not found
         """
-        from edcraft_backend.models.assessment_question import AssessmentQuestion
-
         stmt = (
             select(Assessment)
             .where(Assessment.id == assessment_id)
-            .options(
-                selectinload(Assessment.question_associations).selectinload(
-                    AssessmentQuestion.question
-                )
-            )
+            .options(selectinload(Assessment.questions))
             .execution_options(populate_existing=True)
         )
 
