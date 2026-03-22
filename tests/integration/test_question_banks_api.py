@@ -7,12 +7,18 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from edcraft_backend.models.enums import CollaboratorRole, ResourceType
 from edcraft_backend.models.question import Question
 from edcraft_backend.models.user import User
 from tests.factories import (
+    create_and_login_user,
+    create_collaborator,
+    create_test_assessment,
     create_test_folder,
     create_test_question,
     create_test_question_bank,
+    create_test_user,
+    link_question_to_assessment,
     link_question_to_question_bank,
 )
 
@@ -129,6 +135,94 @@ class TestListQuestionBanks:
         assert str(active_bank.id) in bank_ids
         assert str(deleted_bank.id) not in bank_ids
 
+    @pytest.mark.asyncio
+    async def test_collab_filter_owned_returns_only_owned(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """collab_filter=owned returns only banks where user is owner."""
+        owned_bank = await create_test_question_bank(db_session, user)
+        other_owner = await create_test_user(
+            db_session, email="other_owner_qb@test.com"
+        )
+        shared_bank = await create_test_question_bank(db_session, other_owner)
+        await db_session.commit()
+
+        await create_collaborator(
+            db_session,
+            ResourceType.QUESTION_BANK,
+            shared_bank.id,
+            user,
+            CollaboratorRole.EDITOR,
+        )
+        await db_session.commit()
+
+        response = await test_client.get(
+            "/question-banks", params={"collab_filter": "owned"}
+        )
+
+        assert response.status_code == 200
+        ids = [b["id"] for b in response.json()]
+        assert str(owned_bank.id) in ids
+        assert str(shared_bank.id) not in ids
+
+    @pytest.mark.asyncio
+    async def test_collab_filter_shared_returns_only_shared(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """collab_filter=shared returns banks where user is non-owner collaborator."""
+        owned_bank = await create_test_question_bank(db_session, user)
+        other_owner = await create_test_user(
+            db_session, email="other_owner_shared_qb@test.com"
+        )
+        shared_bank = await create_test_question_bank(db_session, other_owner)
+        await db_session.commit()
+
+        await create_collaborator(
+            db_session,
+            ResourceType.QUESTION_BANK,
+            shared_bank.id,
+            user,
+            CollaboratorRole.VIEWER,
+        )
+        await db_session.commit()
+
+        response = await test_client.get(
+            "/question-banks", params={"collab_filter": "shared"}
+        )
+
+        assert response.status_code == 200
+        ids = [b["id"] for b in response.json()]
+        assert str(shared_bank.id) in ids
+        assert str(owned_bank.id) not in ids
+
+    @pytest.mark.asyncio
+    async def test_collab_filter_all_returns_both(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """collab_filter=all (default) returns both owned and shared banks."""
+        owned_bank = await create_test_question_bank(db_session, user)
+        other_owner = await create_test_user(
+            db_session, email="other_owner_all_qb@test.com"
+        )
+        shared_bank = await create_test_question_bank(db_session, other_owner)
+        await db_session.commit()
+
+        await create_collaborator(
+            db_session,
+            ResourceType.QUESTION_BANK,
+            shared_bank.id,
+            user,
+            CollaboratorRole.EDITOR,
+        )
+        await db_session.commit()
+
+        response = await test_client.get("/question-banks")
+
+        assert response.status_code == 200
+        ids = [b["id"] for b in response.json()]
+        assert str(owned_bank.id) in ids
+        assert str(shared_bank.id) in ids
+
 
 @pytest.mark.integration
 @pytest.mark.question_banks
@@ -203,6 +297,78 @@ class TestGetQuestionBank:
         response = await test_client.get(f"/question-banks/{bank.id}")
 
         assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_get_public_bank_by_non_owner(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that authenticated non-collaborators can access public question banks."""
+        from edcraft_backend.models.enums import ResourceVisibility
+
+        bank = await create_test_question_bank(db_session, user, title="Public Bank")
+        bank.visibility = ResourceVisibility.PUBLIC
+        await db_session.commit()
+
+        from tests.conftest import _create_test_client
+
+        async with _create_test_client(db_session) as client2:
+            _ = await create_and_login_user(
+                client2, db_session, email="qb_viewer@test.com"
+            )
+            response = await client2.get(f"/question-banks/{bank.id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == str(bank.id)
+        assert data["visibility"] == "public"
+
+    @pytest.mark.asyncio
+    async def test_get_private_bank_by_non_owner_fails(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that authenticated non-collaborators cannot access private question banks."""
+        bank = await create_test_question_bank(db_session, user, title="Private Bank")
+        await db_session.commit()
+
+        from tests.conftest import _create_test_client
+
+        async with _create_test_client(db_session) as client2:
+            _ = await create_and_login_user(
+                client2, db_session, email="qb_noviewer@test.com"
+            )
+            response = await client2.get(f"/question-banks/{bank.id}")
+
+        assert response.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_get_public_bank_by_unauthenticated_user(
+        self, unauth_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that unauthenticated users can access public question banks."""
+        from edcraft_backend.models.enums import ResourceVisibility
+
+        bank = await create_test_question_bank(db_session, user, title="Public Bank")
+        bank.visibility = ResourceVisibility.PUBLIC
+        await db_session.commit()
+
+        response = await unauth_client.get(f"/question-banks/{bank.id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == str(bank.id)
+        assert data["visibility"] == "public"
+
+    @pytest.mark.asyncio
+    async def test_get_private_bank_by_unauthenticated_user_fails(
+        self, unauth_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that unauthenticated users cannot access private question banks."""
+        bank = await create_test_question_bank(db_session, user, title="Private Bank")
+        await db_session.commit()
+
+        response = await unauth_client.get(f"/question-banks/{bank.id}")
+
+        assert response.status_code == 403
 
 
 @pytest.mark.integration
@@ -279,6 +445,78 @@ class TestUpdateQuestionBank:
         )
 
         assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_update_question_bank_visibility(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that owner can update question bank visibility."""
+        bank = await create_test_question_bank(db_session, user)
+        await db_session.commit()
+
+        response = await test_client.patch(
+            f"/question-banks/{bank.id}", json={"visibility": "public"}
+        )
+
+        assert response.status_code == 200
+        assert response.json()["visibility"] == "public"
+
+    @pytest.mark.asyncio
+    async def test_editor_can_update_question_bank(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that an editor collaborator can PATCH the question bank."""
+        other_user = await create_test_user(
+            db_session, email="qb_owner_edit@test.com"
+        )
+        bank = await create_test_question_bank(
+            db_session, other_user, title="Original Title"
+        )
+        await db_session.commit()
+
+        await create_collaborator(
+            db_session,
+            ResourceType.QUESTION_BANK,
+            bank.id,
+            user,
+            CollaboratorRole.EDITOR,
+        )
+        await db_session.commit()
+
+        response = await test_client.patch(
+            f"/question-banks/{bank.id}", json={"title": "Updated By Editor"}
+        )
+
+        assert response.status_code == 200
+        assert response.json()["title"] == "Updated By Editor"
+
+    @pytest.mark.asyncio
+    async def test_viewer_cannot_update_question_bank_returns_403(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that a viewer collaborator cannot PATCH the question bank (403)."""
+        other_user = await create_test_user(
+            db_session, email="qb_owner_viewer@test.com"
+        )
+        bank = await create_test_question_bank(
+            db_session, other_user, title="Original Title"
+        )
+        await db_session.commit()
+
+        await create_collaborator(
+            db_session,
+            ResourceType.QUESTION_BANK,
+            bank.id,
+            user,
+            CollaboratorRole.VIEWER,
+        )
+        await db_session.commit()
+
+        response = await test_client.patch(
+            f"/question-banks/{bank.id}", json={"title": "Should Fail"}
+        )
+
+        assert response.status_code == 403
 
 
 @pytest.mark.integration
@@ -469,6 +707,60 @@ class TestLinkQuestionToQuestionBank:
         assert all(
             q["linked_from_question_id"] == str(question.id) for q in data["questions"]
         )
+
+    @pytest.mark.asyncio
+    async def test_link_question_from_other_assessment_as_viewer(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that a viewer on a source assessment can link its questions to a bank."""
+        owner2 = await create_test_user(db_session)
+        assessment = await create_test_assessment(db_session, owner2)
+        source_question = await create_test_question(
+            db_session, owner2, question_text="Source Q"
+        )
+        await link_question_to_assessment(db_session, assessment.id, source_question.id)
+
+        await create_collaborator(
+            db_session,
+            ResourceType.ASSESSMENT,
+            assessment.id,
+            user,
+            CollaboratorRole.VIEWER,
+        )
+        dest_bank = await create_test_question_bank(db_session, user)
+        await db_session.commit()
+
+        response = await test_client.post(
+            f"/question-banks/{dest_bank.id}/questions/link",
+            json={"question_id": str(source_question.id)},
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert len(data["questions"]) == 1
+        assert data["questions"][0]["linked_from_question_id"] == str(source_question.id)
+        assert data["questions"][0]["question_text"] == "Source Q"
+
+    @pytest.mark.asyncio
+    async def test_link_question_without_access_returns_403(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that linking a question without access returns 403."""
+        owner2 = await create_test_user(db_session)
+        private_assessment = await create_test_assessment(db_session, owner2)
+        private_question = await create_test_question(db_session, owner2)
+        await link_question_to_assessment(
+            db_session, private_assessment.id, private_question.id
+        )
+        dest_bank = await create_test_question_bank(db_session, user)
+        await db_session.commit()
+
+        response = await test_client.post(
+            f"/question-banks/{dest_bank.id}/questions/link",
+            json={"question_id": str(private_question.id)},
+        )
+
+        assert response.status_code == 403
 
 
 @pytest.mark.integration

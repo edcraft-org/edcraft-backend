@@ -6,11 +6,15 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from edcraft_backend.models.enums import CollaboratorRole, ResourceType
 from edcraft_backend.models.user import User
 from tests.factories import (
+    create_and_login_user,
+    create_collaborator,
     create_test_assessment_template,
     create_test_folder,
     create_test_question_template,
+    create_test_user,
     link_question_template_to_assessment_template,
 )
 
@@ -131,6 +135,94 @@ class TestListAssessmentTemplates:
         assert str(active_template.id) in template_ids
         assert str(deleted_template.id) not in template_ids
 
+    @pytest.mark.asyncio
+    async def test_collab_filter_owned_returns_only_owned(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """collab_filter=owned returns only templates owned by user."""
+        owned = await create_test_assessment_template(db_session, user)
+        other_owner = await create_test_user(
+            db_session, email="other_owner_at@test.com"
+        )
+        shared = await create_test_assessment_template(db_session, other_owner)
+        await db_session.commit()
+
+        await create_collaborator(
+            db_session,
+            ResourceType.ASSESSMENT_TEMPLATE,
+            shared.id,
+            user,
+            CollaboratorRole.EDITOR,
+        )
+        await db_session.commit()
+
+        response = await test_client.get(
+            "/assessment-templates", params={"collab_filter": "owned"}
+        )
+
+        assert response.status_code == 200
+        ids = [t["id"] for t in response.json()]
+        assert str(owned.id) in ids
+        assert str(shared.id) not in ids
+
+    @pytest.mark.asyncio
+    async def test_collab_filter_shared_returns_only_shared(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """collab_filter=shared returns only templates where user is non-owner collaborator."""
+        owned = await create_test_assessment_template(db_session, user)
+        other_owner = await create_test_user(
+            db_session, email="other_owner_shared_at@test.com"
+        )
+        shared = await create_test_assessment_template(db_session, other_owner)
+        await db_session.commit()
+
+        await create_collaborator(
+            db_session,
+            ResourceType.ASSESSMENT_TEMPLATE,
+            shared.id,
+            user,
+            CollaboratorRole.VIEWER,
+        )
+        await db_session.commit()
+
+        response = await test_client.get(
+            "/assessment-templates", params={"collab_filter": "shared"}
+        )
+
+        assert response.status_code == 200
+        ids = [t["id"] for t in response.json()]
+        assert str(shared.id) in ids
+        assert str(owned.id) not in ids
+
+    @pytest.mark.asyncio
+    async def test_collab_filter_all_returns_both(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """collab_filter=all (default) returns both owned and shared templates."""
+        owned = await create_test_assessment_template(db_session, user)
+        other_owner = await create_test_user(
+            db_session, email="other_owner_all_at@test.com"
+        )
+        shared = await create_test_assessment_template(db_session, other_owner)
+        await db_session.commit()
+
+        await create_collaborator(
+            db_session,
+            ResourceType.ASSESSMENT_TEMPLATE,
+            shared.id,
+            user,
+            CollaboratorRole.VIEWER,
+        )
+        await db_session.commit()
+
+        response = await test_client.get("/assessment-templates")
+
+        assert response.status_code == 200
+        ids = [t["id"] for t in response.json()]
+        assert str(owned.id) in ids
+        assert str(shared.id) in ids
+
 
 @pytest.mark.integration
 @pytest.mark.assessment_templates
@@ -227,6 +319,86 @@ class TestGetAssessmentTemplate:
 
         assert response.status_code == 404
 
+    @pytest.mark.asyncio
+    async def test_get_public_template_by_non_owner(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that authenticated non-collaborators can access public assessment templates."""
+        from edcraft_backend.models.enums import ResourceVisibility
+
+        template = await create_test_assessment_template(
+            db_session, user, title="Public Template"
+        )
+        template.visibility = ResourceVisibility.PUBLIC
+        await db_session.commit()
+
+        from tests.conftest import _create_test_client
+
+        async with _create_test_client(db_session) as client2:
+            _ = await create_and_login_user(
+                client2, db_session, email="at_viewer@test.com"
+            )
+            response = await client2.get(f"/assessment-templates/{template.id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == str(template.id)
+        assert data["visibility"] == "public"
+
+    @pytest.mark.asyncio
+    async def test_get_private_template_by_non_owner_fails(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that authenticated non-collaborators cannot access private assessment templates."""
+        template = await create_test_assessment_template(
+            db_session, user, title="Private Template"
+        )
+        await db_session.commit()
+
+        from tests.conftest import _create_test_client
+
+        async with _create_test_client(db_session) as client2:
+            _ = await create_and_login_user(
+                client2, db_session, email="at_noviewer@test.com"
+            )
+            response = await client2.get(f"/assessment-templates/{template.id}")
+
+        assert response.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_get_public_template_by_unauthenticated_user(
+        self, unauth_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that unauthenticated users can access public assessment templates."""
+        from edcraft_backend.models.enums import ResourceVisibility
+
+        template = await create_test_assessment_template(
+            db_session, user, title="Public Template"
+        )
+        template.visibility = ResourceVisibility.PUBLIC
+        await db_session.commit()
+
+        response = await unauth_client.get(f"/assessment-templates/{template.id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == str(template.id)
+        assert data["visibility"] == "public"
+
+    @pytest.mark.asyncio
+    async def test_get_private_template_by_unauthenticated_user_fails(
+        self, unauth_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that unauthenticated users cannot access private assessment templates."""
+        template = await create_test_assessment_template(
+            db_session, user, title="Private Template"
+        )
+        await db_session.commit()
+
+        response = await unauth_client.get(f"/assessment-templates/{template.id}")
+
+        assert response.status_code == 403
+
 
 @pytest.mark.integration
 @pytest.mark.assessment_templates
@@ -306,6 +478,80 @@ class TestUpdateAssessmentTemplate:
         )
 
         assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_update_assessment_template_visibility(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that owner can update assessment template visibility."""
+        template = await create_test_assessment_template(db_session, user)
+        await db_session.commit()
+
+        response = await test_client.patch(
+            f"/assessment-templates/{template.id}", json={"visibility": "public"}
+        )
+
+        assert response.status_code == 200
+        assert response.json()["visibility"] == "public"
+
+    @pytest.mark.asyncio
+    async def test_editor_can_update_assessment_template(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that an editor collaborator can PATCH the assessment template."""
+        other_user = await create_test_user(
+            db_session, email="at_owner_edit@test.com"
+        )
+        template = await create_test_assessment_template(
+            db_session, other_user, title="Original Title"
+        )
+        await db_session.commit()
+
+        await create_collaborator(
+            db_session,
+            ResourceType.ASSESSMENT_TEMPLATE,
+            template.id,
+            user,
+            CollaboratorRole.EDITOR,
+        )
+        await db_session.commit()
+
+        response = await test_client.patch(
+            f"/assessment-templates/{template.id}",
+            json={"title": "Updated By Editor"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["title"] == "Updated By Editor"
+
+    @pytest.mark.asyncio
+    async def test_viewer_cannot_update_assessment_template_returns_403(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that a viewer collaborator cannot PATCH the assessment template (403)."""
+        other_user = await create_test_user(
+            db_session, email="at_owner_viewer@test.com"
+        )
+        template = await create_test_assessment_template(
+            db_session, other_user, title="Original Title"
+        )
+        await db_session.commit()
+
+        await create_collaborator(
+            db_session,
+            ResourceType.ASSESSMENT_TEMPLATE,
+            template.id,
+            user,
+            CollaboratorRole.VIEWER,
+        )
+        await db_session.commit()
+
+        response = await test_client.patch(
+            f"/assessment-templates/{template.id}",
+            json={"title": "Should Fail"},
+        )
+
+        assert response.status_code == 403
 
 
 @pytest.mark.integration
@@ -878,6 +1124,61 @@ class TestLinkQuestionTemplateToAssessmentTemplate:
         assert response.status_code == 400
         assert "Order must be between 0 and 2" in response.json()["detail"]
         assert "Omit order to append" in response.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_link_question_template_from_other_template_as_viewer(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that a viewer on a source assessment template can link its question templates."""
+        owner2 = await create_test_user(db_session)
+        source_template = await create_test_assessment_template(db_session, owner2)
+        qt = await create_test_question_template(
+            db_session, owner2, question_text_template="Source QT?"
+        )
+        await link_question_template_to_assessment_template(
+            db_session, source_template.id, qt.id
+        )
+        await create_collaborator(
+            db_session,
+            ResourceType.ASSESSMENT_TEMPLATE,
+            source_template.id,
+            user,
+            CollaboratorRole.VIEWER,
+        )
+        dest_template = await create_test_assessment_template(db_session, user)
+        await db_session.commit()
+
+        response = await test_client.post(
+            f"/assessment-templates/{dest_template.id}/question-templates/link",
+            json={"question_template_id": str(qt.id)},
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert len(data["question_templates"]) == 1
+        assert data["question_templates"][0]["linked_from_template_id"] == str(qt.id)
+        assert data["question_templates"][0]["question_text_template"] == "Source QT?"
+
+    @pytest.mark.asyncio
+    async def test_link_question_template_without_access_returns_403(
+        self, test_client: AsyncClient, db_session: AsyncSession, user: User
+    ) -> None:
+        """Test that linking a question template without access returns 403."""
+        owner2 = await create_test_user(db_session)
+        private_template = await create_test_assessment_template(db_session, owner2)
+        qt = await create_test_question_template(db_session, owner2)
+        await link_question_template_to_assessment_template(
+            db_session, private_template.id, qt.id
+        )
+        dest_template = await create_test_assessment_template(db_session, user)
+        await db_session.commit()
+
+        response = await test_client.post(
+            f"/assessment-templates/{dest_template.id}/question-templates/link",
+            json={"question_template_id": str(qt.id)},
+        )
+
+        assert response.status_code == 403
 
 
 @pytest.mark.integration

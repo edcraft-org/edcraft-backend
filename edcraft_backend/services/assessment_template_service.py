@@ -1,12 +1,14 @@
+from typing import Literal
 from uuid import UUID
 
 from edcraft_backend.exceptions import (
     ResourceNotFoundError,
-    UnauthorizedAccessError,
     ValidationError,
 )
 from edcraft_backend.models.assessment_template import AssessmentTemplate
+from edcraft_backend.models.enums import CollaboratorRole, ResourceType
 from edcraft_backend.models.question_template import QuestionTemplate
+from edcraft_backend.models.resource_collaborator import ResourceCollaborator
 from edcraft_backend.repositories.assessment_template_repository import (
     AssessmentTemplateRepository,
 )
@@ -14,12 +16,14 @@ from edcraft_backend.repositories.question_template_repository import (
     QuestionTemplateRepository,
 )
 from edcraft_backend.schemas.assessment_template import (
+    AssessmentTemplateResponse,
     AssessmentTemplateWithQuestionTemplatesResponse,
     CreateAssessmentTemplateRequest,
     QuestionTemplateOrder,
     UpdateAssessmentTemplateRequest,
 )
 from edcraft_backend.schemas.question_template import CreateQuestionTemplateRequest
+from edcraft_backend.services.collaboration_service import CollaborationService
 from edcraft_backend.services.folder_service import FolderService
 from edcraft_backend.services.question_template_service import QuestionTemplateService
 
@@ -33,24 +37,32 @@ class AssessmentTemplateService:
         folder_svc: FolderService,
         question_template_svc: QuestionTemplateService,
         question_template_repository: QuestionTemplateRepository,
+        collaboration_svc: CollaborationService,
     ):
         self.template_repo = assessment_template_repository
         self.folder_svc = folder_svc
         self.question_template_svc = question_template_svc
         self.qt_repo = question_template_repository
+        self.collaboration_svc = collaboration_svc
 
-    def _assert_ownership(self, template: AssessmentTemplate, user_id: UUID) -> None:
-        if template.owner_id != user_id:
-            raise UnauthorizedAccessError("AssessmentTemplate", str(template.id))
-
-    async def get_owned_template(
-        self, user_id: UUID, template_id: UUID
+    async def get_template(
+        self,
+        user_id: UUID,
+        template_id: UUID,
+        min_role: CollaboratorRole = CollaboratorRole.VIEWER,
     ) -> AssessmentTemplate:
-        """Get template and verify ownership."""
+        """Get assessment template and verify the user has at least the given role.
+
+        Raises:
+            ResourceNotFoundError: If template not found
+            UnauthorizedAccessError: If user lacks the required role
+        """
         template = await self.template_repo.get_by_id(template_id)
         if not template:
             raise ResourceNotFoundError("AssessmentTemplate", str(template_id))
-        self._assert_ownership(template, user_id)
+        await self.collaboration_svc.check_access(
+            ResourceType.ASSESSMENT_TEMPLATE, template_id, user_id, min_role
+        )
         return template
 
     async def _require_question_template_in_assessment_template(
@@ -72,13 +84,6 @@ class AssessmentTemplateService:
     ) -> AssessmentTemplate:
         """Create a new assessment template.
 
-        Args:
-            user_id: User UUID
-            template_data: Template creation data
-
-        Returns:
-            Created template
-
         Raises:
             ResourceNotFoundError: If folder not found
             UnauthorizedAccessError: If user doesn't own the folder
@@ -89,70 +94,56 @@ class AssessmentTemplateService:
             owner_id=user_id,
             **template_data.model_dump(),
         )
-        return await self.template_repo.create(template)
+        template = await self.template_repo.create(template)
+
+        collab = ResourceCollaborator(
+            resource_type=ResourceType.ASSESSMENT_TEMPLATE,
+            resource_id=template.id,
+            user_id=user_id,
+            role=CollaboratorRole.OWNER,
+        )
+        await self.collaboration_svc.collaborator_repo.create(collab)
+
+        return template
 
     async def list_templates(
         self,
         user_id: UUID,
         folder_id: UUID | None = None,
-    ) -> list[AssessmentTemplate]:
-        """List assessment templates within folder or all user templates.
-
-        Args:
-            user_id: User UUID requesting the resources
-            folder_id: Folder UUID (None for ALL templates owned by user)
-
-        Returns:
-            List of templates ordered by updated_at descending
-
-        Raises:
-            ResourceNotFoundError: If folder not found
-            UnauthorizedAccessError: If folder does not belong to user
-        """
-        if folder_id:
-            await self.folder_svc.get_owned_folder(user_id, folder_id)
-            templates = await self.template_repo.get_by_folder(folder_id)
-        else:
-            templates = await self.template_repo.list(
-                filters={"owner_id": user_id},
-                order_by=AssessmentTemplate.updated_at.desc(),
-            )
-        return templates
-
-    async def get_template(
-        self, user_id: UUID, template_id: UUID
-    ) -> AssessmentTemplate:
-        """Get an assessment template by ID.
-
-        Args:
-            user_id: User UUID requesting the resource
-            template_id: Template UUID
-
-        Returns:
-            AssessmentTemplate entity
-
-        Raises:
-            ResourceNotFoundError: If template not found
-            UnauthorizedAccessError: If user doesn't own the template
-        """
-        return await self.get_owned_template(user_id, template_id)
-
-    async def _get_template_with_question_templates(
-        self, user_id: UUID, assessment_template_id: UUID
-    ) -> AssessmentTemplate:
-        """Get assessment template with all question templates loaded.
+        collab_filter: Literal["all", "owned", "shared"] = "all",
+    ) -> list[AssessmentTemplateResponse]:
+        """List assessment templates the user has access to via collaborator table.
 
         Args:
             user_id: User UUID
-            assessment_template_id: AssessmentTemplate UUID
+            folder_id: Optional folder UUID filter
+            collab_filter: "all" (any role), "owned" (owner only), "shared" (non-owner)
 
         Returns:
-            AssessmentTemplate with question templates
-
-        Raises:
-            ResourceNotFoundError: If assessment template not found
-            UnauthorizedAccessError: If user doesn't own the assessment template
+            List of AssessmentTemplateResponse with my_role populated
         """
+        if folder_id and collab_filter == "owned":
+            await self.folder_svc.get_owned_folder(user_id, folder_id)
+
+        rows = await self.template_repo.list_by_collaborator(
+            user_id=user_id,
+            collab_filter=collab_filter,
+            folder_id=folder_id,
+        )
+        return [
+            AssessmentTemplateResponse.model_validate(tmpl).model_copy(
+                update={"my_role": role}
+            )
+            for tmpl, role in rows
+        ]
+
+    async def _get_template_with_question_templates(
+        self,
+        user_id: UUID | None,
+        assessment_template_id: UUID,
+        min_role: CollaboratorRole = CollaboratorRole.VIEWER,
+    ) -> AssessmentTemplate:
+        """Get assessment template with all question templates loaded and access check."""
         assessment_template = await self.template_repo.get_by_id_with_templates(
             assessment_template_id
         )
@@ -160,14 +151,13 @@ class AssessmentTemplateService:
             raise ResourceNotFoundError(
                 "AssessmentTemplate", str(assessment_template_id)
             )
-        if assessment_template.owner_id != user_id:
-            raise UnauthorizedAccessError(
-                "AssessmentTemplate", str(assessment_template_id)
-            )
+        await self.collaboration_svc.check_access(
+            ResourceType.ASSESSMENT_TEMPLATE, assessment_template_id, user_id, min_role
+        )
         return assessment_template
 
     async def get_template_with_question_templates(
-        self, user_id: UUID, assessment_template_id: UUID
+        self, user_id: UUID | None, assessment_template_id: UUID
     ) -> AssessmentTemplateWithQuestionTemplatesResponse:
         """Get assessment template with all question templates loaded.
 
@@ -185,9 +175,16 @@ class AssessmentTemplateService:
         assessment_template = await self._get_template_with_question_templates(
             user_id, assessment_template_id
         )
+        my_role = (
+            await self.collaboration_svc.collaborator_repo.get_role(
+                ResourceType.ASSESSMENT_TEMPLATE, assessment_template_id, user_id
+            )
+            if user_id
+            else None
+        )
         return AssessmentTemplateWithQuestionTemplatesResponse.model_validate(
             assessment_template
-        )
+        ).model_copy(update={"my_role": my_role})
 
     async def update_template(
         self,
@@ -206,9 +203,11 @@ class AssessmentTemplateService:
 
         Raises:
             ResourceNotFoundError: If template or folder not found
-            UnauthorizedAccessError: If user doesn't own resources
+            UnauthorizedAccessError: If user lacks editor or owner role
         """
-        template = await self.get_template(user_id, template_id)
+        template = await self.get_template(
+            user_id, template_id, min_role=CollaboratorRole.EDITOR
+        )
         update_data = template_data.model_dump(exclude_unset=True)
 
         if "folder_id" in update_data and update_data["folder_id"]:
@@ -233,9 +232,10 @@ class AssessmentTemplateService:
 
         Raises:
             ResourceNotFoundError: If template not found
+            UnauthorizedAccessError: If user doesn't own the template
         """
         template = await self._get_template_with_question_templates(
-            user_id, template_id
+            user_id, template_id, min_role=CollaboratorRole.OWNER
         )
         for qt in template.question_templates:
             qt.assessment_template_id = None
@@ -294,10 +294,11 @@ class AssessmentTemplateService:
 
         Raises:
             ResourceNotFoundError: If assessment template or question template not found
-            DuplicateResourceError: If order is invalid
-            UnauthorizedAccessError: If user doesn't own resources
+            UnauthorizedAccessError: If user lacks owner or editor role
         """
-        assessment_template = await self.get_template(user_id, template_id)
+        assessment_template = await self.get_template(
+            user_id, template_id, min_role=CollaboratorRole.EDITOR
+        )
         question_template_entity = await self.question_template_svc.create_template(
             user_id=user_id, template_data=question_template
         )
@@ -322,9 +323,9 @@ class AssessmentTemplateService:
 
         Raises:
             ResourceNotFoundError: If association not found
-            UnauthorizedAccessError: If user doesn't own the assessment template
+            UnauthorizedAccessError: If user lacks owner or editor role
         """
-        await self.get_template(user_id, template_id)
+        await self.get_template(user_id, template_id, min_role=CollaboratorRole.EDITOR)
         qt = await self._require_question_template_in_assessment_template(
             template_id, question_template_id
         )
@@ -342,25 +343,15 @@ class AssessmentTemplateService:
         question_template_id: UUID,
         order: int | None = None,
     ) -> AssessmentTemplateWithQuestionTemplatesResponse:
-        """Copy a question template into an assessment template.
-        Link to source question template.
-
-        Args:
-            user_id: User UUID requesting the resource
-            template_id: AssessmentTemplate UUID
-            question_template_id: QuestionTemplate UUID
-            order: Order position for the question template
-
-        Returns:
-            Updated assessment template with question templates
+        """Copy a question template into an assessment template, linking to source.
 
         Raises:
             ResourceNotFoundError: If assessment template or question template not found
-            DuplicateResourceError: If question template already linked to assessment template
-            ValidationError: If order is invalid
-            UnauthorizedAccessError: If user doesn't own resources
+            UnauthorizedAccessError: If user lacks owner or editor role
         """
-        assessment_template = await self.get_template(user_id, template_id)
+        assessment_template = await self.get_template(
+            user_id, template_id, min_role=CollaboratorRole.EDITOR
+        )
         source = await self.question_template_svc.get_template(
             user_id, question_template_id
         )
@@ -381,20 +372,12 @@ class AssessmentTemplateService:
     ) -> AssessmentTemplateWithQuestionTemplatesResponse:
         """Sync a linked question template's content from its source template.
 
-        Args:
-            user_id: User UUID
-            template_id: AssessmentTemplate UUID
-            question_template_id: UUID of the question template copy in this assessment template
-
-        Returns:
-            Updated assessment template with question templates
-
         Raises:
             ResourceNotFoundError: If template, question template, or source not found
             ValidationError: If question template has no source link
-            UnauthorizedAccessError: If user doesn't own the assessment template
+            UnauthorizedAccessError: If user lacks EDITOR+ role
         """
-        await self.get_template(user_id, template_id)
+        await self.get_template(user_id, template_id, min_role=CollaboratorRole.EDITOR)
         qt = await self._require_question_template_in_assessment_template(
             template_id, question_template_id
         )
@@ -417,15 +400,11 @@ class AssessmentTemplateService:
     ) -> AssessmentTemplateWithQuestionTemplatesResponse:
         """Remove the source link from a question template copy (make it independent).
 
-        Args:
-            user_id: User UUID
-            template_id: AssessmentTemplate UUID
-            question_template_id: UUID of the question template copy
-
-        Returns:
-            Updated assessment template with question templates
+        Raises:
+            ResourceNotFoundError: If template or question template not found
+            UnauthorizedAccessError: If user lacks EDITOR+ role
         """
-        await self.get_template(user_id, template_id)
+        await self.get_template(user_id, template_id, min_role=CollaboratorRole.EDITOR)
         qt = await self._require_question_template_in_assessment_template(
             template_id, question_template_id
         )
@@ -443,21 +422,13 @@ class AssessmentTemplateService:
     ) -> AssessmentTemplateWithQuestionTemplatesResponse:
         """Reorder question templates in an assessment template.
 
-        Args:
-            user_id: User UUID requesting the resource
-            template_id: AssessmentTemplate UUID
-            question_template_orders: List of QuestionTemplateOrder objects
-
-        Returns:
-            Updated assessment template with question templates
-
         Raises:
             ResourceNotFoundError: If assessment template not found
             ValidationError: If not all question templates are included in reorder
-            UnauthorizedAccessError: If user doesn't own resources
+            UnauthorizedAccessError: If user lacks EDITOR+ role
         """
         assessment_template = await self._get_template_with_question_templates(
-            user_id, template_id
+            user_id, template_id, min_role=CollaboratorRole.EDITOR
         )
 
         current_ids = {qt.id for qt in assessment_template.question_templates}

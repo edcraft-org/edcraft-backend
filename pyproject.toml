@@ -67,6 +67,7 @@ markers = [
     "assessment_templates: Assessment template router tests",
     "question_generation: Question generation router tests",
     "input_generator: Input generator router tests",
+    "collaborators: Collaborator router tests",
 ]
 
 [tool.ruff]

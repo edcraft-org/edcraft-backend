@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from edcraft_backend.models.user import User
 from tests.factories import (
     create_assessment_template_with_question_templates,
+    create_test_assessment_template,
     create_test_folder,
     create_test_question_template,
 )
@@ -147,6 +148,7 @@ class TestGenerateQuestionFromTemplate:
         )
 
         assert response.status_code == 404
+
 
 @pytest.mark.integration
 @pytest.mark.question_generation
@@ -343,17 +345,9 @@ class TestGenerateAssessmentFromTemplate:
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test assessment template with no question templates creates empty assessment."""
-        from edcraft_backend.models.assessment_template import AssessmentTemplate
-        from tests.factories import get_user_root_folder
-
-        root_folder = await get_user_root_folder(db_session, user)
-        template = AssessmentTemplate(
-            owner_id=user.id,
-            folder_id=root_folder.id,
-            title="Empty Template",
-            description="No questions",
+        template = await create_test_assessment_template(
+            db_session, user, title="Empty Template", description="No questions"
         )
-        db_session.add(template)
         await db_session.commit()
 
         request_data: dict[str, Any] = {

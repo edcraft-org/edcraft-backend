@@ -1,10 +1,15 @@
 """Question bank endpoints."""
 
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from edcraft_backend.dependencies import CurrentUserDep, QuestionBankServiceDep
+from edcraft_backend.dependencies import (
+    CurrentUserDep,
+    CurrentUserOptionalDep,
+    QuestionBankServiceDep,
+)
 from edcraft_backend.exceptions import EdCraftBaseException
 from edcraft_backend.models.question_bank import QuestionBank
 from edcraft_backend.schemas.question_bank import (
@@ -39,11 +44,14 @@ async def list_question_banks(
     current_user: CurrentUserDep,
     service: QuestionBankServiceDep,
     folder_id: UUID | None = Query(None, description="Filter by folder ID"),
-) -> list[QuestionBank]:
-    """List question banks by owner, optionally filtered by folder."""
+    collab_filter: Literal["all", "owned", "shared"] = Query(
+        "all", description="Filter by collaboration role: all, owned, or shared"
+    ),
+) -> list[QuestionBankResponse]:
+    """List question banks the user has access to, optionally filtered by folder or role."""
     try:
         return await service.list_question_banks(
-            user_id=current_user.id, folder_id=folder_id
+            user_id=current_user.id, folder_id=folder_id, collab_filter=collab_filter
         )
     except EdCraftBaseException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
@@ -51,14 +59,19 @@ async def list_question_banks(
 
 @router.get("/{question_bank_id}", response_model=QuestionBankWithQuestionsResponse)
 async def get_question_bank(
-    current_user: CurrentUserDep,
+    current_user: CurrentUserOptionalDep,
     question_bank_id: UUID,
     service: QuestionBankServiceDep,
 ) -> QuestionBankWithQuestionsResponse:
-    """Get question bank with questions in order."""
+    """Get question bank with questions in order.
+
+    - Collaborators can access the question bank
+    - Unauthenticated users can only access public question banks
+    """
     try:
+        user_id = current_user.id if current_user else None
         return await service.get_question_bank_with_questions(
-            user_id=current_user.id, question_bank_id=question_bank_id
+            user_id=user_id, question_bank_id=question_bank_id
         )
     except EdCraftBaseException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e

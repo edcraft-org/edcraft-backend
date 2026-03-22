@@ -1,11 +1,13 @@
 """Question template bank endpoints."""
 
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
 
 from edcraft_backend.dependencies import (
     CurrentUserDep,
+    CurrentUserOptionalDep,
     QuestionTemplateBankServiceDep,
 )
 from edcraft_backend.exceptions import EdCraftBaseException
@@ -44,11 +46,14 @@ async def list_question_template_banks(
     current_user: CurrentUserDep,
     service: QuestionTemplateBankServiceDep,
     folder_id: UUID | None = Query(None, description="Filter by folder ID"),
-) -> list[QuestionTemplateBank]:
-    """List question template banks by owner, optionally filtered by folder."""
+    collab_filter: Literal["all", "owned", "shared"] = Query(
+        "all", description="Filter by collaboration role: all, owned, or shared"
+    ),
+) -> list[QuestionTemplateBankResponse]:
+    """List qt banks the user has access to, optionally filtered by folder or role."""
     try:
         return await service.list_question_template_banks(
-            user_id=current_user.id, folder_id=folder_id
+            user_id=current_user.id, folder_id=folder_id, collab_filter=collab_filter
         )
     except EdCraftBaseException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
@@ -59,14 +64,19 @@ async def list_question_template_banks(
     response_model=QuestionTemplateBankWithTemplatesResponse,
 )
 async def get_question_template_bank(
-    current_user: CurrentUserDep,
+    current_user: CurrentUserOptionalDep,
     question_template_bank_id: UUID,
     service: QuestionTemplateBankServiceDep,
 ) -> QuestionTemplateBankWithTemplatesResponse:
-    """Get question template bank with all question templates."""
+    """Get question template bank with all question templates.
+
+    - Collaborators can access the bank
+    - Unauthenticated users can only access public banks
+    """
     try:
+        user_id = current_user.id if current_user else None
         return await service.get_question_template_bank_with_templates(
-            user_id=current_user.id,
+            user_id=user_id,
             question_template_bank_id=question_template_bank_id,
         )
     except EdCraftBaseException as e:

@@ -1,10 +1,8 @@
 from typing import TYPE_CHECKING
-from uuid import UUID
 
-from sqlalchemy import ForeignKey, String, Text
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, relationship
 
-from edcraft_backend.models.base import EntityBase
+from edcraft_backend.models.base import FolderResourceBase
 
 if TYPE_CHECKING:
     from edcraft_backend.models.folder import Folder
@@ -12,22 +10,10 @@ if TYPE_CHECKING:
     from edcraft_backend.models.user import User
 
 
-class QuestionBank(EntityBase):
+class QuestionBank(FolderResourceBase):
     """Question Bank - collection of reusable questions for storage."""
 
     __tablename__ = "question_banks"
-
-    # Foreign Keys
-    owner_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    folder_id: Mapped[UUID] = mapped_column(
-        ForeignKey("folders.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-
-    # Basic Fields
-    title: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
     # Relationships
     owner: Mapped["User"] = relationship(back_populates="question_banks")

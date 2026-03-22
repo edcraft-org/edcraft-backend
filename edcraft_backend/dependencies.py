@@ -39,6 +39,7 @@ from edcraft_backend.services.assessment_template_service import (
     AssessmentTemplateService,
 )
 from edcraft_backend.services.auth_service import AuthService
+from edcraft_backend.services.collaboration_service import CollaborationService
 from edcraft_backend.services.email_service import EmailService
 from edcraft_backend.services.folder_service import FolderService
 from edcraft_backend.services.oauth_service import OAuthService
@@ -163,9 +164,14 @@ def get_question_template_service(
     target_element_repo: TargetElementRepository = Depends(
         get_target_element_repository
     ),
+    collaborator_repo: ResourceCollaboratorRepository = Depends(
+        get_resource_collaborator_repository
+    ),
 ) -> QuestionTemplateService:
     """Get QuestionTemplateService instance."""
-    return QuestionTemplateService(template_repo, target_element_repo)
+    return QuestionTemplateService(
+        template_repo, target_element_repo, collaborator_repo
+    )
 
 
 def get_folder_service(
@@ -203,22 +209,47 @@ def get_user_service(
     return UserService(user_repo, folder_svc)
 
 
-def get_assessment_service(
-    assessment_repo: AssessmentRepository = Depends(get_assessment_repository),
-    folder_svc: FolderService = Depends(get_folder_service),
-    question_svc: QuestionService = Depends(get_question_service),
+def get_collaboration_service(
     collaborator_repo: ResourceCollaboratorRepository = Depends(
         get_resource_collaborator_repository
     ),
     user_repo: UserRepository = Depends(get_user_repository),
+    folder_svc: FolderService = Depends(get_folder_service),
+    assessment_repo: AssessmentRepository = Depends(get_assessment_repository),
+    question_bank_repo: QuestionBankRepository = Depends(get_question_bank_repository),
+    qt_bank_repo: QuestionTemplateBankRepository = Depends(
+        get_question_template_bank_repository
+    ),
+    assessment_template_repo: AssessmentTemplateRepository = Depends(
+        get_assessment_template_repository
+    ),
+) -> CollaborationService:
+    """Get CollaborationService instance."""
+    return CollaborationService(
+        collaborator_repo,
+        user_repo,
+        folder_svc,
+        assessment_repo,
+        question_bank_repo,
+        qt_bank_repo,
+        assessment_template_repo,
+    )
+
+
+def get_assessment_service(
+    assessment_repo: AssessmentRepository = Depends(get_assessment_repository),
+    folder_svc: FolderService = Depends(get_folder_service),
+    question_svc: QuestionService = Depends(get_question_service),
+    user_repo: UserRepository = Depends(get_user_repository),
+    collaboration_svc: CollaborationService = Depends(get_collaboration_service),
 ) -> AssessmentService:
     """Get AssessmentService instance."""
     return AssessmentService(
         assessment_repo,
         folder_svc,
         question_svc,
-        collaborator_repo,
         user_repo,
+        collaboration_svc,
     )
 
 
@@ -226,16 +257,14 @@ def get_question_bank_service(
     question_bank_repo: QuestionBankRepository = Depends(get_question_bank_repository),
     folder_svc: FolderService = Depends(get_folder_service),
     question_svc: QuestionService = Depends(get_question_service),
-    collaborator_repo: ResourceCollaboratorRepository = Depends(
-        get_resource_collaborator_repository
-    ),
+    collaboration_svc: CollaborationService = Depends(get_collaboration_service),
 ) -> QuestionBankService:
     """Get QuestionBankService instance."""
     return QuestionBankService(
         question_bank_repo,
         folder_svc,
         question_svc,
-        collaborator_repo,
+        collaboration_svc,
     )
 
 
@@ -248,10 +277,11 @@ def get_question_template_bank_service(
     question_template_svc: QuestionTemplateService = Depends(
         get_question_template_service
     ),
+    collaboration_svc: CollaborationService = Depends(get_collaboration_service),
 ) -> QuestionTemplateBankService:
     """Get QuestionTemplateBankService instance."""
     return QuestionTemplateBankService(
-        qt_bank_repo, folder_svc, qt_repo, question_template_svc
+        qt_bank_repo, folder_svc, qt_repo, question_template_svc, collaboration_svc
     )
 
 
@@ -264,6 +294,7 @@ def get_assessment_template_service(
         get_question_template_service
     ),
     qt_repo: QuestionTemplateRepository = Depends(get_question_template_repository),
+    collaboration_svc: CollaborationService = Depends(get_collaboration_service),
 ) -> AssessmentTemplateService:
     """Get AssessmentTemplateService instance."""
     return AssessmentTemplateService(
@@ -271,6 +302,7 @@ def get_assessment_template_service(
         folder_svc,
         question_template_svc,
         qt_repo,
+        collaboration_svc,
     )
 
 
@@ -398,6 +430,9 @@ QuestionGenerationServiceDep = Annotated[
 ]
 
 
+CollaborationServiceDep = Annotated[
+    CollaborationService, Depends(get_collaboration_service)
+]
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 OAuthServiceDep = Annotated[OAuthService, Depends(get_oauth_service)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]

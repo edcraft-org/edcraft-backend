@@ -7,12 +7,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from edcraft_backend.models.assessment import Assessment
+from edcraft_backend.models.assessment_template import AssessmentTemplate
 from edcraft_backend.models.enums import (
     CollaboratorRole,
     ResourceType,
     ResourceVisibility,
 )
 from edcraft_backend.models.question import Question
+from edcraft_backend.models.question_template import QuestionTemplate
+from edcraft_backend.models.question_template_bank import QuestionTemplateBank
 from edcraft_backend.models.resource_collaborator import ResourceCollaborator
 from edcraft_backend.repositories.base import AssociationRepository
 
@@ -227,6 +230,126 @@ class ResourceCollaboratorRepository(AssociationRepository[ResourceCollaborator]
                 .limit(1)
             )
             result = await self.db.execute(public_stmt)
+            if result.scalar_one_or_none() is not None:
+                return True
+
+        return False
+
+    async def check_question_template_permission(
+        self,
+        question_template_id: UUID,
+        user_id: UUID,
+        min_role: CollaboratorRole,
+    ) -> bool:
+        """Check if a user has sufficient access to a question template.
+
+        Access is granted if the user:
+        - owns the question template, OR
+        - has at least min_role on any QuestionTemplateBank containing the template, OR
+        - has at least min_role on any AssessmentTemplate containing the template, OR
+        - (min_role=VIEWER only) the template is in a public QuestionTemplateBank or
+          AssessmentTemplate.
+
+        Args:
+            question_template_id: QuestionTemplate UUID
+            user_id: User UUID
+            min_role: Minimum required role (VIEWER or EDITOR)
+
+        Returns:
+            True if the user has sufficient permission
+        """
+        acceptable_roles = self._get_acceptable_roles(min_role)
+
+        # Check ownership
+        owner_stmt = (
+            select(QuestionTemplate.id)
+            .where(
+                QuestionTemplate.id == question_template_id,
+                QuestionTemplate.owner_id == user_id,
+            )
+            .limit(1)
+        )
+        result = await self.db.execute(owner_stmt)
+        if result.scalar_one_or_none() is not None:
+            return True
+
+        # Check collaborator role on any containing QuestionTemplateBank
+        bank_collab_stmt = (
+            select(ResourceCollaborator.id)
+            .join(
+                QuestionTemplate,
+                QuestionTemplate.question_template_bank_id
+                == ResourceCollaborator.resource_id,
+            )
+            .where(
+                ResourceCollaborator.resource_type == ResourceType.QUESTION_TEMPLATE_BANK,
+                QuestionTemplate.id == question_template_id,
+                QuestionTemplate.question_template_bank_id.isnot(None),
+                ResourceCollaborator.user_id == user_id,
+                ResourceCollaborator.role.in_(acceptable_roles),
+            )
+            .limit(1)
+        )
+        result = await self.db.execute(bank_collab_stmt)
+        if result.scalar_one_or_none() is not None:
+            return True
+
+        # Check collaborator role on any containing AssessmentTemplate
+        at_collab_stmt = (
+            select(ResourceCollaborator.id)
+            .join(
+                QuestionTemplate,
+                QuestionTemplate.assessment_template_id
+                == ResourceCollaborator.resource_id,
+            )
+            .where(
+                ResourceCollaborator.resource_type == ResourceType.ASSESSMENT_TEMPLATE,
+                QuestionTemplate.id == question_template_id,
+                QuestionTemplate.assessment_template_id.isnot(None),
+                ResourceCollaborator.user_id == user_id,
+                ResourceCollaborator.role.in_(acceptable_roles),
+            )
+            .limit(1)
+        )
+        result = await self.db.execute(at_collab_stmt)
+        if result.scalar_one_or_none() is not None:
+            return True
+
+        # For VIEWER, allow access if template is in a public QuestionTemplateBank
+        if min_role == CollaboratorRole.VIEWER:
+            public_bank_stmt = (
+                select(QuestionTemplate.id)
+                .join(
+                    QuestionTemplateBank,
+                    QuestionTemplateBank.id
+                    == QuestionTemplate.question_template_bank_id,
+                )
+                .where(
+                    QuestionTemplate.id == question_template_id,
+                    QuestionTemplateBank.visibility == ResourceVisibility.PUBLIC,
+                    QuestionTemplateBank.deleted_at.is_(None),
+                )
+                .limit(1)
+            )
+            result = await self.db.execute(public_bank_stmt)
+            if result.scalar_one_or_none() is not None:
+                return True
+
+            public_at_stmt = (
+                select(QuestionTemplate.id)
+                .join(
+                    AssessmentTemplate,
+                    AssessmentTemplate.id
+                    == QuestionTemplate.assessment_template_id,
+                )
+                .where(
+                    QuestionTemplate.id == question_template_id,
+                    AssessmentTemplate.visibility == ResourceVisibility.PUBLIC,
+                    AssessmentTemplate.deleted_at.is_(None),
+                )
+                .limit(1)
+            )
+            result = await self.db.execute(public_at_stmt)
             if result.scalar_one_or_none() is not None:
                 return True
 

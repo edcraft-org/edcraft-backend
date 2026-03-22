@@ -1,12 +1,10 @@
 """Assessment template model - collection of question templates."""
 
 from typing import TYPE_CHECKING
-from uuid import UUID
 
-from sqlalchemy import ForeignKey, String, Text
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, relationship
 
-from edcraft_backend.models.base import EntityBase
+from edcraft_backend.models.base import FolderResourceBase
 
 if TYPE_CHECKING:
     from edcraft_backend.models.folder import Folder
@@ -14,25 +12,13 @@ if TYPE_CHECKING:
     from edcraft_backend.models.user import User
 
 
-class AssessmentTemplate(EntityBase):
+class AssessmentTemplate(FolderResourceBase):
     """
     Assessment Template model - collection of question templates.
     Also serves as a question template bank.
     """
 
     __tablename__ = "assessment_templates"
-
-    # Foreign Keys
-    owner_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    folder_id: Mapped[UUID] = mapped_column(
-        ForeignKey("folders.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-
-    # Basic Fields
-    title: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships
     owner: Mapped["User"] = relationship(back_populates="assessment_templates")

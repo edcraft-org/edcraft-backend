@@ -203,6 +203,25 @@ async def create_test_question(
     return question
 
 
+async def create_collaborator(
+    db: AsyncSession,
+    resource_type: ResourceType,
+    resource_id: UUID,
+    user: User,
+    role: CollaboratorRole,
+) -> ResourceCollaborator:
+    """Create a ResourceCollaborator entry for a resource."""
+    collab = ResourceCollaborator(
+        resource_type=resource_type,
+        resource_id=resource_id,
+        user_id=user.id,
+        role=role,
+    )
+    db.add(collab)
+    await db.flush()
+    return collab
+
+
 async def create_test_assessment(
     db: AsyncSession, owner: User, folder: Folder | None = None, **overrides: Any
 ) -> Assessment:
@@ -234,14 +253,9 @@ async def create_test_assessment(
     db.add(assessment)
     await db.flush()
 
-    collaborator = ResourceCollaborator(
-        resource_type=ResourceType.ASSESSMENT,
-        resource_id=assessment.id,
-        user_id=owner.id,
-        role=CollaboratorRole.OWNER,
+    await create_collaborator(
+        db, ResourceType.ASSESSMENT, assessment.id, owner, CollaboratorRole.OWNER
     )
-    db.add(collaborator)
-    await db.flush()
 
     return assessment
 
@@ -277,6 +291,11 @@ async def create_test_question_bank(
     question_bank = QuestionBank(**defaults)
     db.add(question_bank)
     await db.flush()
+
+    await create_collaborator(
+        db, ResourceType.QUESTION_BANK, question_bank.id, owner, CollaboratorRole.OWNER
+    )
+
     return question_bank
 
 
@@ -391,6 +410,11 @@ async def create_test_assessment_template(
     template = AssessmentTemplate(**defaults)
     db.add(template)
     await db.flush()
+
+    await create_collaborator(
+        db, ResourceType.ASSESSMENT_TEMPLATE, template.id, owner, CollaboratorRole.OWNER
+    )
+
     return template
 
 
@@ -424,6 +448,15 @@ async def create_test_question_template_bank(
     question_template_bank = QuestionTemplateBank(**defaults)
     db.add(question_template_bank)
     await db.flush()
+
+    await create_collaborator(
+        db,
+        ResourceType.QUESTION_TEMPLATE_BANK,
+        question_template_bank.id,
+        owner,
+        CollaboratorRole.OWNER,
+    )
+
     return question_template_bank
 
 

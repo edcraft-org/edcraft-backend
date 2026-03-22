@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+from edcraft_backend.models.enums import CollaboratorRole, ResourceVisibility
 from edcraft_backend.schemas.question_template import (
     CreateQuestionTemplateRequest,
     QuestionTemplateResponse,
@@ -25,6 +26,7 @@ class UpdateQuestionTemplateBankRequest(BaseModel):
     title: str | None = None
     description: str | None = None
     folder_id: UUID | None = None
+    visibility: ResourceVisibility | None = None
 
 
 class QuestionTemplateBankResponse(BaseModel):
@@ -35,8 +37,10 @@ class QuestionTemplateBankResponse(BaseModel):
     folder_id: UUID
     title: str
     description: str | None
+    visibility: ResourceVisibility
     created_at: datetime
     updated_at: datetime
+    my_role: CollaboratorRole | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -49,9 +53,11 @@ class QuestionTemplateBankWithTemplatesResponse(BaseModel):
     folder_id: UUID
     title: str
     description: str | None
+    visibility: ResourceVisibility
     created_at: datetime
     updated_at: datetime
     question_templates: list[QuestionTemplateResponse] = []
+    my_role: CollaboratorRole | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

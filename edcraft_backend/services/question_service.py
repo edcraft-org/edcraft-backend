@@ -147,21 +147,13 @@ class QuestionService:
             ResourceNotFoundError: If question not found
             UnauthorizedAccessError: If user doesn't own the question
         """
-        question = await self.question_repo.get_by_id(question_id)
-        if not question:
-            raise ResourceNotFoundError("Question", str(question_id))
+        question = await self.get_question(user_id, question_id, CollaboratorRole.OWNER)
+        return await self.update_question_data(question, question_data)
 
-        if question.owner_id != user_id:
-            can_edit = await self.collaborator_repo.check_question_permission(
-                question_id, user_id, CollaboratorRole.EDITOR
-            )
-            if not can_edit:
-                raise UnauthorizedAccessError("Question", str(question_id))
-
-        return await self._update_question_data(question, question_data)
-
-    async def _update_question_data(
-        self, question: Question, question_data: UpdateQuestionRequest
+    async def update_question_data(
+        self,
+        question: Question,
+        question_data: UpdateQuestionRequest,
     ) -> Question:
         if question_data.question_text is not None:
             question.question_text = question_data.question_text

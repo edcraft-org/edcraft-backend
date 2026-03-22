@@ -110,6 +110,19 @@ class ResourceType(str, Enum):
     """Resource types for the generic collaborator table."""
 
     ASSESSMENT = "assessment"
+    QUESTION_BANK = "question_bank"
+    QUESTION_TEMPLATE_BANK = "question_template_bank"
+    ASSESSMENT_TEMPLATE = "assessment_template"
 
     def __str__(self) -> str:
         return self.value
+
+    @property
+    def resource_name(self) -> str:
+        name_map = {
+            ResourceType.ASSESSMENT: "Assessment",
+            ResourceType.QUESTION_BANK: "Question Bank",
+            ResourceType.QUESTION_TEMPLATE_BANK: "Question Template Bank",
+            ResourceType.ASSESSMENT_TEMPLATE: "Assessment Template",
+        }
+        return name_map[self]

@@ -1366,9 +1366,15 @@ class TestRemoveQuestionFromAssessment:
         question1 = await create_test_question(db_session, user, question_text="Q1")
         question2 = await create_test_question(db_session, user, question_text="Q2")
         question3 = await create_test_question(db_session, user, question_text="Q3")
-        await link_question_to_assessment(db_session, assessment.id, question1.id, order=0)
-        await link_question_to_assessment(db_session, assessment.id, question2.id, order=1)
-        await link_question_to_assessment(db_session, assessment.id, question3.id, order=2)
+        await link_question_to_assessment(
+            db_session, assessment.id, question1.id, order=0
+        )
+        await link_question_to_assessment(
+            db_session, assessment.id, question2.id, order=1
+        )
+        await link_question_to_assessment(
+            db_session, assessment.id, question3.id, order=2
+        )
         await db_session.commit()
 
         await test_client.delete(
@@ -1399,9 +1405,15 @@ class TestReorderQuestions:
         question1 = await create_test_question(db_session, user, question_text="Q1")
         question2 = await create_test_question(db_session, user, question_text="Q2")
         question3 = await create_test_question(db_session, user, question_text="Q3")
-        await link_question_to_assessment(db_session, assessment.id, question1.id, order=0)
-        await link_question_to_assessment(db_session, assessment.id, question2.id, order=1)
-        await link_question_to_assessment(db_session, assessment.id, question3.id, order=2)
+        await link_question_to_assessment(
+            db_session, assessment.id, question1.id, order=0
+        )
+        await link_question_to_assessment(
+            db_session, assessment.id, question2.id, order=1
+        )
+        await link_question_to_assessment(
+            db_session, assessment.id, question3.id, order=2
+        )
         await db_session.commit()
 
         # Reorder: reverse the order
@@ -1432,9 +1444,15 @@ class TestReorderQuestions:
         question1 = await create_test_question(db_session, user)
         question2 = await create_test_question(db_session, user)
         question3 = await create_test_question(db_session, user)
-        await link_question_to_assessment(db_session, assessment.id, question1.id, order=0)
-        await link_question_to_assessment(db_session, assessment.id, question2.id, order=1)
-        await link_question_to_assessment(db_session, assessment.id, question3.id, order=2)
+        await link_question_to_assessment(
+            db_session, assessment.id, question1.id, order=0
+        )
+        await link_question_to_assessment(
+            db_session, assessment.id, question2.id, order=1
+        )
+        await link_question_to_assessment(
+            db_session, assessment.id, question3.id, order=2
+        )
         await db_session.commit()
 
         reorder_data: dict[str, Any] = {
@@ -1476,9 +1494,15 @@ class TestReorderQuestions:
         question1 = await create_test_question(db_session, user, question_text="Q1")
         question2 = await create_test_question(db_session, user, question_text="Q2")
         question3 = await create_test_question(db_session, user, question_text="Q3")
-        await link_question_to_assessment(db_session, assessment.id, question1.id, order=0)
-        await link_question_to_assessment(db_session, assessment.id, question2.id, order=1)
-        await link_question_to_assessment(db_session, assessment.id, question3.id, order=2)
+        await link_question_to_assessment(
+            db_session, assessment.id, question1.id, order=0
+        )
+        await link_question_to_assessment(
+            db_session, assessment.id, question2.id, order=1
+        )
+        await link_question_to_assessment(
+            db_session, assessment.id, question3.id, order=2
+        )
         await db_session.commit()
 
         # Reorder with gaps (order: 5, 10, 100)
@@ -1503,590 +1527,3 @@ class TestReorderQuestions:
         assert data["questions"][1]["order"] == 1
         assert data["questions"][2]["question_text"] == "Q1"  # order 100 -> 2
         assert data["questions"][2]["order"] == 2
-
-
-@pytest.mark.integration
-@pytest.mark.assessments
-class TestAddCollaborator:
-    """Tests for POST /assessments/{assessment_id}/collaborators endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_add_collaborator_as_owner(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that assessment owner can add an editor collaborator."""
-        assessment = await create_test_assessment(db_session, user)
-        await db_session.commit()
-
-        new_user = await create_test_user(db_session, email="new_editor@test.com")
-        await db_session.commit()
-
-        response = await test_client.post(
-            f"/assessments/{assessment.id}/collaborators",
-            json={"email": new_user.email, "role": "editor"},
-        )
-
-        assert response.status_code == 201
-        data = response.json()
-        assert data["user_email"] == new_user.email
-        assert data["role"] == "editor"
-
-    @pytest.mark.asyncio
-    async def test_add_collaborator_as_non_collaborator_returns_403(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that a non-collaborator cannot add collaborators (403)."""
-        # Create assessment owned by a second user
-        other_user = await create_test_user(db_session, email="owner2@test.com")
-        assessment = await create_test_assessment(db_session, other_user)
-        await db_session.commit()
-
-        # Primary user (not a collaborator) tries to add a collaborator
-        response = await test_client.post(
-            f"/assessments/{assessment.id}/collaborators",
-            json={"email": user.email, "role": "editor"},
-        )
-
-        assert response.status_code == 403
-
-    @pytest.mark.asyncio
-    async def test_add_collaborator_with_owner_role_returns_422(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that assigning 'owner' role via collaborator endpoint returns 422."""
-        assessment = await create_test_assessment(db_session, user)
-        await db_session.commit()
-
-        new_user = await create_test_user(db_session, email="would_be_owner@test.com")
-        await db_session.commit()
-
-        response = await test_client.post(
-            f"/assessments/{assessment.id}/collaborators",
-            json={"email": new_user.email, "role": "owner"},
-        )
-
-        assert response.status_code == 422
-
-    @pytest.mark.asyncio
-    async def test_add_collaborator_as_editor(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that an editor can add editor and viewer collaborators."""
-        owner_user = await create_test_user(
-            db_session, email="owner_for_editor_add@test.com"
-        )
-        assessment = await create_test_assessment(db_session, owner_user)
-        await db_session.commit()
-
-        collab = ResourceCollaborator(
-            resource_type=ResourceType.ASSESSMENT,
-            resource_id=assessment.id,
-            user_id=user.id,
-            role=CollaboratorRole.EDITOR,
-        )
-        db_session.add(collab)
-
-        viewer_user = await create_test_user(
-            db_session, email="new_viewer_added_by_editor@test.com"
-        )
-        await db_session.commit()
-
-        response = await test_client.post(
-            f"/assessments/{assessment.id}/collaborators",
-            json={"email": viewer_user.email, "role": "viewer"},
-        )
-
-        assert response.status_code == 201
-        data = response.json()
-        assert data["user_email"] == viewer_user.email
-        assert data["role"] == "viewer"
-
-    @pytest.mark.asyncio
-    async def test_add_collaborator_as_viewer_returns_403(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that a viewer cannot add collaborators (403)."""
-        owner_user = await create_test_user(
-            db_session, email="owner_for_viewer_add@test.com"
-        )
-        assessment = await create_test_assessment(db_session, owner_user)
-        await db_session.commit()
-
-        collab = ResourceCollaborator(
-            resource_type=ResourceType.ASSESSMENT,
-            resource_id=assessment.id,
-            user_id=user.id,
-            role=CollaboratorRole.VIEWER,
-        )
-        db_session.add(collab)
-
-        new_user = await create_test_user(
-            db_session, email="target_add_by_viewer@test.com"
-        )
-        await db_session.commit()
-
-        response = await test_client.post(
-            f"/assessments/{assessment.id}/collaborators",
-            json={"email": new_user.email, "role": "viewer"},
-        )
-
-        assert response.status_code == 403
-
-    @pytest.mark.asyncio
-    async def test_add_collaborator_unknown_email_returns_404(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that adding a collaborator with an unknown email returns 404."""
-        assessment = await create_test_assessment(db_session, user)
-        await db_session.commit()
-
-        response = await test_client.post(
-            f"/assessments/{assessment.id}/collaborators",
-            json={"email": "nonexistent@unknown.com", "role": "editor"},
-        )
-
-        assert response.status_code == 404
-
-
-@pytest.mark.integration
-@pytest.mark.assessments
-class TestListCollaborators:
-    """Tests for GET /assessments/{assessment_id}/collaborators endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_list_collaborators_as_owner(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that the owner can list collaborators."""
-        assessment = await create_test_assessment(db_session, user)
-        await db_session.commit()
-
-        response = await test_client.get(f"/assessments/{assessment.id}/collaborators")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, list)
-        roles = [c["role"] for c in data]
-        assert "owner" in roles
-
-    @pytest.mark.asyncio
-    async def test_list_collaborators_as_editor(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that an editor collaborator can list collaborators."""
-        # Create assessment owned by a second user
-        other_user = await create_test_user(db_session, email="owner_list@test.com")
-        assessment = await create_test_assessment(db_session, other_user)
-        await db_session.commit()
-
-        # Add primary user as editor
-        collab = ResourceCollaborator(
-            resource_type=ResourceType.ASSESSMENT,
-            resource_id=assessment.id,
-            user_id=user.id,
-            role=CollaboratorRole.EDITOR,
-        )
-        db_session.add(collab)
-        await db_session.commit()
-
-        response = await test_client.get(f"/assessments/{assessment.id}/collaborators")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, list)
-
-    @pytest.mark.asyncio
-    async def test_list_collaborators_as_viewer_returns_403(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that a viewer collaborator cannot list collaborators (403)."""
-        # Create assessment owned by a second user
-        other_user = await create_test_user(db_session, email="owner_viewer@test.com")
-        assessment = await create_test_assessment(db_session, other_user)
-        await db_session.commit()
-
-        # Add primary user as viewer
-        collab = ResourceCollaborator(
-            resource_type=ResourceType.ASSESSMENT,
-            resource_id=assessment.id,
-            user_id=user.id,
-            role=CollaboratorRole.VIEWER,
-        )
-        db_session.add(collab)
-        await db_session.commit()
-
-        response = await test_client.get(f"/assessments/{assessment.id}/collaborators")
-
-        assert response.status_code == 403
-
-
-@pytest.mark.integration
-@pytest.mark.assessments
-class TestUpdateCollaboratorRole:
-    """Tests for PATCH /assessments/{assessment_id}/collaborators/{user_id} endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_update_collaborator_role_as_owner(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that owner can update a collaborator's role."""
-        assessment = await create_test_assessment(db_session, user)
-        await db_session.commit()
-
-        # Add a second user as editor via API
-        editor_user = await create_test_user(
-            db_session, email="editor_to_update@test.com"
-        )
-        await db_session.commit()
-
-        # Add as editor first
-        add_resp = await test_client.post(
-            f"/assessments/{assessment.id}/collaborators",
-            json={"email": editor_user.email, "role": "editor"},
-        )
-        collab_id = add_resp.json()["id"]
-
-        # Update to viewer
-        response = await test_client.patch(
-            f"/assessments/{assessment.id}/collaborators/{collab_id}",
-            json={"role": "viewer"},
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["role"] == "viewer"
-
-    @pytest.mark.asyncio
-    async def test_editor_can_update_role_to_editor(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that an editor can promote a viewer to editor."""
-        owner_user = await create_test_user(
-            db_session, email="owner_for_editor_promote@test.com"
-        )
-        assessment = await create_test_assessment(db_session, owner_user)
-        await db_session.commit()
-
-        db_session.add(
-            ResourceCollaborator(
-                resource_type=ResourceType.ASSESSMENT,
-                resource_id=assessment.id,
-                user_id=user.id,
-                role=CollaboratorRole.EDITOR,
-            )
-        )
-        viewer_user = await create_test_user(
-            db_session, email="viewer_to_promote@test.com"
-        )
-        viewer_collab = ResourceCollaborator(
-            resource_type=ResourceType.ASSESSMENT,
-            resource_id=assessment.id,
-            user_id=viewer_user.id,
-            role=CollaboratorRole.VIEWER,
-        )
-        db_session.add(viewer_collab)
-        await db_session.commit()
-
-        response = await test_client.patch(
-            f"/assessments/{assessment.id}/collaborators/{viewer_collab.id}",
-            json={"role": "editor"},
-        )
-
-        assert response.status_code == 200
-        assert response.json()["role"] == "editor"
-
-    @pytest.mark.asyncio
-    async def test_editor_cannot_assign_owner_returns_400(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that an editor cannot assign the owner role (400)."""
-        owner_user = await create_test_user(
-            db_session, email="owner_for_editor_owner_assign@test.com"
-        )
-        assessment = await create_test_assessment(db_session, owner_user)
-        await db_session.commit()
-
-        db_session.add(
-            ResourceCollaborator(
-                resource_type=ResourceType.ASSESSMENT,
-                resource_id=assessment.id,
-                user_id=user.id,
-                role=CollaboratorRole.EDITOR,
-            )
-        )
-        viewer_user = await create_test_user(
-            db_session, email="viewer_for_owner_assign@test.com"
-        )
-        viewer_collab = ResourceCollaborator(
-            resource_type=ResourceType.ASSESSMENT,
-            resource_id=assessment.id,
-            user_id=viewer_user.id,
-            role=CollaboratorRole.VIEWER,
-        )
-        db_session.add(viewer_collab)
-        await db_session.commit()
-
-        response = await test_client.patch(
-            f"/assessments/{assessment.id}/collaborators/{viewer_collab.id}",
-            json={"role": "owner"},
-        )
-
-        assert response.status_code == 400
-
-    @pytest.mark.asyncio
-    async def test_owner_transfers_ownership(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that an owner can transfer ownership; they become editor."""
-        assessment = await create_test_assessment(db_session, user)
-        await db_session.commit()
-
-        editor_user = await create_test_user(db_session, email="future_owner@test.com")
-        await db_session.commit()
-
-        add_resp = await test_client.post(
-            f"/assessments/{assessment.id}/collaborators",
-            json={"email": editor_user.email, "role": "editor"},
-        )
-        collab_id = add_resp.json()["id"]
-
-        response = await test_client.patch(
-            f"/assessments/{assessment.id}/collaborators/{collab_id}",
-            json={"role": "owner"},
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["role"] == "owner"
-        assert data["user_email"] == editor_user.email
-
-        # Original owner should now be editor
-        collabs_response = await test_client.get(
-            f"/assessments/{assessment.id}/collaborators"
-        )
-        collabs = collabs_response.json()
-        original_owner = next(c for c in collabs if c["user_email"] == user.email)
-        assert original_owner["role"] == "editor"
-
-        # Assessment should be moved to the new owner's root folder
-        from edcraft_backend.models.folder import Folder
-
-        await db_session.refresh(assessment)
-        new_owner_root = (
-            await db_session.execute(
-                select(Folder).where(
-                    Folder.owner_id == editor_user.id,
-                    Folder.parent_id.is_(None),
-                )
-            )
-        ).scalar_one()
-        assert assessment.folder_id == new_owner_root.id
-
-    @pytest.mark.asyncio
-    async def test_cannot_directly_change_owner_role_returns_400(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that the owner's role cannot be changed directly (must use ownership transfer)."""
-        assessment = await create_test_assessment(db_session, user)
-        await db_session.commit()
-
-        # Get the owner's collaborator record from DB
-        owner_collab_row = (
-            await db_session.execute(
-                select(ResourceCollaborator).where(
-                    ResourceCollaborator.resource_id == assessment.id,
-                    ResourceCollaborator.user_id == user.id,
-                )
-            )
-        ).scalar_one()
-
-        response = await test_client.patch(
-            f"/assessments/{assessment.id}/collaborators/{owner_collab_row.id}",
-            json={"role": "viewer"},
-        )
-
-        assert response.status_code == 400
-
-
-@pytest.mark.integration
-@pytest.mark.assessments
-class TestRemoveCollaborator:
-    """Tests for DELETE /assessments/{assessment_id}/collaborators/{user_id} endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_remove_collaborator_as_owner(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that owner can remove a collaborator."""
-        assessment = await create_test_assessment(db_session, user)
-        await db_session.commit()
-
-        editor_user = await create_test_user(
-            db_session, email="editor_to_remove@test.com"
-        )
-        await db_session.commit()
-
-        # Add collaborator
-        add_resp = await test_client.post(
-            f"/assessments/{assessment.id}/collaborators",
-            json={"email": editor_user.email, "role": "editor"},
-        )
-        collab_id = add_resp.json()["id"]
-
-        # Remove collaborator
-        response = await test_client.delete(
-            f"/assessments/{assessment.id}/collaborators/{collab_id}"
-        )
-
-        assert response.status_code == 204
-
-    @pytest.mark.asyncio
-    async def test_remove_owner_collaborator_returns_400(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that removing the owner collaborator row is not allowed (400)."""
-        assessment = await create_test_assessment(db_session, user)
-        await db_session.commit()
-
-        # Get owner collaborator ID from DB
-        owner_collab_row = (
-            await db_session.execute(
-                select(ResourceCollaborator).where(
-                    ResourceCollaborator.resource_id == assessment.id,
-                    ResourceCollaborator.user_id == user.id,
-                )
-            )
-        ).scalar_one()
-
-        # Attempt to remove the owner (self) from collaborators
-        response = await test_client.delete(
-            f"/assessments/{assessment.id}/collaborators/{owner_collab_row.id}"
-        )
-
-        assert response.status_code == 400
-
-    @pytest.mark.asyncio
-    async def test_remove_collaborator_as_editor(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that an editor can remove a non-owner collaborator."""
-        owner_user = await create_test_user(
-            db_session, email="owner_for_editor_remove@test.com"
-        )
-        assessment = await create_test_assessment(db_session, owner_user)
-        await db_session.commit()
-
-        db_session.add(
-            ResourceCollaborator(
-                resource_type=ResourceType.ASSESSMENT,
-                resource_id=assessment.id,
-                user_id=user.id,
-                role=CollaboratorRole.EDITOR,
-            )
-        )
-        viewer_user = await create_test_user(
-            db_session, email="viewer_to_remove@test.com"
-        )
-        viewer_collab = ResourceCollaborator(
-            resource_type=ResourceType.ASSESSMENT,
-            resource_id=assessment.id,
-            user_id=viewer_user.id,
-            role=CollaboratorRole.VIEWER,
-        )
-        db_session.add(viewer_collab)
-        await db_session.commit()
-        editor_user = await create_test_user(
-            db_session, email="editor_to_remove@test.com"
-        )
-        editor_collab = ResourceCollaborator(
-            resource_type=ResourceType.ASSESSMENT,
-            resource_id=assessment.id,
-            user_id=editor_user.id,
-            role=CollaboratorRole.EDITOR,
-        )
-        db_session.add(editor_collab)
-        await db_session.commit()
-
-        response1 = await test_client.delete(
-            f"/assessments/{assessment.id}/collaborators/{viewer_collab.id}"
-        )
-        response2 = await test_client.delete(
-            f"/assessments/{assessment.id}/collaborators/{editor_collab.id}"
-        )
-
-        assert response1.status_code == 204
-        assert response2.status_code == 204
-
-    @pytest.mark.asyncio
-    async def test_editor_cannot_remove_owner_returns_400(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that an editor cannot remove the owner (400)."""
-        owner_user = await create_test_user(
-            db_session, email="owner_protected@test.com"
-        )
-        assessment = await create_test_assessment(db_session, owner_user)
-        await db_session.commit()
-
-        db_session.add(
-            ResourceCollaborator(
-                resource_type=ResourceType.ASSESSMENT,
-                resource_id=assessment.id,
-                user_id=user.id,
-                role=CollaboratorRole.EDITOR,
-            )
-        )
-        await db_session.commit()
-
-        # Get owner's collaborator record ID from DB
-        owner_collab_row = (
-            await db_session.execute(
-                select(ResourceCollaborator).where(
-                    ResourceCollaborator.resource_id == assessment.id,
-                    ResourceCollaborator.user_id == owner_user.id,
-                )
-            )
-        ).scalar_one()
-
-        response = await test_client.delete(
-            f"/assessments/{assessment.id}/collaborators/{owner_collab_row.id}"
-        )
-
-        assert response.status_code == 400
-
-    @pytest.mark.asyncio
-    async def test_viewer_cannot_remove_collaborator_returns_403(
-        self, test_client: AsyncClient, db_session: AsyncSession, user: User
-    ) -> None:
-        """Test that a viewer cannot remove any collaborator (403)."""
-        owner_user = await create_test_user(
-            db_session, email="owner_for_viewer_remove@test.com"
-        )
-        assessment = await create_test_assessment(db_session, owner_user)
-        await db_session.commit()
-
-        db_session.add(
-            ResourceCollaborator(
-                resource_type=ResourceType.ASSESSMENT,
-                resource_id=assessment.id,
-                user_id=user.id,
-                role=CollaboratorRole.VIEWER,
-            )
-        )
-        editor_user = await create_test_user(
-            db_session, email="editor_for_viewer_remove@test.com"
-        )
-        editor_collab2 = ResourceCollaborator(
-            resource_type=ResourceType.ASSESSMENT,
-            resource_id=assessment.id,
-            user_id=editor_user.id,
-            role=CollaboratorRole.EDITOR,
-        )
-        db_session.add(editor_collab2)
-        await db_session.commit()
-
-        response = await test_client.delete(
-            f"/assessments/{assessment.id}/collaborators/{editor_collab2.id}"
-        )
-
-        assert response.status_code == 403

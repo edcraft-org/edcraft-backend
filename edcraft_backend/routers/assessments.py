@@ -12,18 +12,14 @@ from edcraft_backend.dependencies import (
 )
 from edcraft_backend.exceptions import EdCraftBaseException
 from edcraft_backend.models.assessment import Assessment
-from edcraft_backend.models.resource_collaborator import ResourceCollaborator
 from edcraft_backend.schemas.assessment import (
-    AddCollaboratorRequest,
     AssessmentResponse,
     AssessmentWithQuestionsResponse,
-    CollaboratorResponse,
     CreateAssessmentRequest,
     InsertQuestionIntoAssessmentRequest,
     LinkQuestionToAssessmentRequest,
     ReorderQuestionsInAssessmentRequest,
     UpdateAssessmentRequest,
-    UpdateCollaboratorRoleRequest,
 )
 
 router = APIRouter(prefix="/assessments", tags=["assessments"])
@@ -253,89 +249,3 @@ async def reorder_questions(
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
 
-@router.post(
-    "/{assessment_id}/collaborators",
-    response_model=CollaboratorResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def add_collaborator(
-    current_user: CurrentUserDep,
-    assessment_id: UUID,
-    collaborator_data: AddCollaboratorRequest,
-    service: AssessmentServiceDep,
-) -> ResourceCollaborator:
-    """Add a collaborator to an assessment. Editor or owner. Cannot assign owner role."""
-    try:
-        return await service.add_collaborator(
-            caller_id=current_user.id,
-            assessment_id=assessment_id,
-            email=collaborator_data.email,
-            role=collaborator_data.role,
-        )
-    except EdCraftBaseException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message) from e
-
-
-@router.get(
-    "/{assessment_id}/collaborators",
-    response_model=list[CollaboratorResponse],
-)
-async def list_collaborators(
-    current_user: CurrentUserDep,
-    assessment_id: UUID,
-    service: AssessmentServiceDep,
-) -> list[ResourceCollaborator]:
-    """List collaborators for an assessment. Editor or owner only."""
-    try:
-        return await service.list_collaborators(
-            caller_id=current_user.id, assessment_id=assessment_id
-        )
-    except EdCraftBaseException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message) from e
-
-
-@router.patch(
-    "/{assessment_id}/collaborators/{collaborator_id}",
-    response_model=CollaboratorResponse,
-)
-async def update_collaborator_role(
-    current_user: CurrentUserDep,
-    assessment_id: UUID,
-    collaborator_id: UUID,
-    role_data: UpdateCollaboratorRoleRequest,
-    service: AssessmentServiceDep,
-) -> ResourceCollaborator:
-    """
-    Update a collaborator's role. Editor or owner.
-    Editors can assign editor/viewer. Owner can transfer ownership.
-    """
-    try:
-        return await service.update_collaborator_role(
-            caller_id=current_user.id,
-            assessment_id=assessment_id,
-            collaborator_id=collaborator_id,
-            new_role=role_data.role,
-        )
-    except EdCraftBaseException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message) from e
-
-
-@router.delete(
-    "/{assessment_id}/collaborators/{collaborator_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-async def remove_collaborator(
-    current_user: CurrentUserDep,
-    assessment_id: UUID,
-    collaborator_id: UUID,
-    service: AssessmentServiceDep,
-) -> None:
-    """Remove a collaborator from an assessment. Editor or owner. Cannot remove the owner."""
-    try:
-        await service.remove_collaborator(
-            caller_id=current_user.id,
-            assessment_id=assessment_id,
-            collaborator_id=collaborator_id,
-        )
-    except EdCraftBaseException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message) from e

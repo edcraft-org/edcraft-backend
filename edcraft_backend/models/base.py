@@ -3,8 +3,10 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, func
+from sqlalchemy import DateTime, ForeignKey, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+from edcraft_backend.models.enums import ResourceVisibility
 
 
 # Shared declarative base for all models
@@ -37,6 +39,24 @@ class EntityBase(Base):
     # Soft Delete
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+
+
+class FolderResourceBase(EntityBase):
+    """Abstract base for folder-based collaborative resources (Assessment, QuestionBank, etc.)."""
+
+    __abstract__ = True
+
+    owner_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    folder_id: Mapped[UUID] = mapped_column(
+        ForeignKey("folders.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    visibility: Mapped[ResourceVisibility] = mapped_column(
+        String(50), nullable=False, default=ResourceVisibility.PRIVATE
     )
 
 

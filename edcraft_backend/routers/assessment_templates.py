@@ -1,10 +1,15 @@
 """Assessment template endpoints with question template association management."""
 
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from edcraft_backend.dependencies import AssessmentTemplateServiceDep, CurrentUserDep
+from edcraft_backend.dependencies import (
+    AssessmentTemplateServiceDep,
+    CurrentUserDep,
+    CurrentUserOptionalDep,
+)
 from edcraft_backend.exceptions import EdCraftBaseException
 from edcraft_backend.models.assessment_template import AssessmentTemplate
 from edcraft_backend.schemas.assessment_template import (
@@ -43,11 +48,14 @@ async def list_assessment_templates(
     current_user: CurrentUserDep,
     service: AssessmentTemplateServiceDep,
     folder_id: UUID | None = Query(None, description="Filter by folder ID"),
-) -> list[AssessmentTemplate]:
-    """List assessment templates by owner, optionally filtered by folder."""
+    collab_filter: Literal["all", "owned", "shared"] = Query(
+        "all", description="Filter by collaboration role: all, owned, or shared"
+    ),
+) -> list[AssessmentTemplateResponse]:
+    """List assessment templates the user has access to, optionally filtered by folder or role."""
     try:
         return await service.list_templates(
-            user_id=current_user.id, folder_id=folder_id
+            user_id=current_user.id, folder_id=folder_id, collab_filter=collab_filter
         )
     except EdCraftBaseException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
@@ -57,14 +65,19 @@ async def list_assessment_templates(
     "/{template_id}", response_model=AssessmentTemplateWithQuestionTemplatesResponse
 )
 async def get_assessment_template(
-    current_user: CurrentUserDep,
+    current_user: CurrentUserOptionalDep,
     template_id: UUID,
     service: AssessmentTemplateServiceDep,
 ) -> AssessmentTemplateWithQuestionTemplatesResponse:
-    """Get assessment template with question templates in order."""
+    """Get assessment template with question templates in order.
+
+    - Collaborators can access the template
+    - Unauthenticated users can only access public templates
+    """
     try:
+        user_id = current_user.id if current_user else None
         return await service.get_template_with_question_templates(
-            user_id=current_user.id, assessment_template_id=template_id
+            user_id=user_id, assessment_template_id=template_id
         )
     except EdCraftBaseException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e

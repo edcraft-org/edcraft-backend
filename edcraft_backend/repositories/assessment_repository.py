@@ -1,21 +1,19 @@
-from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from edcraft_backend.models.assessment import Assessment
-from edcraft_backend.models.enums import CollaboratorRole, ResourceType
-from edcraft_backend.models.resource_collaborator import ResourceCollaborator
-from edcraft_backend.repositories.base import EntityRepository
+from edcraft_backend.models.enums import ResourceType
+from edcraft_backend.repositories.collaborative_resource_repository import FolderResourceRepository
 
 
-class AssessmentRepository(EntityRepository[Assessment]):
+class AssessmentRepository(FolderResourceRepository[Assessment]):
     """Repository for Assessment entity operations."""
 
     def __init__(self, db: AsyncSession):
-        super().__init__(Assessment, db)
+        super().__init__(Assessment, ResourceType.ASSESSMENT, db)
 
     async def get_by_id_with_questions(
         self,
@@ -44,91 +42,3 @@ class AssessmentRepository(EntityRepository[Assessment]):
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_by_folder(
-        self,
-        folder_id: UUID,
-        include_deleted: bool = False,
-    ) -> list[Assessment]:
-        """Get all assessments in a folder.
-
-        Args:
-            folder_id: Folder UUID
-            include_deleted: Whether to include soft-deleted assessments
-
-        Returns:
-            List of assessments in the folder ordered by last updated descending
-        """
-        stmt = (
-            select(Assessment)
-            .where(Assessment.folder_id == folder_id)
-            .order_by(Assessment.updated_at.desc())
-        )
-
-        if not include_deleted:
-            stmt = stmt.where(Assessment.deleted_at.is_(None))
-
-        result = await self.db.execute(stmt)
-        return list(result.scalars().all())
-
-    async def list_by_collaborator(
-        self,
-        user_id: UUID,
-        collab_filter: Literal["all", "owned", "shared"] = "all",
-        folder_id: UUID | None = None,
-    ) -> list[tuple["Assessment", CollaboratorRole]]:
-        """List assessments the user has access to via the collaborator table.
-
-        Args:
-            user_id: User UUID
-            collab_filter: "all" (any role), "owned" (owner role only), "shared" (non-owner roles)
-            folder_id: Optional folder filter
-
-        Returns:
-            List of (Assessment, CollaboratorRole) tuples ordered by updated_at descending
-        """
-        stmt = (
-            select(Assessment, ResourceCollaborator.role)
-            .join(
-                ResourceCollaborator,
-                (ResourceCollaborator.resource_id == Assessment.id)
-                & (ResourceCollaborator.resource_type == ResourceType.ASSESSMENT),
-            )
-            .where(
-                Assessment.deleted_at.is_(None),
-                ResourceCollaborator.user_id == user_id,
-            )
-        )
-
-        if collab_filter == "owned":
-            stmt = stmt.where(ResourceCollaborator.role == CollaboratorRole.OWNER)
-        elif collab_filter == "shared":
-            stmt = stmt.where(ResourceCollaborator.role != CollaboratorRole.OWNER)
-
-        if folder_id is not None:
-            stmt = stmt.where(Assessment.folder_id == folder_id)
-
-        stmt = stmt.order_by(Assessment.updated_at.desc())
-
-        result = await self.db.execute(stmt)
-        return [(row[0], CollaboratorRole(row[1])) for row in result.all()]
-
-    async def bulk_soft_delete_by_folder_ids(self, folder_ids: list[UUID]) -> None:
-        """Bulk soft-delete assessments by folder IDs.
-
-        Args:
-            folder_ids: List of folder UUIDs whose assessments should be soft-deleted
-        """
-        from datetime import UTC, datetime
-
-        if not folder_ids:
-            return
-
-        stmt = (
-            update(Assessment)
-            .where(Assessment.folder_id.in_(folder_ids))
-            .where(Assessment.deleted_at.is_(None))
-            .values(deleted_at=datetime.now(UTC))
-        )
-
-        await self.db.execute(stmt)
-        await self.db.flush()

@@ -1,10 +1,14 @@
 from uuid import UUID
 
 from edcraft_backend.exceptions import ResourceNotFoundError, UnauthorizedAccessError
+from edcraft_backend.models.enums import CollaboratorRole
 from edcraft_backend.models.question_template import QuestionTemplate
 from edcraft_backend.models.target_element import TargetElement
 from edcraft_backend.repositories.question_template_repository import (
     QuestionTemplateRepository,
+)
+from edcraft_backend.repositories.resource_collaborator_repository import (
+    ResourceCollaboratorRepository,
 )
 from edcraft_backend.repositories.target_element_repository import (
     TargetElementRepository,
@@ -22,9 +26,11 @@ class QuestionTemplateService:
         self,
         question_template_repository: QuestionTemplateRepository,
         target_element_repository: TargetElementRepository,
+        collaborator_repository: ResourceCollaboratorRepository,
     ):
         self.template_repo = question_template_repository
         self.target_element_repo = target_element_repository
+        self.collaborator_repo = collaborator_repository
 
     async def create_template(
         self,
@@ -123,47 +129,39 @@ class QuestionTemplateService:
             order_by=QuestionTemplate.created_at.desc(),
         )
 
-    async def get_owned_template(
-        self, user_id: UUID, template_id: UUID
-    ) -> QuestionTemplate:
-        """Get a question template by ID.
-
-        Args:
-            user_id: User UUID
-            template_id: Template UUID
-
-        Returns:
-            QuestionTemplate entity
-
-        Raises:
-            ResourceNotFoundError: If template not found
-        """
-        template = await self.template_repo.get_by_id(template_id)
-        if not template:
-            raise ResourceNotFoundError("QuestionTemplate", str(template_id))
-        if template.owner_id != user_id:
-            raise UnauthorizedAccessError("QuestionTemplate", str(template_id))
-        return template
-
     async def get_template(
         self,
         user_id: UUID,
         template_id: UUID,
+        min_role: CollaboratorRole = CollaboratorRole.VIEWER,
     ) -> QuestionTemplate:
-        """Get a question template by ID.
+        """Get a question template by ID and verify access.
 
         Args:
             user_id: User UUID
             template_id: Template UUID
+            min_role: Minimum required role
 
         Returns:
             QuestionTemplate entity
 
         Raises:
             ResourceNotFoundError: If template not found
-            UnauthorizedAccessError: If user doesn't own the template
+            UnauthorizedAccessError: If user lacks the required role
         """
-        return await self.get_owned_template(user_id, template_id)
+        template = await self.template_repo.get_by_id(template_id)
+        if not template:
+            raise ResourceNotFoundError("QuestionTemplate", str(template_id))
+
+        has_perm = await self.collaborator_repo.check_question_template_permission(
+            question_template_id=template_id,
+            user_id=user_id,
+            min_role=min_role,
+        )
+        if not has_perm:
+            raise UnauthorizedAccessError("QuestionTemplate", str(template_id))
+
+        return template
 
     async def update_template(
         self,
@@ -183,9 +181,11 @@ class QuestionTemplateService:
 
         Raises:
             ResourceNotFoundError: If template not found
-            UnauthorizedAccessError: If user doesn't own the template
+            UnauthorizedAccessError: If user has no edit access
         """
-        template = await self.get_owned_template(user_id, template_id)
+        template = await self.get_template(
+            user_id, template_id, min_role=CollaboratorRole.EDITOR
+        )
         update_data = template_data.model_dump(
             exclude={"target_elements"}, exclude_unset=True
         )
@@ -240,7 +240,7 @@ class QuestionTemplateService:
             ResourceNotFoundError: If template not found
             UnauthorizedAccessError: If user doesn't own the template
         """
-        template = await self.get_owned_template(user_id, template_id)
+        template = await self.get_template(user_id, template_id, CollaboratorRole.OWNER)
         return await self.template_repo.soft_delete(template)
 
     async def sync_template(
