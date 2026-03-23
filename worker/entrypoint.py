@@ -22,6 +22,7 @@ from edcraft_engine.question_generator.models import (
     GenerationOptions,
     QuestionSpec,
 )
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from edcraft_backend.config.settings import load_env_files
 from edcraft_backend.database import AsyncSessionLocal
@@ -166,13 +167,13 @@ async def _handle_generate_template(params: dict[str, Any]) -> dict[str, Any]:
         svc = await _build_question_generation_service(db)
         result = await svc.generate_template(
             code=decoded_code,
-            entry_function=params["entry_function"],
+            execution_spec=ExecutionSpec(**params["execution_spec"]),
             question_spec=QuestionSpec(**params["question_spec"]),
             generation_options=GenerationOptions(**params["generation_options"]),
             text_template_type=TextTemplateType(params["text_template_type"]),
             question_text_template=params.get("question_text_template"),
         )
-        return cast(dict[str, Any], result.model_dump(mode="json"))
+        return result.model_dump(mode="json")
 
 
 async def _handle_question_from_template(params: dict[str, Any]) -> dict[str, Any]:
@@ -196,10 +197,10 @@ async def _handle_assessment_from_template(params: dict[str, Any]) -> dict[str, 
             question_inputs=params["question_inputs"],
         )
         await db.commit()
-        return cast(dict[str, Any], result.model_dump())
+        return result.model_dump()
 
 
-async def _build_question_generation_service(db: Any) -> Any:
+async def _build_question_generation_service(db: AsyncSession) -> QuestionGenerationService:
     """Build QuestionGenerationService with its full dependency graph."""
     # Repositories
     folder_repo = FolderRepository(db)

@@ -37,6 +37,7 @@ class MockQuestionGenerator(QuestionGenerator):
         Args:
             custom_questions: Optional dict mapping question_type to custom Question
         """
+        super().__init__()
         self._custom_questions = custom_questions or {}
 
     def generate_question(
@@ -67,25 +68,37 @@ class MockQuestionGenerator(QuestionGenerator):
 
     def generate_template_preview(
         self,
+        code: str,
         question_spec: QuestionSpec,
         generation_options: GenerationOptions,
+        execution_spec: ExecutionSpec,
     ) -> Question:
         """
-        Generate a template preview with placeholders.
+        Generate a template preview with placeholders, or real values if input_data provided.
 
         Args:
+            code: The code to generate questions from (ignored in mock)
             question_spec: Specification for the question type and target
             generation_options: Generation options (for num_distractors)
+            execution_spec: Execution configuration (input_data used if provided)
 
         Returns:
-            Question: A mock question with template placeholders
+            Question: A mock question with template placeholders, or real values if
+                      input_data is present in execution_spec
         """
+        if execution_spec.input_data is not None:
+            return self.generate_question(
+                code, question_spec, execution_spec, generation_options
+            )
+
         question_type = question_spec.question_type
 
         if question_type in self._custom_questions:
             return self._custom_questions[question_type]
 
-        return self._get_template_preview(question_type, generation_options.num_distractors)
+        return self._get_template_preview(
+            question_type, generation_options.num_distractors
+        )
 
     def _get_default_question(self, question_type: str) -> Question:
         """
@@ -140,7 +153,9 @@ class MockQuestionGenerator(QuestionGenerator):
             correct_indices=None,
         )
 
-    def _get_template_preview(self, question_type: str, num_distractors: int) -> Question:
+    def _get_template_preview(
+        self, question_type: str, num_distractors: int
+    ) -> Question:
         """
         Get template preview with placeholders for a given question type.
 
@@ -166,7 +181,7 @@ class MockQuestionGenerator(QuestionGenerator):
         num_options = num_distractors + 1
         options = [f"<option_{i+1}>" for i in range(num_options)]
         return Question(
-            text="During execution, what is the return value of the first function `example()` " \
+            text="During execution, what is the return value of the first function `example()` "
             "call? Choose the correct option.",
             answer="<placeholder_answer>",
             options=options,
@@ -179,7 +194,7 @@ class MockQuestionGenerator(QuestionGenerator):
         num_options = num_distractors + 1
         options = [f"<option_{i+1}>" for i in range(num_options)]
         return Question(
-            text="During execution, what are the return values of function `example()` calls? " \
+            text="During execution, what are the return values of function `example()` calls? "
             "Select all that apply.",
             answer="<placeholder_answer>",
             options=options,
@@ -190,7 +205,7 @@ class MockQuestionGenerator(QuestionGenerator):
     def _get_mock_template_short_answer(self) -> Question:
         """Get short answer template preview with placeholders."""
         return Question(
-            text="During execution, what is the return value of the first function `example()` " \
+            text="During execution, what is the return value of the first function `example()` "
             "call? Provide the answer.",
             question_type="short_answer",
             answer="<placeholder_answer>",

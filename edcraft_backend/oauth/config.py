@@ -1,9 +1,9 @@
 """OAuth provider configuration."""
 
-from enum import Enum
+from enum import StrEnum
 
 
-class OAuthProvider(str, Enum):
+class OAuthProvider(StrEnum):
     """Supported OAuth providers."""
 
     GITHUB = "github"

@@ -1,7 +1,7 @@
 """OneTimeToken model for email verification and password reset."""
 
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from edcraft_backend.models.user import User
 
 
-class TokenType(str, Enum):
+class TokenType(StrEnum):
     """Types of one-time tokens."""
 
     EMAIL_VERIFICATION = "email_verification"

@@ -333,14 +333,15 @@ async def create_test_question_template(
     target_elements_data = defaults.pop("target_elements", None)
 
     # Convert string enum values to actual enum instances
-    if isinstance(defaults.get("question_type"), str):
-        defaults["question_type"] = QuestionType(defaults["question_type"])
-    if isinstance(defaults.get("output_type"), str):
-        defaults["output_type"] = OutputType(defaults["output_type"])
-    if isinstance(defaults.get("text_template_type"), str):
-        defaults["text_template_type"] = TextTemplateType(
-            defaults["text_template_type"]
-        )
+    question_type = defaults.get("question_type")
+    if isinstance(question_type, str):
+        defaults["question_type"] = QuestionType(question_type)
+    output_type = defaults.get("output_type")
+    if isinstance(output_type, str):
+        defaults["output_type"] = OutputType(output_type)
+    text_template_type = defaults.get("text_template_type")
+    if isinstance(text_template_type, str):
+        defaults["text_template_type"] = TextTemplateType(text_template_type)
 
     template = QuestionTemplate(**defaults)
     db.add(template)

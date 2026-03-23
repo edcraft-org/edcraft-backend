@@ -1,9 +1,9 @@
 """Service enums."""
 
-from enum import Enum
+from enum import StrEnum
 
 
-class ResourceType(str, Enum):
+class ResourceType(StrEnum):
     """Types of resources for cleanup."""
 
     QUESTIONS = "questions"

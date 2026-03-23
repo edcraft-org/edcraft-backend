@@ -1,20 +1,17 @@
 """Enum definitions for database models."""
 
-from enum import Enum
+from enum import StrEnum
 
 
-class QuestionType(str, Enum):
+class QuestionType(StrEnum):
     """Question types supported by the system."""
 
     MCQ = "mcq"
     MRQ = "mrq"
     SHORT_ANSWER = "short_answer"
 
-    def __str__(self) -> str:
-        return self.value
 
-
-class OutputType(str, Enum):
+class OutputType(StrEnum):
     """Output types for question generation."""
 
     LIST = "list"
@@ -22,11 +19,8 @@ class OutputType(str, Enum):
     FIRST = "first"
     LAST = "last"
 
-    def __str__(self) -> str:
-        return self.value
 
-
-class TargetElementType(str, Enum):
+class TargetElementType(StrEnum):
     """Types of code elements that can be targeted."""
 
     FUNCTION = "function"
@@ -34,11 +28,8 @@ class TargetElementType(str, Enum):
     BRANCH = "branch"
     VARIABLE = "variable"
 
-    def __str__(self) -> str:
-        return self.value
 
-
-class TargetModifier(str, Enum):
+class TargetModifier(StrEnum):
     """Modifiers for target elements."""
 
     ARGUMENTS = "arguments"
@@ -47,31 +38,22 @@ class TargetModifier(str, Enum):
     BRANCH_TRUE = "branch_true"
     BRANCH_FALSE = "branch_false"
 
-    def __str__(self) -> str:
-        return self.value
 
-
-class TextTemplateType(str, Enum):
+class TextTemplateType(StrEnum):
     """Template types for question text templates."""
 
     BASIC = "basic"
     MUSTACHE = "mustache"
 
-    def __str__(self) -> str:
-        return self.value
 
-
-class ResourceVisibility(str, Enum):
+class ResourceVisibility(StrEnum):
     """Visibility settings for resources (assessments, etc.)."""
 
     PRIVATE = "private"
     PUBLIC = "public"
 
-    def __str__(self) -> str:
-        return self.value
 
-
-class CollaboratorRole(str, Enum):
+class CollaboratorRole(StrEnum):
     """Roles for resource collaborators."""
 
     OWNER = "owner"
@@ -102,20 +84,14 @@ class CollaboratorRole(str, Enum):
             return self._level < other._level
         return NotImplemented
 
-    def __str__(self) -> str:
-        return self.value
 
-
-class ResourceType(str, Enum):
+class ResourceType(StrEnum):
     """Resource types for the generic collaborator table."""
 
     ASSESSMENT = "assessment"
     QUESTION_BANK = "question_bank"
     QUESTION_TEMPLATE_BANK = "question_template_bank"
     ASSESSMENT_TEMPLATE = "assessment_template"
-
-    def __str__(self) -> str:
-        return self.value
 
     @property
     def resource_name(self) -> str:

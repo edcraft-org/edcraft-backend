@@ -135,7 +135,7 @@ class QuestionGenerationService:
     async def generate_template(
         self,
         code: str,
-        entry_function: str,
+        execution_spec: ExecutionSpec,
         question_spec: QuestionSpec,
         generation_options: GenerationOptions,
         text_template_type: TextTemplateType,
@@ -143,19 +143,24 @@ class QuestionGenerationService:
     ) -> TemplatePreviewResponse:
         """Generate template data including preview question and text template."""
         preview_question = self.question_generator.generate_template_preview(
+            code=code,
             question_spec=question_spec,
             generation_options=generation_options,
+            execution_spec=execution_spec,
         )
 
         if question_text_template is None:
-            func_params = parse_function_parameters(code, entry_function)
+            question_text_template = self.question_generator.text_generator.generate_question(
+                question_spec=question_spec,
+                input_data=None
+            )
+
+            func_params = parse_function_parameters(code, execution_spec.entry_function)
             if func_params.parameters:
                 input_fmt = ", ".join(f"{p} = {{{p}}}" for p in func_params.parameters)
                 question_text_template = (
-                    f"{preview_question.text}\nGiven input: {input_fmt}"
+                    f"{question_text_template}\nGiven input: {input_fmt}"
                 )
-            else:
-                question_text_template = preview_question.text
 
         target_elements = [
             CreateTargetElementRequest(
@@ -168,13 +173,21 @@ class QuestionGenerationService:
             for e in question_spec.target
         ]
 
+        preview_question.text = question_text_template
+        if execution_spec.input_data is not None:
+            preview_question.text = render_question_text(
+                question_text_template,
+                text_template_type,
+                execution_spec.input_data,
+            )
+
         return TemplatePreviewResponse(
             question_text_template=question_text_template,
             text_template_type=text_template_type,
             question_type=preview_question.question_type,
             preview_question=preview_question,
             code=code,
-            entry_function=entry_function,
+            entry_function=execution_spec.entry_function,
             output_type=question_spec.output_type,
             num_distractors=generation_options.num_distractors,
             target_elements=target_elements,

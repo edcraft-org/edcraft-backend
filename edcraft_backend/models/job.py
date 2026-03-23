@@ -1,7 +1,7 @@
 """Job and JobToken models for async Nomad job queue."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from uuid import UUID, uuid4
 
 from sqlalchemy import DateTime, ForeignKey, String, Text
@@ -11,7 +11,7 @@ from sqlalchemy.sql import func
 from edcraft_backend.models.base import Base
 
 
-class JobStatus(str, Enum):
+class JobStatus(StrEnum):
     """Lifecycle states of an async job."""
 
     QUEUED = "queued"
@@ -20,7 +20,7 @@ class JobStatus(str, Enum):
     FAILED = "failed"
 
 
-class JobType(str, Enum):
+class JobType(StrEnum):
     """Which endpoint submitted this job."""
 
     ANALYSE_CODE = "analyse_code"

@@ -429,7 +429,7 @@ class TestGenerateTemplatePreview:
         """Test generating template preview with MCQ question type."""
         request_data: dict[str, Any] = {
             "code": "def example(n):\\n    return n * 2",
-            "entry_function": "example",
+            "execution_spec": {"entry_function": "example"},
             "question_spec": {
                 "target": [
                     {
@@ -492,7 +492,7 @@ class TestGenerateTemplatePreview:
         """Test that a user-provided question_text_template is echoed back."""
         request_data: dict[str, Any] = {
             "code": "def example(n):\\n    return n * 2",
-            "entry_function": "example",
+            "execution_spec": {"entry_function": "example"},
             "question_spec": {
                 "target": [
                     {
@@ -527,7 +527,7 @@ class TestGenerateTemplatePreview:
         """Test that invalid code encoding causes the job to fail."""
         request_data: dict[str, Any] = {
             "code": "\\x",  # Invalid escape sequence
-            "entry_function": "example",
+            "execution_spec": {"entry_function": "example"},
             "question_spec": {
                 "target": [
                     {
@@ -557,7 +557,7 @@ class TestGenerateTemplatePreview:
         """Test that response preserves all input configuration."""
         request_data: dict[str, Any] = {
             "code": "def example(x, y):\\n    return x + y",
-            "entry_function": "example",
+            "execution_spec": {"entry_function": "example"},
             "question_spec": {
                 "target": [
                     {
@@ -587,3 +587,36 @@ class TestGenerateTemplatePreview:
         assert result["question_type"] == "mrq"
         assert result["target_elements"][0]["modifier"] == "arguments"
         assert result["num_distractors"] == 3
+
+    @pytest.mark.asyncio
+    async def test_generate_template_preview_with_input_data(
+        self, test_client: AsyncClient
+    ) -> None:
+        """Test preview question is generated with real values when input_data is provided."""
+        request_data: dict[str, Any] = {
+            "code": "def example(n):\\n    return n * 2",
+            "execution_spec": {"entry_function": "example", "input_data": {"n": 5}},
+            "question_spec": {
+                "target": [
+                    {
+                        "type": "function",
+                        "id": [0],
+                        "name": "example",
+                        "line_number": 1,
+                        "modifier": "return_value",
+                    }
+                ],
+                "output_type": "first",
+                "question_type": "mcq",
+            },
+            "generation_options": {"num_distractors": 4},
+        }
+
+        data = await _submit_and_poll(
+            test_client, "/question-generation/generate-template", request_data
+        )
+
+        assert data["status"] == "completed"
+        preview = data["result"]["preview_question"]
+        assert preview["answer"] == "Option A"
+        assert "Option A" in preview["options"]

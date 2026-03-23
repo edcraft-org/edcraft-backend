@@ -51,9 +51,9 @@ class MockJobService:
         self.db = db
         self.job_repo = JobRepository(db)
         self.job_token_repo = JobTokenRepository(db)
-        self._question_gen_svc: Any = None
+        self._question_gen_svc: QuestionGenerationService | None = None
 
-    def _get_question_gen_svc(self) -> Any:
+    def _get_question_gen_svc(self) -> QuestionGenerationService:
         if self._question_gen_svc is not None:
             return self._question_gen_svc
 
@@ -157,7 +157,7 @@ class MockJobService:
             decoded = codecs.decode(params["code"], "unicode_escape")
             result = await self._get_question_gen_svc().generate_template(
                 code=decoded,
-                entry_function=params["entry_function"],
+                execution_spec=ExecutionSpec(**params["execution_spec"]),
                 question_spec=QuestionSpec(**params["question_spec"]),
                 generation_options=GenerationOptions(**params["generation_options"]),
                 text_template_type=TextTemplateType(params["text_template_type"]),

@@ -109,7 +109,9 @@ class GenerateTemplateRequest(BaseModel):
     """Request to generate a question template (no DB persistence)."""
 
     code: str = Field(..., description="Algorithm code")
-    entry_function: str = Field(..., description="Name of the entry function")
+    execution_spec: ExecutionSpec = Field(
+        ..., description="Specifications for code execution"
+    )
     question_spec: QuestionSpec = Field(
         ..., description="Specifications for the question to be generated"
     )
