@@ -145,17 +145,17 @@ class MockJobService:
 
         if job_type == JobType.GENERATE_QUESTION:
             decoded = codecs.decode(params["code"], "unicode_escape")
-            result = await self._get_question_gen_svc().generate_question(
+            generate_qns_result = await self._get_question_gen_svc().generate_question(
                 code=decoded,
                 question_spec=QuestionSpec(**params["question_spec"]),
                 execution_spec=ExecutionSpec(**params["execution_spec"]),
                 generation_options=GenerationOptions(**params["generation_options"]),
             )
-            return result.model_dump()
+            return generate_qns_result.model_dump()
 
         if job_type == JobType.GENERATE_TEMPLATE:
             decoded = codecs.decode(params["code"], "unicode_escape")
-            result = await self._get_question_gen_svc().generate_template(
+            template_result = await self._get_question_gen_svc().generate_template(
                 code=decoded,
                 execution_spec=ExecutionSpec(**params["execution_spec"]),
                 question_spec=QuestionSpec(**params["question_spec"]),
@@ -163,18 +163,18 @@ class MockJobService:
                 text_template_type=TextTemplateType(params["text_template_type"]),
                 question_text_template=params.get("question_text_template"),
             )
-            return result.model_dump(mode="json")
+            return template_result.model_dump(mode="json")
 
         if job_type == JobType.QUESTION_FROM_TEMPLATE:
-            result = await self._get_question_gen_svc().generate_question_from_template(
+            question_result = await self._get_question_gen_svc().generate_question_from_template(
                 user_id=UUID(params["user_id"]),
                 template_id=UUID(params["template_id"]),
                 input_data=params["input_data"],
             )
-            return result.model_dump()
+            return question_result.model_dump()
 
         if job_type == JobType.ASSESSMENT_FROM_TEMPLATE:
-            result = (
+            assessment_result = (
                 await self._get_question_gen_svc().generate_assessment_from_template(
                     user_id=UUID(params["user_id"]),
                     template_id=UUID(params["template_id"]),
@@ -185,11 +185,11 @@ class MockJobService:
                 )
             )
             await self.db.commit()
-            return result.model_dump()
+            return assessment_result.model_dump()
 
         if job_type == JobType.GENERATE_INPUTS:
-            result = InputGeneratorService().generate_inputs(params["inputs"])
-            return {"inputs": result}
+            inputs_result = InputGeneratorService().generate_inputs(params["inputs"])
+            return {"inputs": inputs_result}
 
         raise ValueError(f"Unknown job type: {job_type!r}")
 

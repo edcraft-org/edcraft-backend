@@ -478,7 +478,7 @@ dev = [
 [[package]]
 name = "edcraft-engine"
 version = "0.1.0"
-source = { git = "https://github.com/edcraft-org/edcraft-engine.git#632c23d727cabefa19785fecbdfd99fe9cb71908" }
+source = { git = "https://github.com/edcraft-org/edcraft-engine.git#2ba7aa5d3b2732709d5f44671feef64f5e97bd9c" }
 dependencies = [
     { name = "pydantic" },
     { name = "query-engine" },
@@ -1374,7 +1374,7 @@ wheels = [
 [[package]]
 name = "query-engine"
 version = "0.1.0"
-source = { git = "https://github.com/edcraft-org/query-engine.git#fe4f347a9463d5184d6a7e0a5aa24d0f9e9e8c34" }
+source = { git = "https://github.com/edcraft-org/query-engine.git#657533d7c0e5d0cdd6d1dffa881e207e25cfcad4" }
 dependencies = [
     { name = "step-tracer" },
 ]
@@ -1708,7 +1708,7 @@ wheels = [
 [[package]]
 name = "step-tracer"
 version = "0.1.0"
-source = { git = "https://github.com/edcraft-org/step-tracer.git#ef1c5ee82de299861a518a4d433e4264c5ba7713" }
+source = { git = "https://github.com/edcraft-org/step-tracer.git#09b28182c55b24c403a260f06b90631e7fa795ce" }
 
 [[package]]
 name = "typer"

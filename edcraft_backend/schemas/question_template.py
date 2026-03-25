@@ -27,6 +27,7 @@ class CreateTargetElementRequest(BaseModel):
     name: str | None = None
     line_number: int | None = None
     modifier: TargetModifier | None = None
+    argument_keys: list[str] | None = None
 
 
 class TargetElementResponse(BaseModel):
@@ -38,6 +39,7 @@ class TargetElementResponse(BaseModel):
     name: str | None = None
     line_number: int | None = None
     modifier: TargetModifier | None = None
+    argument_keys: list[str] | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

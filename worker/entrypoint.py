@@ -13,7 +13,7 @@ import codecs
 import json
 import logging
 import os
-from typing import Any, cast
+from typing import Any
 from uuid import UUID
 
 import httpx
@@ -71,6 +71,7 @@ def main() -> None:
     params = json.loads(base64.b64decode(os.environ["EDCRAFT_PARAMS_B64"]))
 
     logger.info("Starting worker for job type: %s", job_type)
+    logger.info("Request: %s", params)
     asyncio.run(_run(job_type, params, callback_url))
 
 
@@ -158,7 +159,7 @@ async def _handle_generate_question(params: dict[str, Any]) -> dict[str, Any]:
             execution_spec=ExecutionSpec(**params["execution_spec"]),
             generation_options=GenerationOptions(**params["generation_options"]),
         )
-        return cast(dict[str, Any], result.model_dump())
+        return result.model_dump()
 
 
 async def _handle_generate_template(params: dict[str, Any]) -> dict[str, Any]:
@@ -184,7 +185,7 @@ async def _handle_question_from_template(params: dict[str, Any]) -> dict[str, An
             template_id=UUID(params["template_id"]),
             input_data=params["input_data"],
         )
-        return cast(dict[str, Any], result.model_dump())
+        return result.model_dump()
 
 
 async def _handle_assessment_from_template(params: dict[str, Any]) -> dict[str, Any]:

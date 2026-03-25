@@ -103,6 +103,7 @@ class QuestionGenerationService:
                 name=element.name,
                 line_number=element.line_number,
                 modifier=element.modifier.value if element.modifier else None,
+                argument_keys=element.argument_keys,
             )
             for element in template.target_elements
         ]
@@ -169,6 +170,7 @@ class QuestionGenerationService:
                 name=e.name,
                 line_number=e.line_number,
                 modifier=TargetModifier(e.modifier) if e.modifier else None,
+                argument_keys=e.argument_keys,
             )
             for e in question_spec.target
         ]

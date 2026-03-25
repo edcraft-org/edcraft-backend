@@ -52,6 +52,10 @@ class TargetElement(Base):
         nullable=True,
     )
 
+    argument_keys: Mapped[list[str] | None] = mapped_column(
+        ARRAY(String(255)), nullable=True
+    )
+
     # Relationship
     template: Mapped["QuestionTemplate"] = relationship(back_populates="target_elements")
 
