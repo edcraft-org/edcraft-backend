@@ -47,12 +47,11 @@ from edcraft_backend.services.auth_service import AuthService
 from edcraft_backend.services.collaboration_service import CollaborationService
 from edcraft_backend.services.email_service import EmailService
 from edcraft_backend.services.folder_service import FolderService
+from edcraft_backend.services.form_builder_service import FormBuilderService
 from edcraft_backend.services.job_service import JobService
 from edcraft_backend.services.oauth_service import OAuthService
+from edcraft_backend.services.post_processing_service import PostProcessingService
 from edcraft_backend.services.question_bank_service import QuestionBankService
-from edcraft_backend.services.question_generation_service import (
-    QuestionGenerationService,
-)
 from edcraft_backend.services.question_service import QuestionService
 from edcraft_backend.services.question_template_bank_service import (
     QuestionTemplateBankService,
@@ -312,23 +311,6 @@ def get_assessment_template_service(
     )
 
 
-def get_question_generation_service(
-    question_template_svc: QuestionTemplateService = Depends(
-        get_question_template_service
-    ),
-    assessment_template_svc: AssessmentTemplateService = Depends(
-        get_assessment_template_service
-    ),
-    assessment_svc: AssessmentService = Depends(get_assessment_service),
-) -> QuestionGenerationService:
-    """Get QuestionGenerationService instance."""
-    return QuestionGenerationService(
-        question_template_svc,
-        assessment_template_svc,
-        assessment_svc,
-    )
-
-
 def get_auth_service(
     user_repo: UserRepository = Depends(get_user_repository),
     refresh_token_repo: RefreshTokenRepository = Depends(get_refresh_token_repository),
@@ -352,6 +334,19 @@ def get_oauth_service(
 ) -> OAuthService:
     """Get OAuthService instance."""
     return OAuthService(user_repo, oauth_account_repo, auth_svc, folder_svc)
+
+
+async def get_form_builder_service() -> FormBuilderService:
+    """Get FormBuilderService instance."""
+    return FormBuilderService()
+
+
+async def get_post_processing_service(
+    assessment_svc: AssessmentService = Depends(get_assessment_service),
+    form_builder_svc: FormBuilderService = Depends(get_form_builder_service),
+) -> PostProcessingService:
+    """Get PostProcessingService instance."""
+    return PostProcessingService(assessment_svc, form_builder_svc)
 
 
 async def get_current_user(
@@ -430,12 +425,6 @@ AssessmentTemplateServiceDep = Annotated[
     AssessmentTemplateService,
     Depends(get_assessment_template_service),
 ]
-QuestionGenerationServiceDep = Annotated[
-    QuestionGenerationService,
-    Depends(get_question_generation_service),
-]
-
-
 CollaborationServiceDep = Annotated[
     CollaborationService, Depends(get_collaboration_service)
 ]
@@ -493,9 +482,10 @@ def get_job_service(
     job_repo: JobRepository = Depends(get_job_repository),
     job_token_repo: JobTokenRepository = Depends(get_job_token_repository),
     executor: NomadExecutor = Depends(get_nomad_executor),
+    post_processing_svc: PostProcessingService = Depends(get_post_processing_service),
 ) -> JobService:
     """Get JobService instance."""
-    return JobService(job_repo, job_token_repo, executor)
+    return JobService(job_repo, job_token_repo, executor, post_processing_svc)
 
 
 JobServiceDep = Annotated[JobService, Depends(get_job_service)]

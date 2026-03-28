@@ -149,18 +149,15 @@ class TestGenerateQuestionFromTemplate:
     async def test_generate_question_from_template_not_found(
         self, test_client: AsyncClient, user: User
     ) -> None:
-        """Test generating question from non-existent template returns failed job."""
+        """Test generating question from non-existent template returns 404."""
         non_existent_id = uuid4()
         request_data = {"input_data": {"n": 5}}
 
-        data = await _submit_and_poll(
-            test_client,
+        resp = await test_client.post(
             f"/question-generation/from-template/{non_existent_id}",
-            request_data,
+            json=request_data,
         )
-
-        assert data["status"] == "failed"
-        assert data["error"] is not None
+        assert resp.status_code == 404
 
 
 
@@ -313,7 +310,7 @@ class TestGenerateAssessmentFromTemplate:
     async def test_generate_assessment_from_template_not_found(
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
-        """Test generating assessment from non-existent template returns failed job."""
+        """Test generating assessment from non-existent template returns 404."""
         await db_session.commit()
 
         non_existent_id = uuid4()
@@ -322,14 +319,11 @@ class TestGenerateAssessmentFromTemplate:
             "question_inputs": [{"n": 5}],
         }
 
-        data = await _submit_and_poll(
-            test_client,
+        resp = await test_client.post(
             f"/question-generation/assessment-from-template/{non_existent_id}",
-            request_data,
+            json=request_data,
         )
-
-        assert data["status"] == "failed"
-        assert data["error"] is not None
+        assert resp.status_code == 404
 
     @pytest.mark.asyncio
     async def test_generate_assessment_from_template_input_count_mismatch(

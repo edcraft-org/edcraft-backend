@@ -250,7 +250,7 @@ The application follows a layered architecture pattern:
   - **`oauth/`** - OAuth 2.0 provider integrations
   - Core files: `main.py` (app initialization), `database.py` (session management), `dependencies.py` (shared dependencies)
 
-- **`worker/`** - Standalone worker entrypoint run inside Nomad-spawned containers; handles all job types and POSTs results back to FastAPI via callback URL
+- **`worker/`** - Worker source (`entrypoint.py`, `handlers.py`) injected at runtime into Nomad-spawned containers via Nomad Templates; handles all job types and POSTs results back to FastAPI via callback URL
 - **`alembic/`** - Database migration scripts managed by Alembic
 - **`tests/`** - Test suite
 - **Configuration files**: `docker-compose.yml`, `Makefile`, `pyproject.toml`
@@ -608,8 +608,8 @@ Long-running AI generation endpoints are non-blocking. Instead of waiting for th
    ```json
    { "job_id": "<uuid>", "status_url": "/jobs/<uuid>" }
    ```
-3. **Nomad schedules a worker container** using the same `edcraft-backend` Docker image. Job parameters are passed as a base64-encoded env var.
-4. **Worker executes** (`python -m worker.entrypoint`), completes the task, and POSTs the result back:
+3. **Nomad schedules a worker container** using the engine's Docker image. The `worker/entrypoint.py` and `worker/handlers.py` source files are read from the backend package and **injected at runtime via Nomad Templates** into `NOMAD_CONTAINER_WORKDIR`.
+4. **Worker executes** the entrypoint, completes the task, and POSTs the result back:
    ```
    POST /jobs/callback/{token}
    { "result": "<json string>" }
@@ -643,7 +643,8 @@ Long-running AI generation endpoints are non-blocking. Instead of waiting for th
 | `NOMAD_CPU_MHZ` | `500` | CPU reservation per worker task (MHz) |
 | `NOMAD_MEMORY_MB` | `512` | Memory reservation per worker task (MB) |
 | `NOMAD_CALLBACK_BASE_URL` | `http://host.docker.internal:8000` | Base URL the worker uses to POST results back |
-| `NOMAD_CONTAINER_IMAGE` | `edcraft-backend:latest` | Docker image to run as the worker |
+| `NOMAD_CONTAINER_IMAGE` | `edcraft-engine:latest` | Docker image to run as the worker |
+| `NOMAD_CONTAINER_WORKDIR` | `/local` | Directory inside the container where worker scripts are injected |
 
 ## Authentication
 
@@ -775,7 +776,8 @@ See the full variable reference in the [Async Job Queue](#async-job-queue-nomad)
 - `NOMAD_HOST` - Nomad agent host (default: `127.0.0.1`)
 - `NOMAD_PORT` - Nomad HTTP API port (default: `4646`)
 - `NOMAD_CALLBACK_BASE_URL` - URL workers use to POST results back (must be reachable from inside a Docker container)
-- `NOMAD_CONTAINER_IMAGE` - Worker Docker image (default: `edcraft-backend:latest`)
+- `NOMAD_CONTAINER_IMAGE` - Worker Docker image (default: `edcraft-engine:latest`)
+- `NOMAD_CONTAINER_WORKDIR` - Directory where worker scripts are injected (default: `/local`)
 
 ## API Documentation
 

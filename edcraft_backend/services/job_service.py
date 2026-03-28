@@ -1,5 +1,8 @@
 """Service for submitting and managing async Nomad jobs."""
 
+import json
+import logging
+from typing import Any
 from uuid import UUID
 
 from edcraft_backend.config import settings
@@ -10,8 +13,14 @@ from edcraft_backend.exceptions import (
 )
 from edcraft_backend.executors.nomad import NomadExecutor
 from edcraft_backend.models.job import Job, JobStatus, JobType
-from edcraft_backend.repositories.job_repository import JobRepository, JobTokenRepository
+from edcraft_backend.repositories.job_repository import (
+    JobRepository,
+    JobTokenRepository,
+)
 from edcraft_backend.security import generate_token
+from edcraft_backend.services.post_processing_service import PostProcessingService
+
+logger = logging.getLogger(__name__)
 
 
 class JobService:
@@ -22,10 +31,12 @@ class JobService:
         job_repo: JobRepository,
         job_token_repo: JobTokenRepository,
         executor: NomadExecutor | None,
+        post_processing_svc: PostProcessingService,
     ) -> None:
         self.job_repo = job_repo
         self.job_token_repo = job_token_repo
         self.executor = executor
+        self.post_processing_svc = post_processing_svc
 
     async def submit(
         self,
@@ -67,19 +78,47 @@ class JobService:
         result_json: str | None,
         error: str | None,
     ) -> None:
-        """Validate the one-time token and persist the job result.
+        """Validate the one-time token and persist the processed job result.
 
         Called by the Nomad worker via POST /jobs/callback/{token}.
+        Post-processes the raw engine result based on job type before storing.
         """
         job_token = await self.job_token_repo.get_valid_by_token(token)
         if job_token is None:
             raise InvalidTokenError("Invalid or already consumed callback token")
 
         await self.job_token_repo.consume(token)
+
+        if error or result_json is None:
+            await self.job_repo.complete(
+                job_id=job_token.job_id,
+                result_json=None,
+                error=error,
+            )
+            return
+
+        job = await self.job_repo.get_by_id(job_token.job_id)
+        if job is None:
+            return
+
+        processed_json: str | None = result_json
+        process_error: str | None = None
+
+        try:
+            raw = json.loads(result_json)
+            processed = await self._post_process(job.type, raw)
+            processed_json = json.dumps(processed, default=str)
+        except Exception as exc:
+            logger.exception(
+                "Post-processing failed for job %s (type=%s)", job.id, job.type
+            )
+            process_error = str(exc)
+            processed_json = None
+
         await self.job_repo.complete(
             job_id=job_token.job_id,
-            result_json=result_json,
-            error=error,
+            result_json=processed_json,
+            error=process_error,
         )
 
     async def get_job(self, job_id: UUID, user_id: UUID | None = None) -> Job:
@@ -94,3 +133,20 @@ class JobService:
         if job.user_id is not None and job.user_id != user_id:
             raise UnauthorizedAccessError("Job", str(job_id))
         return job
+
+    async def _post_process(
+        self,
+        job_type: str,
+        raw: dict[str, Any],
+    ) -> dict[str, Any]:
+        if job_type == JobType.ANALYSE_CODE:
+            return self.post_processing_svc.post_process_code_analysis(raw)
+        if job_type == JobType.GENERATE_TEMPLATE:
+            return self.post_processing_svc.post_process_generate_template(raw)
+        if job_type == JobType.QUESTION_FROM_TEMPLATE:
+            return self.post_processing_svc.post_process_question_from_template(raw)
+        if job_type == JobType.ASSESSMENT_FROM_TEMPLATE:
+            return await self.post_processing_svc.post_process_assessment_from_template(
+                raw
+            )
+        return raw

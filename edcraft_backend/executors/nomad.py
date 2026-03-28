@@ -1,12 +1,17 @@
 """Nomad executor: submits batch jobs to Nomad via its HTTP API."""
 
 import base64
+import importlib.resources as ir
 import json
 
 import httpx
 
 from edcraft_backend.config import settings
 from edcraft_backend.models.job import JobStatus
+
+
+def _load_worker_source(filename: str) -> str:
+    return ir.files("worker").joinpath(filename).read_text(encoding="utf-8")
 
 
 class NomadExecutor:
@@ -33,6 +38,8 @@ class NomadExecutor:
         """Build and submit a Nomad batch job."""
         cfg = settings.nomad
         params_b64 = base64.b64encode(json.dumps(params, default=str).encode()).decode()
+        entrypoint_src = _load_worker_source("entrypoint.py")
+        handlers_src = _load_worker_source("handlers.py")
 
         job_spec = {
             "ID": nomad_job_id,
@@ -52,16 +59,41 @@ class NomadExecutor:
                                 "image": cfg.container_image,
                                 "force_pull": False,
                                 "command": "python",
-                                "args": ["-m", "worker.entrypoint"],
+                                "args": [f"{cfg.container_workdir}/entrypoint.py"],
                                 "network_mode": "edcraft-network",
+                                **(
+                                    {
+                                        "auth": {
+                                            "username": cfg.registry_username,
+                                            "password": cfg.registry_password,
+                                        }
+                                    }
+                                    if cfg.registry_username and cfg.registry_password
+                                    else {}
+                                ),
                             },
+                            "Templates": [
+                                {
+                                    "EmbeddedTmpl": entrypoint_src,
+                                    "DestPath": f"{cfg.container_workdir}/entrypoint.py",
+                                    "Perms": "0755",
+                                    # Override template delimiters so Nomad doesn't
+                                    # interpret Python's {{ }} or [[ ]] as template directives.
+                                    "LeftDelim": "<%",
+                                    "RightDelim": "%>",
+                                },
+                                {
+                                    "EmbeddedTmpl": handlers_src,
+                                    "DestPath": f"{cfg.container_workdir}/handlers.py",
+                                    "Perms": "0644",
+                                    "LeftDelim": "<%",
+                                    "RightDelim": "%>",
+                                },
+                            ],
                             "Env": {
                                 "EDCRAFT_JOB_TYPE": job_type,
                                 "EDCRAFT_PARAMS_B64": params_b64,
                                 "EDCRAFT_CALLBACK_URL": callback_url,
-                                "DATABASE_URL": str(settings.database.url),
-                                "APP_ENV": settings.app.env.value,
-                                "JWT_SECRET": settings.jwt.secret,
                             },
                             "Resources": {
                                 "CPU": cfg.cpu_mhz,

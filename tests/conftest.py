@@ -19,10 +19,11 @@ from sqlalchemy.ext.asyncio import (  # noqa: E402
 
 from edcraft_backend.config import settings  # noqa: E402
 from edcraft_backend.database import get_db  # noqa: E402
+from edcraft_backend.dependencies import get_job_service  # noqa: E402
 from edcraft_backend.main import app  # noqa: E402
 from edcraft_backend.models.base import Base  # noqa: E402
 from edcraft_backend.models.user import User  # noqa: E402
-from tests.mocks import MockJobService, MockQuestionGenerator, MockStaticAnalyser  # noqa: E402
+from tests.mocks import MockJobService  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -91,58 +92,11 @@ async def test_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, N
     async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
         yield db_session
 
-    # Override external service dependencies with mocked engines
-    from fastapi import Depends
-
-    from edcraft_backend.dependencies import (
-        get_assessment_service,
-        get_assessment_template_service,
-        get_job_service,
-        get_question_generation_service,
-        get_question_template_service,
-    )
-    from edcraft_backend.services.assessment_service import AssessmentService
-    from edcraft_backend.services.assessment_template_service import (
-        AssessmentTemplateService,
-    )
-    from edcraft_backend.services.code_analysis_service import CodeAnalysisService
-    from edcraft_backend.services.question_generation_service import QuestionGenerationService
-    from edcraft_backend.services.question_template_service import QuestionTemplateService
-
-    def override_question_generation_service(
-        question_template_svc: QuestionTemplateService = Depends(
-            get_question_template_service
-        ),
-        assessment_template_svc: AssessmentTemplateService = Depends(
-            get_assessment_template_service
-        ),
-        assessment_svc: AssessmentService = Depends(get_assessment_service),
-    ) -> QuestionGenerationService:
-        """Override with real service but mocked engine."""
-        service = QuestionGenerationService(
-            question_template_svc,
-            assessment_template_svc,
-            assessment_svc,
-        )
-        # Replace only the external engine with mock
-        service.question_generator = MockQuestionGenerator()
-        return service
-
-    def override_code_analysis_service() -> CodeAnalysisService:
-        """Override with real service but mocked engine."""
-        service = CodeAnalysisService()
-        service.static_analyser = MockStaticAnalyser()
-        return service
-
     def override_job_service() -> MockJobService:
         return MockJobService(db_session)
 
     # Apply dependency overrides
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_question_generation_service] = (
-        override_question_generation_service
-    )
-    app.dependency_overrides[CodeAnalysisService] = override_code_analysis_service
     app.dependency_overrides[get_job_service] = override_job_service
 
     # Create async test client
@@ -156,9 +110,7 @@ async def test_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, N
 
 
 @pytest_asyncio.fixture
-async def user(
-    test_client: AsyncClient, db_session: AsyncSession
-) -> User:
+async def user(test_client: AsyncClient, db_session: AsyncSession) -> User:
     """Create and authenticate a test user, setting auth cookies on test_client."""
     from tests.factories import create_and_login_user
 
@@ -179,66 +131,25 @@ async def unauth_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient,
 
 
 @asynccontextmanager
-async def _create_test_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+async def _create_test_client(
+    db_session: AsyncSession,
+) -> AsyncGenerator[AsyncClient, None]:
     """
     Internal helper to create a test client with db and service overrides.
 
     This is used by both unauth_client fixture and can be imported for creating
     additional test clients (e.g., for testing with multiple users).
     """
+
     # Override get_db dependency to use test session
     async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
         yield db_session
-
-    # Use same mocks as test_client
-    from fastapi import Depends
-
-    from edcraft_backend.dependencies import (
-        get_assessment_service,
-        get_assessment_template_service,
-        get_job_service,
-        get_question_generation_service,
-        get_question_template_service,
-    )
-    from edcraft_backend.services.assessment_service import AssessmentService
-    from edcraft_backend.services.assessment_template_service import (
-        AssessmentTemplateService,
-    )
-    from edcraft_backend.services.code_analysis_service import CodeAnalysisService
-    from edcraft_backend.services.question_generation_service import QuestionGenerationService
-    from edcraft_backend.services.question_template_service import QuestionTemplateService
-
-    def override_question_generation_service(
-        question_template_svc: QuestionTemplateService = Depends(
-            get_question_template_service
-        ),
-        assessment_template_svc: AssessmentTemplateService = Depends(
-            get_assessment_template_service
-        ),
-        assessment_svc: AssessmentService = Depends(get_assessment_service),
-    ) -> QuestionGenerationService:
-        service = QuestionGenerationService(
-            question_template_svc,
-            assessment_template_svc,
-            assessment_svc,
-        )
-        service.question_generator = MockQuestionGenerator()
-        return service
-
-    def override_code_analysis_service() -> CodeAnalysisService:
-        service = CodeAnalysisService()
-        service.static_analyser = MockStaticAnalyser()
-        return service
 
     def override_job_service() -> MockJobService:
         return MockJobService(db_session)
 
     # Apply dependency overrides
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_question_generation_service] = (
-        override_question_generation_service
-    )
-    app.dependency_overrides[CodeAnalysisService] = override_code_analysis_service
     app.dependency_overrides[get_job_service] = override_job_service
 
     # Create async test client

@@ -7,6 +7,8 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from edcraft_backend.models.user import User
+from tests.conftest import _create_test_client
+from tests.factories import create_and_login_user, create_test_question_template
 
 
 @pytest.mark.integration
@@ -40,12 +42,12 @@ class TestGetJobStatus:
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Owned jobs are not accessible to a different authenticated user."""
-        from tests.conftest import _create_test_client
-        from tests.factories import create_and_login_user
+        template = await create_test_question_template(db_session, user)
+        await db_session.commit()
 
         # Submit an owned job as `user`
         resp = await test_client.post(
-            "/question-generation/from-template/00000000-0000-0000-0000-000000000001",
+            f"/question-generation/from-template/{template.id}",
             json={"input_data": {"n": 5}},
         )
         assert resp.status_code == 202

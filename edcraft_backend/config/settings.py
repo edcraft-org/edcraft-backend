@@ -138,9 +138,9 @@ class NomadSettings(BaseSettings):
         env_file=None, env_prefix="NOMAD_", case_sensitive=False, extra="ignore"
     )
 
-    host: str = Field(default="127.0.0.1", description="Nomad agent host")
+    host: str = Field(default="host.docker.internal", description="Nomad agent host")
     port: int = Field(default=4646, description="Nomad HTTP API port")
-    token: str | None = Field(default=None, description="Nomad ACL token (required in production)")
+    token: str | None = Field(default=None, description="Nomad ACL token")
     namespace: str | None = Field(default=None, description="Nomad namespace for job isolation")
     datacenters: list[str] = Field(
         default_factory=lambda: ["dc1"],
@@ -156,9 +156,16 @@ class NomadSettings(BaseSettings):
         ),
     )
     container_image: str = Field(
-        default="edcraft-backend:latest",
-        description="Docker image to run as the worker",
+        default="ghcr.io/edcraft-org/edcraft-engine:latest",
+        description="Engine Docker image for worker jobs",
     )
+    registry_username: str | None = Field(
+        default=None, description="Registry username for pulling private container images"
+    )
+    registry_password: str | None = Field(
+        default=None, description="Registry password / token for pulling private container images"
+    )
+    container_workdir: str = "/local"
 
 
 class EmailSettings(BaseSettings):

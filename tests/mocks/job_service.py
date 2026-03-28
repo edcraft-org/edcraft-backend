@@ -4,69 +4,75 @@ import json
 from typing import Any
 from uuid import UUID
 
-from edcraft_engine.question_generator.models import (
-    ExecutionSpec,
-    GenerationOptions,
-    QuestionSpec,
-)
+from input_gen import generate
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from edcraft_backend.models import Job, JobStatus, JobType
-from edcraft_backend.models.enums import TextTemplateType
-from edcraft_backend.repositories import (
-    AssessmentRepository,
+from edcraft_backend.models.job import Job, JobStatus, JobType
+from edcraft_backend.repositories.assessment_repository import AssessmentRepository
+from edcraft_backend.repositories.assessment_template_repository import (
     AssessmentTemplateRepository,
-    FolderRepository,
+)
+from edcraft_backend.repositories.folder_repository import FolderRepository
+from edcraft_backend.repositories.job_repository import (
     JobRepository,
     JobTokenRepository,
-    QuestionBankRepository,
-    QuestionRepository,
+)
+from edcraft_backend.repositories.question_bank_repository import QuestionBankRepository
+from edcraft_backend.repositories.question_repository import QuestionRepository
+from edcraft_backend.repositories.question_template_bank_repository import (
     QuestionTemplateBankRepository,
+)
+from edcraft_backend.repositories.question_template_repository import (
     QuestionTemplateRepository,
+)
+from edcraft_backend.repositories.resource_collaborator_repository import (
     ResourceCollaboratorRepository,
+)
+from edcraft_backend.repositories.target_element_repository import (
     TargetElementRepository,
-    UserRepository,
 )
-from edcraft_backend.schemas import AssessmentMetadata
-from edcraft_backend.services import (
-    AssessmentService,
-    AssessmentTemplateService,
-    CodeAnalysisService,
-    CollaborationService,
-    FolderService,
-    FormBuilderService,
-    InputGeneratorService,
-    JobService,
-    QuestionGenerationService,
-    QuestionService,
-    QuestionTemplateService,
-)
+from edcraft_backend.repositories.user_repository import UserRepository
+from edcraft_backend.services.assessment_service import AssessmentService
+from edcraft_backend.services.collaboration_service import CollaborationService
+from edcraft_backend.services.folder_service import FolderService
+from edcraft_backend.services.form_builder_service import FormBuilderService
+from edcraft_backend.services.job_service import JobService
+from edcraft_backend.services.post_processing_service import PostProcessingService
+from edcraft_backend.services.question_service import QuestionService
+from edcraft_backend.services.question_template_service import QuestionTemplateService
 from tests.mocks.engine import MockQuestionGenerator, MockStaticAnalyser
+from worker.handlers import JobHandlers
 
 
 class MockJobService:
-    """Executes jobs inline in tests without Nomad."""
+    """Executes jobs inline in tests without Nomad.
+
+    Mirrors the worker + JobService.on_callback flow, using mock engine
+    components and running everything synchronously in the test transaction.
+    """
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
         self.job_repo = JobRepository(db)
         self.job_token_repo = JobTokenRepository(db)
-        self._question_gen_svc: QuestionGenerationService | None = None
+        self._handlers = JobHandlers(
+            question_generator=MockQuestionGenerator(),
+            static_analyser=MockStaticAnalyser(),
+            generate_input=generate,
+        )
+        self._post_processing_svc = self._build_post_processing_svc(db)
 
-    def _get_question_gen_svc(self) -> QuestionGenerationService:
-        if self._question_gen_svc is not None:
-            return self._question_gen_svc
-
-        db = self.db
-        folder_repo = FolderRepository(db)
-        assessment_repo = AssessmentRepository(db)
+    @staticmethod
+    def _build_post_processing_svc(db: AsyncSession) -> PostProcessingService:
+        collaborator_repo = ResourceCollaboratorRepository(db)
         question_repo = QuestionRepository(db)
         question_template_repo = QuestionTemplateRepository(db)
         target_element_repo = TargetElementRepository(db)
-        assessment_template_repo = AssessmentTemplateRepository(db)
+        folder_repo = FolderRepository(db)
+        assessment_repo = AssessmentRepository(db)
         question_bank_repo = QuestionBankRepository(db)
         qt_bank_repo = QuestionTemplateBankRepository(db)
-        collaborator_repo = ResourceCollaboratorRepository(db)
+        assessment_template_repo = AssessmentTemplateRepository(db)
         user_repo = UserRepository(db)
 
         question_svc = QuestionService(question_repo, collaborator_repo)
@@ -92,21 +98,13 @@ class MockJobService:
             assessment_template_repo,
         )
         assessment_svc = AssessmentService(
-            assessment_repo, folder_svc, question_svc, user_repo, collaboration_svc
-        )
-        assessment_template_svc = AssessmentTemplateService(
-            assessment_template_repo,
+            assessment_repo,
             folder_svc,
-            question_template_svc,
-            question_template_repo,
+            question_svc,
+            user_repo,
             collaboration_svc,
         )
-        svc = QuestionGenerationService(
-            question_template_svc, assessment_template_svc, assessment_svc
-        )
-        svc.question_generator = MockQuestionGenerator()
-        self._question_gen_svc = svc
-        return svc
+        return PostProcessingService(assessment_svc, FormBuilderService())
 
     async def submit(
         self,
@@ -119,83 +117,42 @@ class MockJobService:
         await self.db.flush()
         await self.db.refresh(job)
 
-        try:
-            result = await self._execute(job_type, params)
-            result_json = json.dumps(result, default=str)
-            await self.job_repo.complete(job.id, result_json, None)
-        except Exception as exc:
-            await self.job_repo.complete(job.id, None, str(exc))
+        result_json: str | None = None
+        error: str | None = None
 
+        try:
+            raw = self._handlers.dispatch(job_type.value, params)
+            processed = await self._post_process(job_type.value, raw)
+            result_json = json.dumps(processed, default=str)
+        except Exception as exc:
+            error = str(exc)
+
+        await self.job_repo.complete(job.id, result_json, error)
         await self.db.refresh(job)
         return job
 
-    async def _execute(self, job_type: JobType, params: dict[str, Any]) -> Any:
-        import codecs
-
+    async def _post_process(self, job_type: str, raw: dict[str, Any]) -> dict[str, Any]:
         if job_type == JobType.ANALYSE_CODE:
-            decoded = codecs.decode(params["code"], "unicode_escape")
-            svc = CodeAnalysisService()
-            svc.static_analyser = MockStaticAnalyser()
-            code_info = svc.analyse_code(decoded)
-            form_elements = FormBuilderService().build_form_elements()
-            return {
-                "code_info": code_info.model_dump(),
-                "form_elements": [e.model_dump() for e in form_elements],
-            }
-
-        if job_type == JobType.GENERATE_QUESTION:
-            decoded = codecs.decode(params["code"], "unicode_escape")
-            generate_qns_result = await self._get_question_gen_svc().generate_question(
-                code=decoded,
-                question_spec=QuestionSpec(**params["question_spec"]),
-                execution_spec=ExecutionSpec(**params["execution_spec"]),
-                generation_options=GenerationOptions(**params["generation_options"]),
-            )
-            return generate_qns_result.model_dump()
-
+            return self._post_processing_svc.post_process_code_analysis(raw)
         if job_type == JobType.GENERATE_TEMPLATE:
-            decoded = codecs.decode(params["code"], "unicode_escape")
-            template_result = await self._get_question_gen_svc().generate_template(
-                code=decoded,
-                execution_spec=ExecutionSpec(**params["execution_spec"]),
-                question_spec=QuestionSpec(**params["question_spec"]),
-                generation_options=GenerationOptions(**params["generation_options"]),
-                text_template_type=TextTemplateType(params["text_template_type"]),
-                question_text_template=params.get("question_text_template"),
-            )
-            return template_result.model_dump(mode="json")
-
+            return self._post_processing_svc.post_process_generate_template(raw)
         if job_type == JobType.QUESTION_FROM_TEMPLATE:
-            question_result = await self._get_question_gen_svc().generate_question_from_template(
-                user_id=UUID(params["user_id"]),
-                template_id=UUID(params["template_id"]),
-                input_data=params["input_data"],
-            )
-            return question_result.model_dump()
-
+            return self._post_processing_svc.post_process_question_from_template(raw)
         if job_type == JobType.ASSESSMENT_FROM_TEMPLATE:
-            assessment_result = (
-                await self._get_question_gen_svc().generate_assessment_from_template(
-                    user_id=UUID(params["user_id"]),
-                    template_id=UUID(params["template_id"]),
-                    assessment_metadata=AssessmentMetadata(
-                        **params["assessment_metadata"]
-                    ),
-                    question_inputs=params["question_inputs"],
+            return (
+                await self._post_processing_svc.post_process_assessment_from_template(
+                    raw
                 )
             )
-            await self.db.commit()
-            return assessment_result.model_dump()
-
-        if job_type == JobType.GENERATE_INPUTS:
-            inputs_result = InputGeneratorService().generate_inputs(params["inputs"])
-            return {"inputs": inputs_result}
-
-        raise ValueError(f"Unknown job type: {job_type!r}")
+        return raw
 
     async def get_job(self, job_id: UUID, user_id: UUID | None = None) -> Job:
-        real = JobService(self.job_repo, self.job_token_repo, executor=None)
-        return await real.get_job(job_id, user_id)
+        return await JobService(
+            self.job_repo,
+            self.job_token_repo,
+            executor=None,
+            post_processing_svc=self._post_processing_svc,
+        ).get_job(job_id, user_id)
 
     async def on_callback(
         self,
@@ -203,5 +160,9 @@ class MockJobService:
         result_json: str | None,
         error: str | None,
     ) -> None:
-        real = JobService(self.job_repo, self.job_token_repo, executor=None)
-        await real.on_callback(token, result_json, error)
+        await JobService(
+            self.job_repo,
+            self.job_token_repo,
+            executor=None,
+            post_processing_svc=self._post_processing_svc,
+        ).on_callback(token, result_json, error)
