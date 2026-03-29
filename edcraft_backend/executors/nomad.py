@@ -3,11 +3,14 @@
 import base64
 import importlib.resources as ir
 import json
+import logging
 
 import httpx
 
 from edcraft_backend.config import settings
 from edcraft_backend.models.job import JobStatus
+
+logger = logging.getLogger(__name__)
 
 
 def _load_worker_source(filename: str) -> str:
@@ -105,6 +108,10 @@ class NomadExecutor:
             ],
         }
 
+        logger.info(
+            "Submitting Nomad job",
+            extra={"nomad_job_id": nomad_job_id, "job_type": job_type},
+        )
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
                 f"{self._base_url}/jobs",
@@ -112,6 +119,7 @@ class NomadExecutor:
                 headers=self._headers,
             )
             resp.raise_for_status()
+        logger.info("Nomad job submitted", extra={"nomad_job_id": nomad_job_id})
 
     async def get_job_status(self, nomad_job_id: str) -> str:
         """Query Nomad for job status. Returns a JobStatus value."""
@@ -127,6 +135,7 @@ class NomadExecutor:
         summary = resp.json()
         tg = summary.get("Summary", {}).get("worker", {})
         if tg.get("Failed", 0) > 0:
+            logger.error("Nomad job failed", extra={"nomad_job_id": nomad_job_id})
             return JobStatus.FAILED.value
         if tg.get("Complete", 0) > 0:
             return JobStatus.COMPLETED.value

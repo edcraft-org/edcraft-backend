@@ -47,6 +47,7 @@ class JobService:
         """Create a Job record, issue a callback token, and submit to Nomad."""
         job = Job(type=job_type.value, status=JobStatus.QUEUED.value, user_id=user_id)
         job = await self.job_repo.create(job)
+        logger.info("Job created", extra={"job_id": job.id, "job_type": job_type.value})
 
         token = generate_token(32)
         await self.job_token_repo.create(token=token, job_id=job.id)
@@ -67,9 +68,11 @@ class JobService:
                 job.id, JobStatus.RUNNING.value, nomad_job_id=nomad_job_id
             )
         except Exception:
+            logger.exception("Job submission failed", extra={"job_id": job.id})
             await self.job_repo.update_status(job.id, JobStatus.FAILED.value)
             raise
 
+        logger.info("Job submitted", extra={"job_id": job.id, "nomad_job_id": nomad_job_id})
         return job
 
     async def on_callback(
@@ -90,6 +93,10 @@ class JobService:
         await self.job_token_repo.consume(token)
 
         if error or result_json is None:
+            logger.error(
+                "Job callback received with error",
+                extra={"job_id": job_token.job_id, "error": error},
+            )
             await self.job_repo.complete(
                 job_id=job_token.job_id,
                 result_json=None,
@@ -115,6 +122,7 @@ class JobService:
             process_error = str(exc)
             processed_json = None
 
+        logger.info("Job callback completed", extra={"job_id": job_token.job_id})
         await self.job_repo.complete(
             job_id=job_token.job_id,
             result_json=processed_json,
@@ -132,6 +140,13 @@ class JobService:
             raise ResourceNotFoundError("Job", str(job_id))
         if job.user_id is not None and job.user_id != user_id:
             raise UnauthorizedAccessError("Job", str(job_id))
+
+        if job.status == JobStatus.RUNNING and job.nomad_job_id and self.executor:
+            status = await self.executor.get_job_status(job.nomad_job_id)
+            if status != JobStatus.RUNNING:
+                await self.job_repo.update_status(job.id, status)
+                job.status = status
+
         return job
 
     async def _post_process(
