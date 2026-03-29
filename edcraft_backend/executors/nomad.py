@@ -63,7 +63,6 @@ class NomadExecutor:
                                 "force_pull": False,
                                 "command": "python",
                                 "args": [f"{cfg.container_workdir}/entrypoint.py"],
-                                "network_mode": "edcraft-network",
                                 **(
                                     {
                                         "auth": {
