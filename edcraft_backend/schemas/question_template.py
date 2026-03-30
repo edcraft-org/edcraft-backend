@@ -58,7 +58,7 @@ class CreateQuestionTemplateRequest(BaseModel):
     output_type: str
     target_elements: list[CreateTargetElementRequest]
     input_data_config: dict[str, dict] | None = None
-    code_info: CodeInfo
+    code_info: CodeInfo | None = None
 
     @model_validator(mode="after")
     def validate_basic_template_variables(self) -> CreateQuestionTemplateRequest:
