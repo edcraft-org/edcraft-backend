@@ -95,6 +95,7 @@ class QuestionTemplate(EntityBase):
         nullable=False,
     )
     input_data_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    code_info: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=None)
 
     # Relationships
     owner: Mapped["User"] = relationship(back_populates="question_templates")

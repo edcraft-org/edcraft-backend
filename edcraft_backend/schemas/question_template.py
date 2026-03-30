@@ -13,6 +13,7 @@ from edcraft_backend.models.enums import (
     TargetModifier,
     TextTemplateType,
 )
+from edcraft_backend.schemas.code_info import CodeInfo
 from edcraft_backend.utils.code_parser import (
     EntryFunctionParams,
     parse_function_parameters,
@@ -57,6 +58,7 @@ class CreateQuestionTemplateRequest(BaseModel):
     output_type: str
     target_elements: list[CreateTargetElementRequest]
     input_data_config: dict[str, dict] | None = None
+    code_info: CodeInfo
 
     @model_validator(mode="after")
     def validate_basic_template_variables(self) -> CreateQuestionTemplateRequest:
@@ -96,6 +98,7 @@ class UpdateQuestionTemplateRequest(BaseModel):
     output_type: str | None = None
     target_elements: list[CreateTargetElementRequest] | None = None
     input_data_config: dict[str, dict] | None = None
+    code_info: CodeInfo | None = None
 
 
 class QuestionTemplateSummaryResponse(BaseModel):
@@ -127,6 +130,7 @@ class QuestionTemplateResponse(BaseModel):
     output_type: str
     target_elements: list[TargetElementResponse]
     input_data_config: dict[str, dict] | None = None
+    code_info: CodeInfo | None = None
     entry_function_params: EntryFunctionParams = EntryFunctionParams(parameters=[])
     linked_from_template_id: UUID | None
     assessment_template_id: UUID | None

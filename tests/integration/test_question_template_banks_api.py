@@ -1,5 +1,7 @@
 """Integration tests for Question Template Bank API endpoints."""
 
+from typing import Any
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -18,6 +20,22 @@ from tests.factories import (
     create_test_user,
     link_question_template_to_question_template_bank,
 )
+
+MINIMAL_CODE_INFO: dict[str, Any] = {
+    "code_tree": {
+        "id": 0,
+        "type": "function",
+        "variables": [],
+        "function_indices": [],
+        "loop_indices": [],
+        "branch_indices": [],
+        "children": [],
+    },
+    "functions": [],
+    "loops": [],
+    "branches": [],
+    "variables": [],
+}
 
 
 @pytest.mark.integration
@@ -478,9 +496,7 @@ class TestUpdateQuestionTemplateBank:
         self, test_client: AsyncClient, db_session: AsyncSession, user: User
     ) -> None:
         """Test that an editor collaborator can PATCH the question template bank."""
-        other_user = await create_test_user(
-            db_session, email="qtb_owner_edit@test.com"
-        )
+        other_user = await create_test_user(db_session, email="qtb_owner_edit@test.com")
         bank = await create_test_question_template_bank(
             db_session, other_user, title="Original Title"
         )
@@ -617,6 +633,7 @@ class TestInsertQuestionTemplateIntoBank:
                             "modifier": "return_value",
                         }
                     ],
+                    "code_info": MINIMAL_CODE_INFO,
                 },
             },
         )
@@ -654,6 +671,7 @@ class TestInsertQuestionTemplateIntoBank:
                             "modifier": "return_value",
                         }
                     ],
+                    "code_info": MINIMAL_CODE_INFO,
                 },
             },
         )

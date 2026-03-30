@@ -18,6 +18,22 @@ from tests.factories import (
     link_question_template_to_assessment_template,
 )
 
+MINIMAL_CODE_INFO: dict[str, Any] = {
+    "code_tree": {
+        "id": 0,
+        "type": "function",
+        "variables": [],
+        "function_indices": [],
+        "loop_indices": [],
+        "branch_indices": [],
+        "children": [],
+    },
+    "functions": [],
+    "loops": [],
+    "branches": [],
+    "variables": [],
+}
+
 
 @pytest.mark.integration
 @pytest.mark.assessment_templates
@@ -638,6 +654,7 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
                         "modifier": "return_value",
                     }
                 ],
+                "code_info": MINIMAL_CODE_INFO,
             },
             "order": 0,
         }
@@ -679,6 +696,7 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
                         "modifier": "return_value",
                     }
                 ],
+                "code_info": MINIMAL_CODE_INFO,
             },
             "order": 0,
         }
@@ -704,6 +722,7 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
                         "modifier": "return_value",
                     }
                 ],
+                "code_info": MINIMAL_CODE_INFO,
             },
             "order": 1,
         }
@@ -729,6 +748,7 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
                         "modifier": "return_value",
                     }
                 ],
+                "code_info": MINIMAL_CODE_INFO,
             },
             "order": 2,
         }
@@ -769,6 +789,7 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
                         "modifier": "return_value",
                     }
                 ],
+                "code_info": MINIMAL_CODE_INFO,
             }
         }
         response = await test_client.post(
@@ -805,6 +826,7 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
                         "modifier": "return_value",
                     }
                 ],
+                "code_info": MINIMAL_CODE_INFO,
             },
             "order": 0,
         }
@@ -841,6 +863,7 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
                         "modifier": "return_value",
                     }
                 ],
+                "code_info": MINIMAL_CODE_INFO,
             },
             "order": 0,
         }
@@ -866,6 +889,7 @@ class TestInsertQuestionTemplateToAssessmentTemplate:
                         "modifier": "return_value",
                     }
                 ],
+                "code_info": MINIMAL_CODE_INFO,
             },
             "order": 0,
         }

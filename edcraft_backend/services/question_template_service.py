@@ -85,6 +85,7 @@ class QuestionTemplateService:
             num_distractors=source.num_distractors,
             output_type=source.output_type,
             input_data_config=source.input_data_config,
+            code_info=source.code_info,
             linked_from_template_id=source.id,
         )
         created_copy = await self.template_repo.create(copy)
@@ -265,6 +266,7 @@ class QuestionTemplateService:
         qt.num_distractors = source.num_distractors
         qt.output_type = source.output_type
         qt.input_data_config = source.input_data_config
+        qt.code_info = source.code_info
         await self.template_repo.update(qt)
 
         # Replace target elements
