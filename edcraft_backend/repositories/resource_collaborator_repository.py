@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -14,6 +14,7 @@ from edcraft_backend.models.enums import (
     ResourceVisibility,
 )
 from edcraft_backend.models.question import Question
+from edcraft_backend.models.question_bank import QuestionBank
 from edcraft_backend.models.question_template import QuestionTemplate
 from edcraft_backend.models.question_template_bank import QuestionTemplateBank
 from edcraft_backend.models.resource_collaborator import ResourceCollaborator
@@ -165,192 +166,189 @@ class ResourceCollaboratorRepository(AssociationRepository[ResourceCollaborator]
     async def check_question_permission(
         self,
         question_id: UUID,
-        user_id: UUID,
+        user_id: UUID | None,
         min_role: CollaboratorRole,
     ) -> bool:
         """Check if a user has sufficient access to a question.
 
         Access is granted if the user:
         - owns the question, OR
-        - has at least min_role on any assessment containing the question, OR
-        - (min_role=VIEWER only) the question is in a public assessment.
+        - has at least min_role on the assessment or question bank containing the question, OR
+        - the question is in a public question bank or assessment (for view).
 
         Args:
             question_id: Question UUID
-            user_id: User UUID
-            min_role: Minimum required role (VIEWER or EDITOR)
+            user_id: User UUID or None for unauthenticated access
+            min_role: Minimum required role
 
         Returns:
             True if the user has sufficient permission
         """
         acceptable_roles = self._get_acceptable_roles(min_role)
+        conditions = []
 
-        # Check ownership
-        owner_stmt = (
-            select(Question.id)
-            .where(Question.id == question_id, Question.owner_id == user_id)
-            .limit(1)
-        )
-        result = await self.db.execute(owner_stmt)
-        if result.scalar_one_or_none() is not None:
-            return True
-
-        # Build conditions for assessment-based access
-        collab_condition = (
-            select(ResourceCollaborator.id)
-            .join(
-                Question,
-                Question.assessment_id == ResourceCollaborator.resource_id,
+        if user_id is not None:
+            conditions.extend(
+                [
+                    Question.owner_id == user_id,
+                    exists(
+                        select(ResourceCollaborator.id)
+                        .join(
+                            QuestionBank,
+                            QuestionBank.id == ResourceCollaborator.resource_id,
+                        )
+                        .where(
+                            ResourceCollaborator.resource_type
+                            == ResourceType.QUESTION_BANK,
+                            ResourceCollaborator.resource_id
+                            == Question.question_bank_id,
+                            ResourceCollaborator.user_id == user_id,
+                            ResourceCollaborator.role.in_(acceptable_roles),
+                            QuestionBank.deleted_at.is_(None),
+                        )
+                    ),
+                    exists(
+                        select(ResourceCollaborator.id)
+                        .join(
+                            Assessment,
+                            Assessment.id == ResourceCollaborator.resource_id,
+                        )
+                        .where(
+                            ResourceCollaborator.resource_type
+                            == ResourceType.ASSESSMENT,
+                            ResourceCollaborator.resource_id == Question.assessment_id,
+                            ResourceCollaborator.user_id == user_id,
+                            ResourceCollaborator.role.in_(acceptable_roles),
+                            Assessment.deleted_at.is_(None),
+                        )
+                    ),
+                ]
             )
-            .where(
-                ResourceCollaborator.resource_type == ResourceType.ASSESSMENT,
-                Question.id == question_id,
-                ResourceCollaborator.user_id == user_id,
-                ResourceCollaborator.role.in_(acceptable_roles),
-            )
-            .limit(1)
-        )
-        result = await self.db.execute(collab_condition)
-        if result.scalar_one_or_none() is not None:
-            return True
 
-        # For VIEWER, also allow access if question is in any public assessment
         if min_role == CollaboratorRole.VIEWER:
-            public_stmt = (
-                select(Question.id)
-                .join(
-                    Assessment,
-                    Assessment.id == Question.assessment_id,
-                )
-                .where(
-                    Question.id == question_id,
-                    Assessment.visibility == ResourceVisibility.PUBLIC,
-                    Assessment.deleted_at.is_(None),
-                )
-                .limit(1)
+            conditions.extend(
+                [
+                    exists(
+                        select(QuestionBank.id).where(
+                            QuestionBank.id == Question.question_bank_id,
+                            QuestionBank.visibility == ResourceVisibility.PUBLIC,
+                            QuestionBank.deleted_at.is_(None),
+                        )
+                    ),
+                    exists(
+                        select(Assessment.id).where(
+                            Assessment.id == Question.assessment_id,
+                            Assessment.visibility == ResourceVisibility.PUBLIC,
+                            Assessment.deleted_at.is_(None),
+                        )
+                    ),
+                ]
             )
-            result = await self.db.execute(public_stmt)
-            if result.scalar_one_or_none() is not None:
-                return True
 
-        return False
+        if not conditions:
+            return False
+
+        stmt = (
+            select(Question.id)
+            .where(Question.id == question_id, or_(*conditions))
+            .limit(1)
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none() is not None
 
     async def check_question_template_permission(
         self,
         question_template_id: UUID,
-        user_id: UUID,
+        user_id: UUID | None,
         min_role: CollaboratorRole,
     ) -> bool:
         """Check if a user has sufficient access to a question template.
 
         Access is granted if the user:
         - owns the question template, OR
-        - has at least min_role on any QuestionTemplateBank containing the template, OR
-        - has at least min_role on any AssessmentTemplate containing the template, OR
-        - (min_role=VIEWER only) the template is in a public QuestionTemplateBank or
-          AssessmentTemplate.
+        - has at least min_role on any qt bank or assessment template containing the template, OR
+        - the template is in a public qt bank or assessment template (for view).
 
         Args:
             question_template_id: QuestionTemplate UUID
-            user_id: User UUID
-            min_role: Minimum required role (VIEWER or EDITOR)
+            user_id: User UUID, or None for unauthenticated access
+            min_role: Minimum required role
 
         Returns:
             True if the user has sufficient permission
         """
         acceptable_roles = self._get_acceptable_roles(min_role)
+        conditions = []
 
-        # Check ownership
-        owner_stmt = (
-            select(QuestionTemplate.id)
-            .where(
-                QuestionTemplate.id == question_template_id,
-                QuestionTemplate.owner_id == user_id,
+        if user_id is not None:
+            conditions.extend(
+                [
+                    QuestionTemplate.owner_id == user_id,
+                    exists(
+                        select(ResourceCollaborator.id)
+                        .join(
+                            QuestionTemplateBank,
+                            QuestionTemplateBank.id == ResourceCollaborator.resource_id,
+                        )
+                        .where(
+                            ResourceCollaborator.resource_type
+                            == ResourceType.QUESTION_TEMPLATE_BANK,
+                            ResourceCollaborator.resource_id
+                            == QuestionTemplate.question_template_bank_id,
+                            ResourceCollaborator.user_id == user_id,
+                            ResourceCollaborator.role.in_(acceptable_roles),
+                            QuestionTemplateBank.deleted_at.is_(None),
+                        )
+                    ),
+                    exists(
+                        select(ResourceCollaborator.id)
+                        .join(
+                            AssessmentTemplate,
+                            AssessmentTemplate.id == ResourceCollaborator.resource_id,
+                        )
+                        .where(
+                            ResourceCollaborator.resource_type
+                            == ResourceType.ASSESSMENT_TEMPLATE,
+                            ResourceCollaborator.resource_id
+                            == QuestionTemplate.assessment_template_id,
+                            ResourceCollaborator.user_id == user_id,
+                            ResourceCollaborator.role.in_(acceptable_roles),
+                            AssessmentTemplate.deleted_at.is_(None),
+                        )
+                    ),
+                ]
             )
-            .limit(1)
-        )
-        result = await self.db.execute(owner_stmt)
-        if result.scalar_one_or_none() is not None:
-            return True
 
-        # Check collaborator role on any containing QuestionTemplateBank
-        bank_collab_stmt = (
-            select(ResourceCollaborator.id)
-            .join(
-                QuestionTemplate,
-                QuestionTemplate.question_template_bank_id
-                == ResourceCollaborator.resource_id,
-            )
-            .where(
-                ResourceCollaborator.resource_type == ResourceType.QUESTION_TEMPLATE_BANK,
-                QuestionTemplate.id == question_template_id,
-                QuestionTemplate.question_template_bank_id.isnot(None),
-                ResourceCollaborator.user_id == user_id,
-                ResourceCollaborator.role.in_(acceptable_roles),
-            )
-            .limit(1)
-        )
-        result = await self.db.execute(bank_collab_stmt)
-        if result.scalar_one_or_none() is not None:
-            return True
-
-        # Check collaborator role on any containing AssessmentTemplate
-        at_collab_stmt = (
-            select(ResourceCollaborator.id)
-            .join(
-                QuestionTemplate,
-                QuestionTemplate.assessment_template_id
-                == ResourceCollaborator.resource_id,
-            )
-            .where(
-                ResourceCollaborator.resource_type == ResourceType.ASSESSMENT_TEMPLATE,
-                QuestionTemplate.id == question_template_id,
-                QuestionTemplate.assessment_template_id.isnot(None),
-                ResourceCollaborator.user_id == user_id,
-                ResourceCollaborator.role.in_(acceptable_roles),
-            )
-            .limit(1)
-        )
-        result = await self.db.execute(at_collab_stmt)
-        if result.scalar_one_or_none() is not None:
-            return True
-
-        # For VIEWER, allow access if template is in a public QuestionTemplateBank
         if min_role == CollaboratorRole.VIEWER:
-            public_bank_stmt = (
-                select(QuestionTemplate.id)
-                .join(
-                    QuestionTemplateBank,
-                    QuestionTemplateBank.id
-                    == QuestionTemplate.question_template_bank_id,
-                )
-                .where(
-                    QuestionTemplate.id == question_template_id,
-                    QuestionTemplateBank.visibility == ResourceVisibility.PUBLIC,
-                    QuestionTemplateBank.deleted_at.is_(None),
-                )
-                .limit(1)
+            conditions.extend(
+                [
+                    exists(
+                        select(QuestionTemplateBank.id).where(
+                            QuestionTemplateBank.id
+                            == QuestionTemplate.question_template_bank_id,
+                            QuestionTemplateBank.visibility
+                            == ResourceVisibility.PUBLIC,
+                            QuestionTemplateBank.deleted_at.is_(None),
+                        )
+                    ),
+                    exists(
+                        select(AssessmentTemplate.id).where(
+                            AssessmentTemplate.id
+                            == QuestionTemplate.assessment_template_id,
+                            AssessmentTemplate.visibility == ResourceVisibility.PUBLIC,
+                            AssessmentTemplate.deleted_at.is_(None),
+                        )
+                    ),
+                ]
             )
-            result = await self.db.execute(public_bank_stmt)
-            if result.scalar_one_or_none() is not None:
-                return True
 
-            public_at_stmt = (
-                select(QuestionTemplate.id)
-                .join(
-                    AssessmentTemplate,
-                    AssessmentTemplate.id
-                    == QuestionTemplate.assessment_template_id,
-                )
-                .where(
-                    QuestionTemplate.id == question_template_id,
-                    AssessmentTemplate.visibility == ResourceVisibility.PUBLIC,
-                    AssessmentTemplate.deleted_at.is_(None),
-                )
-                .limit(1)
-            )
-            result = await self.db.execute(public_at_stmt)
-            if result.scalar_one_or_none() is not None:
-                return True
+        if not conditions:
+            return False
 
-        return False
+        stmt = (
+            select(QuestionTemplate.id)
+            .where(QuestionTemplate.id == question_template_id, or_(*conditions))
+            .limit(1)
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none() is not None

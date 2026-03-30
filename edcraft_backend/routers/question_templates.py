@@ -4,7 +4,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 
-from edcraft_backend.dependencies import CurrentUserDep, QuestionTemplateServiceDep
+from edcraft_backend.dependencies import (
+    CurrentUserDep,
+    CurrentUserOptionalDep,
+    QuestionTemplateServiceDep,
+)
 from edcraft_backend.exceptions import EdCraftBaseException
 from edcraft_backend.models.question_template import QuestionTemplate
 from edcraft_backend.schemas.question_template import (
@@ -30,13 +34,14 @@ async def list_question_templates(
 
 @router.get("/{template_id}", response_model=QuestionTemplateResponse)
 async def get_question_template(
-    current_user: CurrentUserDep,
+    current_user: CurrentUserOptionalDep,
     template_id: UUID,
     service: QuestionTemplateServiceDep,
 ) -> QuestionTemplate:
     """Get a question template by ID."""
     try:
-        return await service.get_template(current_user.id, template_id)
+        user_id = current_user.id if current_user else None
+        return await service.get_template(user_id, template_id)
     except EdCraftBaseException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
 

@@ -132,7 +132,7 @@ class QuestionTemplateService:
 
     async def get_template(
         self,
-        user_id: UUID,
+        user_id: UUID | None,
         template_id: UUID,
         min_role: CollaboratorRole = CollaboratorRole.VIEWER,
     ) -> QuestionTemplate:

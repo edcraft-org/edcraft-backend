@@ -4,7 +4,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 
-from edcraft_backend.dependencies import CurrentUserDep, QuestionServiceDep
+from edcraft_backend.dependencies import (
+    CurrentUserDep,
+    CurrentUserOptionalDep,
+    QuestionServiceDep,
+)
 from edcraft_backend.exceptions import EdCraftBaseException
 from edcraft_backend.models.question import Question
 from edcraft_backend.schemas.question import (
@@ -29,11 +33,12 @@ async def list_questions(
 
 @router.get("/{question_id}", response_model=QuestionResponse)
 async def get_question(
-    current_user: CurrentUserDep, question_id: UUID, service: QuestionServiceDep
+    current_user: CurrentUserOptionalDep, question_id: UUID, service: QuestionServiceDep
 ) -> Question:
     """Get a question by ID."""
     try:
-        return await service.get_question(current_user.id, question_id)
+        user_id = current_user.id if current_user else None
+        return await service.get_question(user_id, question_id)
     except EdCraftBaseException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
@@ -63,5 +68,3 @@ async def soft_delete_question(
         await service.soft_delete_question(current_user.id, question_id)
     except EdCraftBaseException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
-
-

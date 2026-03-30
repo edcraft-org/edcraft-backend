@@ -97,7 +97,7 @@ class QuestionService:
 
     async def get_question(
         self,
-        user_id: UUID,
+        user_id: UUID | None,
         question_id: UUID,
         min_role: CollaboratorRole = CollaboratorRole.VIEWER,
     ) -> Question:

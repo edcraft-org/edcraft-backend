@@ -5,7 +5,7 @@ from fastapi import APIRouter, status
 
 from edcraft_backend.dependencies import (
     AssessmentTemplateServiceDep,
-    CurrentUserDep,
+    CurrentUserOptionalDep,
     JobServiceDep,
     QuestionTemplateServiceDep,
 )
@@ -107,14 +107,15 @@ async def generate_template_preview(
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def generate_question_from_template(
-    user: CurrentUserDep,
+    user: CurrentUserOptionalDep,
     template_id: UUID,
     request: GenerateQuestionFromTemplateRequest,
     job_service: JobServiceDep,
     question_template_svc: QuestionTemplateServiceDep,
 ) -> JobSubmittedResponse:
     """Submit a question-from-template job. Poll GET /jobs/{job_id} for the result."""
-    template = await question_template_svc.get_template(user.id, template_id)
+    user_id = user.id if user else None
+    template = await question_template_svc.get_template(user_id, template_id)
 
     job = await job_service.submit(
         job_type=JobType.QUESTION_FROM_TEMPLATE,
@@ -129,7 +130,7 @@ async def generate_question_from_template(
             "target_elements": _serialize_target_elements(template.target_elements),
             "input_data": request.input_data,
         },
-        user_id=user.id,
+        user_id=user_id,
     )
     return JobSubmittedResponse(job_id=job.id, status_url=f"/jobs/{job.id}")
 
@@ -140,15 +141,16 @@ async def generate_question_from_template(
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def generate_assessment_from_template(
-    user: CurrentUserDep,
+    user: CurrentUserOptionalDep,
     template_id: UUID,
     request: GenerateAssessmentFromTemplateRequest,
     job_service: JobServiceDep,
     assessment_template_svc: AssessmentTemplateServiceDep,
 ) -> JobSubmittedResponse:
     """Submit an assessment-from-template job. Poll GET /jobs/{job_id} for the result."""
+    user_id = user.id if user else None
     assessment_template = await assessment_template_svc.get_template_with_question_templates(
-        user.id, template_id
+        user_id, template_id
     )
 
     meta = request.assessment_metadata
@@ -174,7 +176,7 @@ async def generate_assessment_from_template(
     job = await job_service.submit(
         job_type=JobType.ASSESSMENT_FROM_TEMPLATE,
         params={
-            "user_id": str(user.id),
+            "user_id": str(user_id),
             "assessment_metadata": {
                 "folder_id": resolved_folder_id,
                 "title": resolved_title,
@@ -183,6 +185,6 @@ async def generate_assessment_from_template(
             "question_templates": question_templates,
             "question_inputs": request.question_inputs,
         },
-        user_id=user.id,
+        user_id=user_id,
     )
     return JobSubmittedResponse(job_id=job.id, status_url=f"/jobs/{job.id}")
