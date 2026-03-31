@@ -804,7 +804,7 @@ wheels = [
 [[package]]
 name = "input-gen"
 version = "0.1.0"
-source = { git = "https://github.com/edcraft-org/input-gen.git#26435cd63a3c3ec0d890757543bffd94ac3fc5cc" }
+source = { git = "https://github.com/edcraft-org/input-gen.git#a775985de6b01877d2ed3dbd640a123a211a7966" }
 dependencies = [
     { name = "faker" },
     { name = "hypothesis" },
