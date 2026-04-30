@@ -1,53 +1,46 @@
-.PHONY: install test lint type-check all-checks clean dev db-dev db-test docker-status docker-up docker-down nomad
+.PHONY: setup update run test lint typecheck check clean clean-all db-up db-test docker-down nomad
 
-install:
+# --- Core setup ---
+setup:
 	uv sync
 
+update:
+	uv lock --upgrade && uv sync
+
+# --- Run app ---
+run:
+	uv run uvicorn edcraft_backend.main:app --reload
+
+# --- Quality checks ---
 test:
 	uv run pytest
 
 lint:
 	uv run ruff check .
 
-type-check:
+typecheck:
 	uv run mypy .
 
-all-checks: lint type-check test
+check: lint typecheck test
 
+# --- Cleaning ---
 clean:
-	find . -type f -name "*.pyc" -delete
-	find . -type d -name __pycache__ -delete
+	find . -name "*.pyc" -delete
+	find . -name "__pycache__" -type d -exec rm -rf {} +
 
-clean-tool:
-	@if [ -d ".mypy_cache" ]; then rm -rf .mypy_cache; fi
-	@if [ -d ".pytest_cache" ]; then rm -rf .pytest_cache; fi
-	@if [ -d ".ruff_cache" ]; then rm -rf .ruff_cache; fi
+clean-all: clean
+	rm -rf .mypy_cache .pytest_cache .ruff_cache
 
-update:
-	uv lock --upgrade
-	uv sync
-
-dev:
-	uv run uvicorn edcraft_backend.main:app --host 127.0.0.1 --port 8000 --reload
-
-# Database management targets
-db-dev:
-	@echo "Starting development database..."
+# --- Database ---
+db-up:
 	docker compose up -d postgres
 
 db-test:
-	@echo "Starting test database..."
 	docker compose --profile test up -d postgres-test
 
-docker-status:
-	@docker compose --profile all ps
-
-docker-up:
-	docker compose --profile default up -d
-
 docker-down:
-	docker compose --profile all down
+	docker compose down
 
+# --- Nomad ---
 nomad:
-	@echo "Starting Nomad agent in dev mode..."
 	nomad agent -dev -bind=0.0.0.0 -log-level=INFO

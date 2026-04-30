@@ -19,13 +19,11 @@ dependencies = [
     "python-dotenv>=1.2.1",
     "python-jose[cryptography]>=3.3.0",
     "sqlalchemy>=2.0.45",
-    "input-gen",
     "httpx>=0.28.1",
 ]
 
 [tool.uv.sources]
 edcraft-engine = { git = "https://github.com/edcraft-org/edcraft-engine.git" }
-input-gen = { git = "https://github.com/edcraft-org/input-gen.git" }
 
 [dependency-groups]
 dev = [

@@ -88,4 +88,4 @@ volumes:
 
 networks:
   edcraft-network:
-    external: true
+    driver: bridge
