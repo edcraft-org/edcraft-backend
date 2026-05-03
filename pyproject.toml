@@ -67,6 +67,9 @@ markers = [
     "input_generator: Input generator router tests",
     "collaborators: Collaborator router tests",
 ]
+filterwarnings = [
+    "ignore::hypothesis.errors.NonInteractiveExampleWarning",
+]
 
 [tool.ruff]
 line-length = 100

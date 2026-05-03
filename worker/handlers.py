@@ -26,20 +26,77 @@ class JobHandlers:
         self._analyser = static_analyser
         self._generate_input = generate_input
 
+    def _decode_code(self, code: str) -> str:
+        return codecs.decode(code, "unicode_escape")
+
+    def _build_specs(
+        self, params: dict[str, Any]
+    ) -> tuple[str, QuestionSpec, ExecutionSpec, GenerationOptions]:
+        decoded_code = self._decode_code(params["code"])
+        question_spec = QuestionSpec(**params["question_spec"])
+        execution_spec = ExecutionSpec(**params["execution_spec"])
+        generation_options = GenerationOptions(**params["generation_options"])
+        return decoded_code, question_spec, execution_spec, generation_options
+
+    def _build_question_from_template(
+        self,
+        template: dict[str, Any],
+        input_data: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        decoded_code = self._decode_code(template["code"])
+
+        target_elements = [
+            TargetElement(
+                type=el["element_type"],
+                id=el["id_list"],
+                name=el["name"],
+                line_number=el["line_number"],
+                modifier=el.get("modifier"),
+                argument_keys=el.get("argument_keys"),
+            )
+            for el in template["target_elements"]
+        ]
+
+        question_spec = QuestionSpec(
+            question_type=template["question_type"],
+            target=target_elements,
+            output_type=template["output_type"],
+        )
+        execution_spec = ExecutionSpec(
+            entry_function=template["entry_function"],
+            input_data=input_data,
+        )
+        generation_options = GenerationOptions(
+            num_distractors=template["num_distractors"]
+        )
+
+        question = self._qg.generate_question(
+            code=decoded_code,
+            question_spec=question_spec,
+            execution_spec=execution_spec,
+            generation_options=generation_options,
+        )
+
+        return {
+            "question": question.model_dump(),
+            "question_text_template": template["question_text_template"],
+            "text_template_type": template["text_template_type"],
+            "input_data": input_data,
+        }
+
     def dispatch(self, job_type: str, params: dict[str, Any]) -> Any:
-        if job_type == "analyse_code":
-            return self.handle_analyse_code(params)
-        if job_type == "generate_question":
-            return self.handle_generate_question(params)
-        if job_type == "generate_template":
-            return self.handle_generate_template(params)
-        if job_type == "question_from_template":
-            return self.handle_question_from_template(params)
-        if job_type == "assessment_from_template":
-            return self.handle_assessment_from_template(params)
-        if job_type == "generate_inputs":
-            return self.handle_generate_inputs(params)
-        raise ValueError(f"Unknown job type: {job_type!r}")
+        handlers = {
+            "analyse_code": self.handle_analyse_code,
+            "generate_question": self.handle_generate_question,
+            "generate_template": self.handle_generate_template,
+            "question_from_template": self.handle_question_from_template,
+            "assessment_from_template": self.handle_assessment_from_template,
+            "generate_inputs": self.handle_generate_inputs,
+        }
+
+        if job_type not in handlers:
+            raise ValueError(f"Unknown job type: {job_type!r}")
+        return handlers[job_type](params)
 
     def handle_generate_inputs(self, params: dict[str, Any]) -> dict[str, Any]:
         inputs = params["inputs"]
@@ -50,7 +107,7 @@ class JobHandlers:
         }
 
     def handle_analyse_code(self, params: dict[str, Any]) -> dict[str, Any]:
-        decoded_code = codecs.decode(params["code"], "unicode_escape")
+        decoded_code = self._decode_code(params["code"])
         code_analysis = self._analyser.analyse(decoded_code)
         return {"code_info": self._build_code_info(code_analysis)}
 
@@ -116,10 +173,9 @@ class JobHandlers:
         }
 
     def handle_generate_question(self, params: dict[str, Any]) -> dict[str, Any]:
-        decoded_code = codecs.decode(params["code"], "unicode_escape")
-        question_spec = QuestionSpec(**params["question_spec"])
-        execution_spec = ExecutionSpec(**params["execution_spec"])
-        generation_options = GenerationOptions(**params["generation_options"])
+        decoded_code, question_spec, execution_spec, generation_options = (
+            self._build_specs(params)
+        )
 
         result = self._qg.generate_question(
             code=decoded_code,
@@ -129,11 +185,25 @@ class JobHandlers:
         )
         return result.model_dump()
 
+    def _generate_question_text_template(
+        self, question_spec: QuestionSpec, func_params: list[str]
+    ) -> str:
+        question_text_template = self._qg.text_generator.generate_question(
+            question_spec=question_spec,
+            input_data=None,
+        )
+
+        if func_params:
+            input_fmt = ", ".join(f"{p} = {{{p}}}" for p in func_params)
+            question_text_template = (
+                f"{question_text_template}\nGiven input: {input_fmt}"
+            )
+        return question_text_template
+
     def handle_generate_template(self, params: dict[str, Any]) -> dict[str, Any]:
-        decoded_code = codecs.decode(params["code"], "unicode_escape")
-        question_spec = QuestionSpec(**params["question_spec"])
-        execution_spec = ExecutionSpec(**params["execution_spec"])
-        generation_options = GenerationOptions(**params["generation_options"])
+        decoded_code, question_spec, execution_spec, generation_options = (
+            self._build_specs(params)
+        )
 
         preview_question = self._qg.generate_template_preview(
             code=decoded_code,
@@ -144,16 +214,10 @@ class JobHandlers:
 
         question_text_template: str | None = params.get("question_text_template")
         if question_text_template is None:
-            question_text_template = self._qg.text_generator.generate_question(
-                question_spec=question_spec,
-                input_data=None,
-            )
             func_params: list[str] = params.get("func_params", [])
-            if func_params:
-                input_fmt = ", ".join(f"{p} = {{{p}}}" for p in func_params)
-                question_text_template = (
-                    f"{question_text_template}\nGiven input: {input_fmt}"
-                )
+            question_text_template = self._generate_question_text_template(
+                question_spec, func_params
+            )
 
         return {
             "preview_question": preview_question.model_dump(),
@@ -169,45 +233,7 @@ class JobHandlers:
         }
 
     def handle_question_from_template(self, params: dict[str, Any]) -> dict[str, Any]:
-        decoded_code = codecs.decode(params["code"], "unicode_escape")
-
-        target_elements = [
-            TargetElement(
-                type=el["element_type"],
-                id=el["id_list"],
-                name=el["name"],
-                line_number=el["line_number"],
-                modifier=el.get("modifier"),
-                argument_keys=el.get("argument_keys"),
-            )
-            for el in params["target_elements"]
-        ]
-        question_spec = QuestionSpec(
-            question_type=params["question_type"],
-            target=target_elements,
-            output_type=params["output_type"],
-        )
-        execution_spec = ExecutionSpec(
-            entry_function=params["entry_function"],
-            input_data=params["input_data"],
-        )
-        generation_options = GenerationOptions(
-            num_distractors=params["num_distractors"]
-        )
-
-        question = self._qg.generate_question(
-            code=decoded_code,
-            question_spec=question_spec,
-            execution_spec=execution_spec,
-            generation_options=generation_options,
-        )
-
-        return {
-            "question": question.model_dump(),
-            "question_text_template": params["question_text_template"],
-            "text_template_type": params["text_template_type"],
-            "input_data": params["input_data"],
-        }
+        return self._build_question_from_template(params, params["input_data"])
 
     def handle_assessment_from_template(self, params: dict[str, Any]) -> dict[str, Any]:
         questions = []
@@ -220,46 +246,10 @@ class JobHandlers:
         for template, input_data in zip(
             params["question_templates"], params["question_inputs"], strict=True
         ):
-            decoded_code = codecs.decode(template["code"], "unicode_escape")
-
-            target_elements = [
-                TargetElement(
-                    type=el["element_type"],
-                    id=el["id_list"],
-                    name=el["name"],
-                    line_number=el["line_number"],
-                    modifier=el.get("modifier"),
-                    argument_keys=el.get("argument_keys"),
-                )
-                for el in template["target_elements"]
-            ]
-            question_spec = QuestionSpec(
-                question_type=template["question_type"],
-                target=target_elements,
-                output_type=template["output_type"],
-            )
-            execution_spec = ExecutionSpec(
-                entry_function=template["entry_function"],
-                input_data=input_data,
-            )
-            generation_options = GenerationOptions(
-                num_distractors=template["num_distractors"]
-            )
-
-            question = self._qg.generate_question(
-                code=decoded_code,
-                question_spec=question_spec,
-                execution_spec=execution_spec,
-                generation_options=generation_options,
-            )
-
             questions.append(
                 {
-                    "question": question.model_dump(),
-                    "question_text_template": template["question_text_template"],
-                    "text_template_type": template["text_template_type"],
+                    **self._build_question_from_template(template, input_data),
                     "template_id": template["id"],
-                    "input_data": input_data,
                 }
             )
 
