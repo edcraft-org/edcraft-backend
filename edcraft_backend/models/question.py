@@ -5,9 +5,9 @@ from uuid import UUID
 
 from sqlalchemy import (
     CheckConstraint,
+    Enum,
     ForeignKey,
     Integer,
-    String,
     Text,
     UniqueConstraint,
 )
@@ -15,6 +15,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from edcraft_backend.exceptions import DataIntegrityError
 from edcraft_backend.models.base import EntityBase
+from edcraft_backend.models.enums import QuestionType
 
 if TYPE_CHECKING:
     from edcraft_backend.models.assessment import Assessment
@@ -32,16 +33,23 @@ class Question(EntityBase):
     """
 
     __tablename__ = "questions"
+
     __table_args__ = (
-        CheckConstraint(
-            "question_type IN ('mcq', 'mrq', 'short_answer')",
-            name="valid_question_type",
-        ),
         CheckConstraint(
             "assessment_id IS NULL OR question_bank_id IS NULL",
             name="ck_question_single_container",
         ),
-        UniqueConstraint("assessment_id", "order", name="uq_question_assessment_order"),
+        CheckConstraint(
+            '"order" IS NULL OR "order" >= 0',
+            name="ck_question_order_non_negative",
+        ),
+        UniqueConstraint(
+            "assessment_id",
+            "order",
+            name="uq_question_assessment_order",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
     )
 
     # Foreign Keys
@@ -72,10 +80,17 @@ class Question(EntityBase):
     # Ordering within assessment (only relevant when assessment_id is set)
     order: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    # Basic Fields
-    question_type: Mapped[str] = mapped_column(
-        String(50), nullable=False, index=True
-    )  # e.g., 'mcq', 'mrq', 'short_answer'
+    question_type: Mapped[QuestionType] = mapped_column(
+        Enum(
+            QuestionType,
+            name="question_type",
+            native_enum=True,
+            values_callable=lambda x: [e.value for e in x],
+        ),
+        nullable=False,
+        index=True,
+    )
+
     question_text: Mapped[str] = mapped_column(Text, nullable=False)
 
     # Relationships
@@ -119,19 +134,19 @@ class Question(EntityBase):
 
     @property
     def data(self) -> "MCQData | MRQData | ShortAnswerData":
-        """Unified accessor for question-type-specific data.
+        mapping = {
+            QuestionType.MCQ: self.mcq_data,
+            QuestionType.MRQ: self.mrq_data,
+            QuestionType.SHORT_ANSWER: self.short_answer_data,
+        }
 
-        Returns:
-            The populated data relationship based on question_type.
+        result = mapping.get(self.question_type)
 
-        Raises:
-            DataIntegrityError: If no data is populated (data integrity issue).
-        """
-        result = self.mcq_data or self.mrq_data or self.short_answer_data
         if result is None:
             raise DataIntegrityError(
                 f"Question {self.id} (type: {self.question_type}) has no associated data."
             )
+
         return result
 
     def __repr__(self) -> str:

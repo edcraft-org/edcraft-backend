@@ -8,6 +8,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
+from edcraft_backend.models.enums import QuestionType
+
 
 # Data schemas for different question types
 class MCQData(BaseModel):
@@ -90,7 +92,7 @@ CreateQuestionRequest = CreateMCQRequest | CreateMRQRequest | CreateShortAnswerR
 class UpdateQuestionRequest(BaseModel):
     """Schema for updating any question type."""
 
-    question_type: Literal["mcq", "mrq", "short_answer"] | None = None
+    question_type: QuestionType | None = None
     question_text: str | None = Field(None, min_length=1, max_length=5000)
     data: MCQData | MRQData | ShortAnswerData | None = None
 

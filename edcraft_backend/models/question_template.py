@@ -133,10 +133,16 @@ class QuestionTemplate(EntityBase):
             "assessment_template_id IS NULL OR question_template_bank_id IS NULL",
             name="ck_question_template_single_container",
         ),
+        CheckConstraint(
+            '"order" IS NULL OR "order" >= 0',
+            name="ck_question_template_order_non_negative",
+        ),
         UniqueConstraint(
             "assessment_template_id",
             "order",
             name="uq_question_template_assessment_template_order",
+            deferrable=True,
+            initially="DEFERRED",
         ),
     )
 

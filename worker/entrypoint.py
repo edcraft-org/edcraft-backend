@@ -17,8 +17,9 @@ from typing import Any
 import httpx
 from edcraft_engine.question_generator.question_generator import QuestionGenerator
 from edcraft_engine.static_analyser import StaticAnalyser
-from worker.handlers import JobHandlers
 from input_gen import generate
+
+from worker.handlers import JobHandlers
 
 logging.basicConfig(
     level=logging.INFO,

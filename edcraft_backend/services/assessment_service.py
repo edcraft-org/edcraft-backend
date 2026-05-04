@@ -1,4 +1,4 @@
-from typing import Literal, cast
+from typing import Literal
 from uuid import UUID
 
 from edcraft_backend.exceptions import (
@@ -423,9 +423,7 @@ class AssessmentService:
             _schema_data = ShortAnswerData.model_validate(source_question.data)
 
         update_data = UpdateQuestionRequest(
-            question_type=cast(
-                Literal["mcq", "mrq", "short_answer"], source_question.question_type
-            ),
+            question_type=source_question.question_type,
             question_text=source_question.question_text,
             data=_schema_data,
         )
@@ -501,46 +499,33 @@ class AssessmentService:
         assessment_id: UUID,
         question_orders: list[QuestionOrder],
     ) -> AssessmentWithQuestionsResponse:
-        """Reorder questions in an assessment.
-
-        Args:
-            user_id: User UUID
-            assessment_id: Assessment UUID
-            question_orders: List of QuestionOrder objects with question_id and order
-
-        Returns:
-            Updated assessment with questions
-
-        Raises:
-            ResourceNotFoundError: If assessment not found
-            ValidationError: If not all questions are included in reorder
-            UnauthorizedAccessError: If user lacks editor or owner role
-        """
         assessment = await self._get_assessment_with_questions(
             user_id, assessment_id, min_role=CollaboratorRole.EDITOR
         )
 
-        current_question_ids = {q.id for q in assessment.questions}
-        requested_question_ids = {item.question_id for item in question_orders}
-        if current_question_ids != requested_question_ids:
+        # Validate full coverage
+        current_ids = {q.id for q in assessment.questions}
+        requested_ids = {item.question_id for item in question_orders}
+
+        if current_ids != requested_ids:
             raise ValidationError(
                 "Reorder must include ALL questions in the assessment."
             )
 
-        sorted_orders = sorted(question_orders, key=lambda x: x.order)
+        # Validate no duplicate order values
+        orders = [item.order for item in question_orders]
+
+        if len(set(orders)) != len(orders):
+            raise ValidationError("Duplicate order values are not allowed.")
+
+        # Normalize order values
+        sorted_items = sorted(question_orders, key=lambda x: x.order)
+
         question_map = {q.id: q for q in assessment.questions}
 
-        # temporarily offset all orders to negative to avoid unique constraint violations
-        for q in assessment.questions:
-            if q.order is not None:
-                q.order = -(q.order + 1)
-                await self.question_svc.question_repo.update(q)
-        await self.assessment_repo.db.flush()
-
-        # apply final normalized orders (0, 1, 2, ...)
-        for idx, item in enumerate(sorted_orders):
+        for idx, item in enumerate(sorted_items):
             question_map[item.question_id].order = idx
-            await self.question_svc.question_repo.update(question_map[item.question_id])
-        await self.assessment_repo.db.flush()
-        return await self.get_assessment_with_questions(user_id, assessment_id)
 
+        await self.assessment_repo.db.flush()
+
+        return await self.get_assessment_with_questions(user_id, assessment_id)

@@ -1,4 +1,4 @@
-from typing import Literal, cast
+from typing import Literal
 from uuid import UUID
 
 from edcraft_backend.exceptions import (
@@ -382,9 +382,7 @@ class QuestionBankService:
             _schema_data = ShortAnswerData.model_validate(source_question.data)
 
         update_data = UpdateQuestionRequest(
-            question_type=cast(
-                Literal["mcq", "mrq", "short_answer"], source_question.question_type
-            ),
+            question_type=source_question.question_type,
             question_text=source_question.question_text,
             data=_schema_data,
         )

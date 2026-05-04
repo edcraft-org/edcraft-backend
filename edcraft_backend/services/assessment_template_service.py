@@ -420,40 +420,33 @@ class AssessmentTemplateService:
         template_id: UUID,
         question_template_orders: list[QuestionTemplateOrder],
     ) -> AssessmentTemplateWithQuestionTemplatesResponse:
-        """Reorder question templates in an assessment template.
-
-        Raises:
-            ResourceNotFoundError: If assessment template not found
-            ValidationError: If not all question templates are included in reorder
-            UnauthorizedAccessError: If user lacks EDITOR+ role
-        """
         assessment_template = await self._get_template_with_question_templates(
             user_id, template_id, min_role=CollaboratorRole.EDITOR
         )
 
+        # Validate full coverage
         current_ids = {qt.id for qt in assessment_template.question_templates}
         requested_ids = {item.question_template_id for item in question_template_orders}
+
         if current_ids != requested_ids:
             raise ValidationError(
                 "Reorder must include ALL question templates in the assessment template."
             )
 
-        sorted_orders = sorted(question_template_orders, key=lambda x: x.order)
+        # Validate order values
+        orders = [item.order for item in question_template_orders]
 
-        # Temporarily offset to avoid constraint violations
-        for qt in assessment_template.question_templates:
-            if qt.order is not None:
-                qt.order = -(qt.order + 1)
-                await self.qt_repo.update(qt)
-        await self.qt_repo.db.flush()
+        if len(set(orders)) != len(orders):
+            raise ValidationError("Duplicate order values are not allowed.")
 
-        # Apply final orders
+        # Normalize
+        sorted_items = sorted(question_template_orders, key=lambda x: x.order)
+
         qt_map = {qt.id: qt for qt in assessment_template.question_templates}
-        for idx, item in enumerate(sorted_orders):
-            question_template = qt_map.get(item.question_template_id)
-            if question_template:
-                question_template.order = idx
-                await self.qt_repo.update(question_template)
+
+        for idx, item in enumerate(sorted_items):
+            qt_map[item.question_template_id].order = idx
+
         await self.qt_repo.db.flush()
 
         return await self.get_template_with_question_templates(user_id, template_id)
