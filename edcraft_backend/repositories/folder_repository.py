@@ -1,7 +1,8 @@
 from uuid import UUID
 
-from sqlalchemy import select, text, update
+from sqlalchemy import select, update, exists
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from edcraft_backend.models.folder import Folder
 from edcraft_backend.repositories.base import EntityRepository
@@ -16,55 +17,30 @@ class FolderRepository(EntityRepository[Folder]):
     async def get_all_descendant_ids(
         self, folder_id: UUID, include_deleted: bool = False
     ) -> list[UUID]:
-        """Get all descendant folder IDs using recursive CTE.
+        base_query = select(Folder.id, Folder.parent_id).where(
+            Folder.parent_id == folder_id
+        )
 
-        Args:
-            folder_id: Parent folder UUID
-            include_deleted: Whether to include soft-deleted folders
+        if not include_deleted:
+            base_query = base_query.where(Folder.deleted_at.is_(None))
 
-        Returns:
-            List of all descendant folder IDs (children, grandchildren, etc.)
-        """
-        # Build recursive CTE
-        # NOTE: This is PostgreSQL-specific syntax
-        if include_deleted:
-            query = text(
-                """
-                WITH RECURSIVE descendants AS (
-                    SELECT id, parent_id
-                    FROM folders
-                    WHERE parent_id = :folder_id
+        descendants_cte = base_query.cte(name="descendants", recursive=True)
 
-                    UNION ALL
+        folder_alias = aliased(Folder)
 
-                    SELECT f.id, f.parent_id
-                    FROM folders f
-                    INNER JOIN descendants d ON f.parent_id = d.id
-                )
-                SELECT id FROM descendants
-            """
-            )
-        else:
-            query = text(
-                """
-                WITH RECURSIVE descendants AS (
-                    SELECT id, parent_id
-                    FROM folders
-                    WHERE parent_id = :folder_id AND deleted_at IS NULL
+        recursive_query = select(folder_alias.id, folder_alias.parent_id).join(
+            descendants_cte, folder_alias.parent_id == descendants_cte.c.id
+        )
 
-                    UNION ALL
+        if not include_deleted:
+            recursive_query = recursive_query.where(folder_alias.deleted_at.is_(None))
 
-                    SELECT f.id, f.parent_id
-                    FROM folders f
-                    INNER JOIN descendants d ON f.parent_id = d.id
-                    WHERE f.deleted_at IS NULL
-                )
-                SELECT id FROM descendants
-            """
-            )
+        descendants_cte = descendants_cte.union_all(recursive_query)
 
-        result = await self.db.execute(query, {"folder_id": folder_id})
-        return [row[0] for row in result]
+        stmt = select(descendants_cte.c.id)
+
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
 
     async def bulk_soft_delete_by_ids(self, folder_ids: list[UUID]) -> None:
         """Bulk soft-delete folders by IDs.
@@ -157,55 +133,48 @@ class FolderRepository(EntityRepository[Folder]):
         Returns:
             True if name exists, False otherwise
         """
-        stmt = select(Folder).where(
+        conditions = [
             Folder.owner_id == owner_id,
             Folder.name == name,
-        )
+        ]
 
         if parent_id is None:
-            stmt = stmt.where(Folder.parent_id.is_(None))
+            conditions.append(Folder.parent_id.is_(None))
         else:
-            stmt = stmt.where(Folder.parent_id == parent_id)
+            conditions.append(Folder.parent_id == parent_id)
 
-        if exclude_id:
-            stmt = stmt.where(Folder.id != exclude_id)
+        if exclude_id is not None:
+            conditions.append(Folder.id != exclude_id)
 
         if not include_deleted:
-            stmt = stmt.where(Folder.deleted_at.is_(None))
+            conditions.append(Folder.deleted_at.is_(None))
+
+        stmt = select(exists().where(*conditions))
+
+        result = await self.db.execute(stmt)
+        return bool(result.scalar())
+
+    async def is_ancestor(self, potential_ancestor_id: UUID, folder_id: UUID) -> bool:
+        base_query = select(Folder.id, Folder.parent_id).where(
+            Folder.id == folder_id,
+            Folder.deleted_at.is_(None),
+        )
+
+        ancestors_cte = base_query.cte(name="ancestors", recursive=True)
+
+        folder_alias = aliased(Folder)
+
+        recursive_query = (
+            select(folder_alias.id, folder_alias.parent_id)
+            .join(ancestors_cte, folder_alias.id == ancestors_cte.c.parent_id)
+            .where(folder_alias.deleted_at.is_(None))
+        )
+
+        ancestors_cte = ancestors_cte.union_all(recursive_query)
+
+        stmt = select(ancestors_cte.c.id).where(
+            ancestors_cte.c.id == potential_ancestor_id
+        )
 
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none() is not None
-
-    async def is_ancestor(self, potential_ancestor_id: UUID, folder_id: UUID) -> bool:
-        """Check if a folder is an ancestor of another folder.
-
-        Args:
-            potential_ancestor_id: The folder ID to check if it's an ancestor
-            folder_id: The folder ID to check ancestry for
-
-        Returns:
-            True if potential_ancestor_id is an ancestor of folder_id, False otherwise
-        """
-        query = text(
-            """
-            WITH RECURSIVE ancestors AS (
-                SELECT id, parent_id
-                FROM folders
-                WHERE id = :folder_id AND deleted_at IS NULL
-
-                UNION ALL
-
-                SELECT f.id, f.parent_id
-                FROM folders f
-                INNER JOIN ancestors a ON f.id = a.parent_id
-                WHERE f.deleted_at IS NULL
-            )
-            SELECT EXISTS(SELECT 1 FROM ancestors WHERE id = :potential_ancestor_id)
-        """
-        )
-
-        result = await self.db.execute(
-            query,
-            {"folder_id": folder_id, "potential_ancestor_id": potential_ancestor_id},
-        )
-        return bool(result.scalar_one())
