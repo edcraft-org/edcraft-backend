@@ -17,6 +17,8 @@ from edcraft_backend.repositories.question_bank_repository import QuestionBankRe
 from edcraft_backend.repositories.question_template_bank_repository import (
     QuestionTemplateBankRepository,
 )
+from edcraft_backend.schemas.assessment import AssessmentResponse
+from edcraft_backend.schemas.assessment_template import AssessmentTemplateResponse
 from edcraft_backend.schemas.folder import (
     CreateFolderRequest,
     FolderResponse,
@@ -25,6 +27,8 @@ from edcraft_backend.schemas.folder import (
     MoveFolderRequest,
     UpdateFolderRequest,
 )
+from edcraft_backend.schemas.question_bank import QuestionBankResponse
+from edcraft_backend.schemas.question_template_bank import QuestionTemplateBankResponse
 from edcraft_backend.services.question_service import QuestionService
 from edcraft_backend.services.question_template_service import QuestionTemplateService
 
@@ -197,15 +201,6 @@ class FolderService:
             ResourceNotFoundError: If folder not found
             UnauthorizedAccessError: If user doesn't own the folder
         """
-        from edcraft_backend.schemas.assessment import AssessmentResponse
-        from edcraft_backend.schemas.assessment_template import (
-            AssessmentTemplateResponse,
-        )
-        from edcraft_backend.schemas.question_bank import QuestionBankResponse
-        from edcraft_backend.schemas.question_template_bank import (
-            QuestionTemplateBankResponse,
-        )
-
         folder = await self.get_owned_folder(user_id, folder_id)
 
         assessment_responses = [

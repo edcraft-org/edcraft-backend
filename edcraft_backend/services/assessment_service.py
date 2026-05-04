@@ -50,56 +50,36 @@ class AssessmentService:
         self.user_repo = user_repository
         self.collaboration_svc = collaboration_svc
 
-    async def _get_assessment_with_questions(
+    async def get_assessment(
         self,
         user_id: UUID | None,
         assessment_id: UUID,
-        min_role: CollaboratorRole = CollaboratorRole.VIEWER,
+        min_role: CollaboratorRole,
+        with_questions: bool = False,
     ) -> Assessment:
-        """Get assessment with all questions loaded.
+        """Get assessment (with all questions optionally loaded).
 
         Args:
             user_id: User UUID (None for unauthenticated users)
             assessment_id: Assessment UUID
             min_role: Minimum collaborator role required to access the assessment
-
+            with_questions: Whether to load questions with the assessment
         Returns:
-            Assessment with questions
+            Assessment
 
         Raises:
             ResourceNotFoundError: If assessment not found or access denied
         """
-        assessment = await self.assessment_repo.get_by_id_with_questions(assessment_id)
-        if not assessment:
-            raise ResourceNotFoundError("Assessment", str(assessment_id))
-        await self.collaboration_svc.check_access(
-            ResourceType.ASSESSMENT, assessment.id, user_id, min_role
+        repo_fn = (
+            self.assessment_repo.get_by_id_with_questions
+            if with_questions
+            else self.assessment_repo.get_by_id
         )
-        return assessment
+        assessment = await repo_fn(assessment_id)
 
-    async def get_assessment(
-        self,
-        user_id: UUID,
-        assessment_id: UUID,
-        min_role: CollaboratorRole = CollaboratorRole.VIEWER,
-    ) -> Assessment:
-        """Get assessment and verify the user has at least the given role.
-
-        Args:
-            user_id: User UUID
-            assessment_id: Assessment UUID
-            min_role: Minimum required collaborator role
-
-        Returns:
-            Assessment entity
-
-        Raises:
-            ResourceNotFoundError: If assessment not found
-            UnauthorizedAccessError: If user lacks the required role
-        """
-        assessment = await self.assessment_repo.get_by_id(assessment_id)
         if not assessment:
             raise ResourceNotFoundError("Assessment", str(assessment_id))
+
         await self.collaboration_svc.check_access(
             ResourceType.ASSESSMENT, assessment.id, user_id, min_role
         )
@@ -220,8 +200,8 @@ class AssessmentService:
             ResourceNotFoundError: If assessment not found
             UnauthorizedAccessError: If user doesn't own the assessment
         """
-        assessment = await self._get_assessment_with_questions(
-            user_id, assessment_id, min_role=CollaboratorRole.OWNER
+        assessment = await self.get_assessment(
+            user_id, assessment_id, min_role=CollaboratorRole.OWNER, with_questions=True
         )
 
         for question in assessment.questions:
@@ -251,8 +231,8 @@ class AssessmentService:
         Raises:
             ResourceNotFoundError: If assessment not found or access denied
         """
-        assessment = await self._get_assessment_with_questions(
-            user_id, assessment_id, min_role
+        assessment = await self.get_assessment(
+            user_id, assessment_id, min_role, with_questions=True
         )
 
         my_role = None
@@ -331,8 +311,8 @@ class AssessmentService:
             ValidationError: If order is invalid
             UnauthorizedAccessError: If user lacks editor or owner role
         """
-        assessment = await self._get_assessment_with_questions(
-            user_id, assessment_id, min_role=CollaboratorRole.EDITOR
+        assessment = await self.get_assessment(
+            user_id, assessment_id, min_role=CollaboratorRole.EDITOR, with_questions=True
         )
         question_entity = await self.question_svc.create_question(user_id, question)
         await self._attach_question_to_assessment(
@@ -367,8 +347,8 @@ class AssessmentService:
             UnauthorizedAccessError: If user lacks editor/owner role on assessment
                 or view access on the source question
         """
-        assessment = await self._get_assessment_with_questions(
-            user_id, assessment_id, min_role=CollaboratorRole.EDITOR
+        assessment = await self.get_assessment(
+            user_id, assessment_id, min_role=CollaboratorRole.EDITOR, with_questions=True
         )
         source_question = await self.question_svc.get_question(
             user_id, question_id, min_role=CollaboratorRole.VIEWER
@@ -499,8 +479,8 @@ class AssessmentService:
         assessment_id: UUID,
         question_orders: list[QuestionOrder],
     ) -> AssessmentWithQuestionsResponse:
-        assessment = await self._get_assessment_with_questions(
-            user_id, assessment_id, min_role=CollaboratorRole.EDITOR
+        assessment = await self.get_assessment(
+            user_id, assessment_id, min_role=CollaboratorRole.EDITOR, with_questions=True
         )
 
         # Validate full coverage
