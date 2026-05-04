@@ -35,7 +35,6 @@ from edcraft_backend.repositories.user_repository import UserRepository
 from edcraft_backend.services.assessment_service import AssessmentService
 from edcraft_backend.services.collaboration_service import CollaborationService
 from edcraft_backend.services.folder_service import FolderService
-from edcraft_backend.services.form_builder_service import FormBuilderService
 from edcraft_backend.services.job_service import JobService
 from edcraft_backend.services.post_processing_service import PostProcessingService
 from edcraft_backend.services.question_service import QuestionService
@@ -104,7 +103,7 @@ class MockJobService:
             user_repo,
             collaboration_svc,
         )
-        return PostProcessingService(assessment_svc, FormBuilderService())
+        return PostProcessingService(assessment_svc)
 
     async def submit(
         self,
@@ -132,8 +131,6 @@ class MockJobService:
         return job
 
     async def _post_process(self, job_type: str, raw: dict[str, Any]) -> dict[str, Any]:
-        if job_type == JobType.ANALYSE_CODE:
-            return self._post_processing_svc.post_process_code_analysis(raw)
         if job_type == JobType.GENERATE_TEMPLATE:
             return self._post_processing_svc.post_process_generate_template(raw)
         if job_type == JobType.QUESTION_FROM_TEMPLATE:

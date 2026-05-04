@@ -47,7 +47,6 @@ from edcraft_backend.services.auth_service import AuthService
 from edcraft_backend.services.collaboration_service import CollaborationService
 from edcraft_backend.services.email_service import EmailService
 from edcraft_backend.services.folder_service import FolderService
-from edcraft_backend.services.form_builder_service import FormBuilderService
 from edcraft_backend.services.job_service import JobService
 from edcraft_backend.services.oauth_service import OAuthService
 from edcraft_backend.services.post_processing_service import PostProcessingService
@@ -336,17 +335,11 @@ def get_oauth_service(
     return OAuthService(user_repo, oauth_account_repo, auth_svc, folder_svc)
 
 
-async def get_form_builder_service() -> FormBuilderService:
-    """Get FormBuilderService instance."""
-    return FormBuilderService()
-
-
 async def get_post_processing_service(
     assessment_svc: AssessmentService = Depends(get_assessment_service),
-    form_builder_svc: FormBuilderService = Depends(get_form_builder_service),
 ) -> PostProcessingService:
     """Get PostProcessingService instance."""
-    return PostProcessingService(assessment_svc, form_builder_svc)
+    return PostProcessingService(assessment_svc)
 
 
 async def get_current_user(

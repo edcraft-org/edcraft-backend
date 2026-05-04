@@ -45,7 +45,6 @@ class TestAnalyseCode:
         assert data["status"] == "completed"
         result = data["result"]
         assert "code_info" in result
-        assert "form_elements" in result
         # Verify code_info structure
         assert "code_tree" in result["code_info"]
         assert "functions" in result["code_info"]
@@ -65,7 +64,6 @@ class TestAnalyseCode:
         result = data["result"]
         # Empty code should still return valid structure
         assert "code_info" in result
-        assert "form_elements" in result
         # Verify code_info structure
         assert "code_tree" in result["code_info"]
         assert "functions" in result["code_info"]

@@ -22,29 +22,14 @@ from edcraft_backend.schemas.question import (
 from edcraft_backend.schemas.question_generation import TemplatePreviewResponse
 from edcraft_backend.schemas.question_template import CreateTargetElementRequest
 from edcraft_backend.services.assessment_service import AssessmentService
-from edcraft_backend.services.form_builder_service import FormBuilderService
 from edcraft_backend.utils.template_renderer import render_question_text
 
 
 class PostProcessingService:
     """Handles post processing of edcraft engine's output."""
 
-    def __init__(
-        self, assessment_svc: AssessmentService, form_builder_svc: FormBuilderService
-    ) -> None:
+    def __init__(self, assessment_svc: AssessmentService) -> None:
         self.assessment_svc = assessment_svc
-        self.form_builder_svc = form_builder_svc
-
-    def post_process_code_analysis(
-        self, code_analysis_result: dict[str, Any]
-    ) -> dict[str, Any]:
-        form_elements = [
-            e.model_dump() for e in self.form_builder_svc.build_form_elements()
-        ]
-        return {
-            "code_info": code_analysis_result["code_info"],
-            "form_elements": form_elements,
-        }
 
     def post_process_generate_template(
         self,

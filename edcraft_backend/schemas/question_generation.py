@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field
 
 from edcraft_backend.models.enums import TextTemplateType
 from edcraft_backend.schemas.code_info import CodeInfo
-from edcraft_backend.schemas.form_builder import FormElement
 from edcraft_backend.schemas.question_template import CreateTargetElementRequest
 
 
@@ -27,7 +26,6 @@ class CodeAnalysisResponse(BaseModel):
     code_info: CodeInfo = Field(
         ..., description="Code structure and elements information"
     )
-    form_elements: list[FormElement] = Field(..., description="List of form elements")
 
 
 class QuestionGenerationRequest(BaseModel):

@@ -154,8 +154,6 @@ class JobService:
         job_type: str,
         raw: dict[str, Any],
     ) -> dict[str, Any]:
-        if job_type == JobType.ANALYSE_CODE:
-            return self.post_processing_svc.post_process_code_analysis(raw)
         if job_type == JobType.GENERATE_TEMPLATE:
             return self.post_processing_svc.post_process_generate_template(raw)
         if job_type == JobType.QUESTION_FROM_TEMPLATE:
