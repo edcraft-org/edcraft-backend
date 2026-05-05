@@ -19,7 +19,7 @@ from edcraft_engine.question_generator.question_generator import QuestionGenerat
 from edcraft_engine.static_analyser import StaticAnalyser
 from input_gen import generate
 
-from worker.handlers import JobHandlers
+from handlers import JobHandlers
 
 logging.basicConfig(
     level=logging.INFO,
