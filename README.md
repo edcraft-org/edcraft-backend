@@ -206,6 +206,14 @@ sed -i "s/NOMAD_HOST=.*/NOMAD_HOST=$(ip addr show eth0 | grep 'inet ' | awk '{pr
 make docker-up
 ```
 
+## Enhancements
+
+* Add rate limiting to protect APIs and improve system stability
+* Add pagination support for data retrieval endpoints
+* Add caching to improve performance and reduce repeated computations
+* Add unit tests to improve test coverage alongside existing integration tests
+* Implement proper logging for debugging, monitoring, and error tracking
+
 ## 📄 License
 
 MIT License © 2025 EdCraft Team
