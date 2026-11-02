@@ -165,6 +165,26 @@ GET /jobs/{job_id}
 }
 ```
 
+## 🤖 AI Template Authoring
+
+Issues 48-50 add owner-scoped AI authoring endpoints under `/ai-authoring`.
+The backend uses the pinned `edcraft-validator` workflow in a bounded
+in-process runner (one active job, ten waiting) and persists state as files,
+not database rows.
+
+Configure at least one server-side model profile in `.env.development`:
+
+```bash
+AUTHORING_MODEL_PROFILES=[{"id":"default","label":"Default code author","provider":"soclaas","model":"x-test-2"}]
+AUTHORING_STORAGE_DIR=.data/authoring
+```
+
+Provider credentials remain in the provider-specific environment. They are
+never returned by the API. Docker Compose mounts the durable `authoring_data`
+volume at `/app/.data`, and the image runs as the non-root `edcraft` user.
+Files are written atomically with `os.replace`; startup marks interrupted
+queued/running jobs failed with `SERVER_RESTARTED` instead of replaying them.
+
 ## 🖥️ WSL2 Nomad Setup
 
 If you're using **WSL2**, if you are facing issues using nomad, follow the instructions in this section.
