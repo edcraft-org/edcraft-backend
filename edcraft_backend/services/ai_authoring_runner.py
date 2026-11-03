@@ -40,13 +40,11 @@ class AuthoringAdmissionFull(EdCraftBaseException):
         super().__init__(message, 429)
 
 
-class LibraryAuthoringExecutor:
+def run_library_authoring_job(
+    command: AuthoringJobCommand, on_progress: ProgressCallback | None
+) -> AuthoringJobRecord:
     """Call the installed edcraft-validator workflow with configured providers."""
-
-    def __call__(
-        self, command: AuthoringJobCommand, on_progress: ProgressCallback | None
-    ) -> AuthoringJobRecord:
-        return run_authoring_job_sync(command, on_progress=on_progress)
+    return run_authoring_job_sync(command, on_progress=on_progress)
 
 
 class AuthoringRunner:
@@ -60,7 +58,7 @@ class AuthoringRunner:
     ) -> None:
         self._store = store
         self._settings = settings
-        self._executor: JobExecutor = executor or LibraryAuthoringExecutor()
+        self._executor: JobExecutor = executor or run_library_authoring_job
         self._loop: asyncio.AbstractEventLoop | None = None
         self._semaphore: asyncio.Semaphore | None = None
         self._admission_lock: asyncio.Lock | None = None
@@ -210,5 +208,5 @@ __all__ = [
     "AuthoringAdmissionFull",
     "AuthoringRunner",
     "JobExecutor",
-    "LibraryAuthoringExecutor",
+    "run_library_authoring_job",
 ]
