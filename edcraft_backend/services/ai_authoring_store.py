@@ -120,6 +120,78 @@ class StoredJob(BaseModel):
     finished_at: datetime | None = None
 
 
+def require_bound_report(
+    job: StoredJob,
+    *,
+    expected_artifact_sha256: str,
+    report: AuthoringResult | None,
+) -> AuthoringResult:
+    """Require saved report evidence bound to the job's exact artifact."""
+    if (
+        job.artifact_id is None
+        or job.artifact_sha256 is None
+        or job.artifact_sha256 != expected_artifact_sha256
+        or job.result is None
+        or job.result.artifact_id != job.artifact_id
+    ):
+        raise AuthoringConflict(
+            "Authoring review evidence does not match the job artifact."
+        )
+    if report is None or report.status != "checked" or report.artifact is None:
+        raise AuthoringConflict(
+            "Authoring review evidence is missing or invalid; start a new run."
+        )
+    if report.artifact.artifact_id != job.artifact_id:
+        raise AuthoringConflict(
+            "Authoring review evidence does not match the job artifact."
+        )
+    report_digest = hashlib.sha256(
+        report.artifact.model_dump_json().encode()
+    ).hexdigest()
+    if report_digest != expected_artifact_sha256:
+        raise AuthoringConflict(
+            "Authoring review evidence no longer matches the job artifact."
+        )
+    return report
+
+
+def require_reusable_evidence(
+    job: StoredJob,
+    *,
+    expected_artifact_sha256: str,
+    report: AuthoringResult | None,
+) -> AuthoringResult:
+    """Require reusable evidence without re-running library checks.
+
+    The library summary remains the authority for technical status. This
+    function additionally verifies that the persisted report, exact artifact
+    identity and digest still match the job at the point of reuse.
+    """
+    technical = (
+        [check for check in job.result.checks if not check.advisory]
+        if job.result is not None
+        else []
+    )
+    if (
+        job.state != "completed"
+        or job.result is None
+        or job.result.status != "checked"
+        or job.artifact_id is None
+        or job.artifact_sha256 is None
+        or not technical
+        or any(check.status != "passed" for check in technical)
+    ):
+        raise AuthoringConflict(
+            "Only a technically checked artifact with saved review evidence "
+            "can be previewed, approved or generated."
+        )
+    return require_bound_report(
+        job,
+        expected_artifact_sha256=expected_artifact_sha256,
+        report=report,
+    )
+
+
 class AuthoringStore:
     """Thread-safe durable store using atomic, UUID-derived paths."""
 
@@ -298,9 +370,14 @@ class AuthoringStore:
         return self._mutate(job_id, mutate)
 
     def save_approval(self, job_id: UUID, approval: ApprovalRecord) -> StoredJob:
-        """Replace the current decision for the unchanged exact artifact."""
+        """Replace the current decision when the exact checked evidence still matches."""
 
         def mutate(job: StoredJob) -> StoredJob:
+            if approval.artifact_sha256 != job.artifact_sha256:
+                raise AuthoringConflict(
+                    "The artifact changed; refresh the review before deciding."
+                )
+            self._require_reusable_unlocked(job, approval.artifact_sha256)
             return job.model_copy(
                 update={"approval": approval, "updated_at": _now()}
             )
@@ -310,9 +387,23 @@ class AuthoringStore:
     def save_generation(
         self, job_id: UUID, metadata: GenerationMetadata
     ) -> StoredJob:
-        """Retain minimal batch reproducibility metadata on the owned job."""
+        """Record batch metadata only while the exact approval remains current."""
 
         def mutate(job: StoredJob) -> StoredJob:
+            if metadata.artifact_sha256 != job.artifact_sha256:
+                raise AuthoringConflict(
+                    "The artifact changed while questions were being generated."
+                )
+            self._require_reusable_unlocked(job, metadata.artifact_sha256)
+            approval = job.approval
+            if (
+                approval is None
+                or approval.decision != "approved"
+                or approval.artifact_sha256 != metadata.artifact_sha256
+            ):
+                raise AuthoringConflict(
+                    "The exact artifact must remain approved while generating questions."
+                )
             return job.model_copy(
                 update={"last_generation": metadata, "updated_at": _now()}
             )
@@ -340,6 +431,23 @@ class AuthoringStore:
                 return AuthoringResult.model_validate_json(raw)
             except (ValidationError, ValueError) as exc:
                 raise AuthoringConflict("Authoring review evidence is invalid.") from exc
+
+    def _require_reusable_unlocked(
+        self, job: StoredJob, expected_artifact_sha256: str
+    ) -> AuthoringResult:
+        """Validate persisted evidence while the store lock is already held."""
+        artifact_bytes = self.read_artifact(job.job_id)
+        artifact_digest = hashlib.sha256(artifact_bytes).hexdigest()
+        if artifact_digest != expected_artifact_sha256:
+            raise AuthoringConflict(
+                "The stored artifact failed its integrity check; refresh the review."
+            )
+        report = self.read_report(job.job_id)
+        return require_reusable_evidence(
+            job,
+            expected_artifact_sha256=expected_artifact_sha256,
+            report=report,
+        )
 
     def reconcile_startup(self) -> int:
         """Mark prior queued/running jobs failed; never replay model work."""

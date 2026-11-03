@@ -22,11 +22,19 @@ from edcraft_backend.schemas.ai_authoring import (
     SubmitAuthoringJobRequest,
 )
 
+# FastAPI keeps its standard HTTPValidationError 422 body for request
+# validation. AuthoringValidationError can also return a sanitized
+# ErrorResponse with a string detail (for configured limits), so clients must
+# accept either shape for 422 rather than treating every 422 as a string.
 _ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     401: {"model": ErrorResponse, "description": "Not signed in."},
     404: {"model": ErrorResponse, "description": "Unknown or unowned job."},
     409: {"model": ErrorResponse, "description": "Stale or unusable artifact."},
     429: {"model": ErrorResponse, "description": "Authoring admission is full."},
+    503: {
+        "model": ErrorResponse,
+        "description": "AI authoring storage is unavailable.",
+    },
 }
 
 router = APIRouter(

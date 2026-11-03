@@ -481,6 +481,88 @@ async def test_tampered_artifact_is_rejected_everywhere(checked_env: AuthoringHa
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("damage", ["missing", "invalid"])
+async def test_damaged_review_report_fails_closed_everywhere(
+    checked_env: AuthoringHarness, damage: str
+) -> None:
+    env = checked_env
+    job_id = await complete_job(env)
+    envelope = await review(env, job_id)
+    digest = envelope["artifact_sha256"]
+    assert (await approve(env, job_id, digest)).status_code == 200
+
+    report_path = env.service.store.root / "artifacts" / str(job_id) / "report.json"
+    if damage == "missing":
+        report_path.unlink()
+    else:
+        report_path.write_bytes(b"not a valid authoring report")
+
+    assert (await env.client.get(f"/ai-authoring/jobs/{job_id}/review")).status_code == 409
+    assert (await approve(env, job_id, digest)).status_code == 409
+    assert (
+        await env.client.post(
+            f"/ai-authoring/jobs/{job_id}/preview", json={"seed": 0}
+        )
+    ).status_code == 409
+    assert (
+        await env.client.post(
+            f"/ai-authoring/jobs/{job_id}/generate",
+            json={"artifact_sha256": digest, "seed": 0, "quantity": 1},
+        )
+    ).status_code == 409
+
+    stored = (await env.client.get(f"/ai-authoring/jobs/{job_id}")).json()
+    assert stored["last_generation"] is None
+    assert stored["approval"]["decision"] == "approved"
+
+
+@pytest.mark.asyncio
+async def test_generation_rechecks_revoked_approval_under_store_lock(
+    checked_env: AuthoringHarness,
+) -> None:
+    env = checked_env
+    job_id = await complete_job(env)
+    envelope = await review(env, job_id)
+    digest = envelope["artifact_sha256"]
+    assert (await approve(env, job_id, digest)).status_code == 200
+
+    original_read_artifact = env.service.store.read_artifact
+    entered = threading.Event()
+    release = threading.Event()
+
+    def gated_read_artifact(target_job_id: UUID) -> bytes:
+        if not entered.is_set():
+            entered.set()
+            if not release.wait(5):
+                raise RuntimeError("test generate gate timed out")
+        return original_read_artifact(target_job_id)
+
+    env.service.store.read_artifact = gated_read_artifact  # type: ignore[assignment]
+    try:
+        generating = asyncio.create_task(
+            env.client.post(
+                f"/ai-authoring/jobs/{job_id}/generate",
+                json={"artifact_sha256": digest, "seed": 0, "quantity": 1},
+            )
+        )
+        assert await asyncio.to_thread(entered.wait, 2)
+        rejected = await env.client.post(
+            f"/ai-authoring/jobs/{job_id}/approval",
+            json={"artifact_sha256": digest, "decision": "rejected"},
+        )
+        assert rejected.status_code == 200, rejected.text
+        release.set()
+        generated = await generating
+        assert generated.status_code == 409, generated.text
+    finally:
+        release.set()
+
+    stored = (await env.client.get(f"/ai-authoring/jobs/{job_id}")).json()
+    assert stored["last_generation"] is None
+    assert stored["approval"]["decision"] == "rejected"
+
+
+@pytest.mark.asyncio
 async def test_strict_input_bounds_and_unknown_profile(checked_env: AuthoringHarness) -> None:
     env = checked_env
     for bad_payload in (
