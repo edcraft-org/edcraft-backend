@@ -170,7 +170,9 @@ GET /jobs/{job_id}
 Issues 48-50 add owner-scoped AI authoring endpoints under `/ai-authoring`.
 The backend uses the pinned `edcraft-validator` workflow in a bounded
 in-process runner (one active job, ten waiting) and persists state as files,
-not database rows.
+not database rows. Run exactly one backend process (one Uvicorn worker/replica)
+against each authoring storage volume: the process-local lock, admission
+counters and startup reconciliation are not multi-process safe.
 
 Configure at least one server-side model profile in `.env.development`:
 
