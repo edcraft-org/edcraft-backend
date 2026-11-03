@@ -62,6 +62,8 @@ from edcraft_backend.services.ai_authoring_store import (
     AuthoringStorageUnavailable,
     AuthoringStore,
     StoredJob,
+    require_bound_report,
+    require_reusable_evidence,
 )
 
 ApprovalView = StoredReviewerApproval
@@ -210,11 +212,18 @@ class AiAuthoringService:
             try:
                 report = await asyncio.to_thread(self.store.read_report, job_id)
             except AuthoringConflict:
+                if job.artifact_sha256 is not None or job.artifact_id is not None:
+                    raise
                 report = None
 
         artifact: ValidatedCodeTemplate | None = None
         if job.artifact_sha256 and job.artifact_id:
             _, artifact = await self._verified_artifact(job)
+            require_bound_report(
+                job,
+                expected_artifact_sha256=job.artifact_sha256,
+                report=report,
+            )
 
         attempts = [
             self._project_attempt(attempt) for attempt in (report.attempts if report else [])
@@ -258,7 +267,7 @@ class AiAuthoringService:
     ) -> PreviewResponse:
         """Generate one deterministic draft locally without model or MCP calls."""
         job = await self.get_job(owner_id, job_id)
-        self._require_usable(job)
+        await self._require_review_evidence(job)
         _, artifact = await self._verified_artifact(job)
         question = self._generate(artifact, seed)
         if job.artifact_id is None or job.artifact_sha256 is None:
@@ -279,7 +288,7 @@ class AiAuthoringService:
     ) -> ApprovalResponse:
         """Persist the current decision when the exact artifact is usable."""
         job = await self.get_job(owner_id, job_id)
-        self._require_usable(job)
+        await self._require_review_evidence(job)
         if request.artifact_sha256 != job.artifact_sha256:
             raise AuthoringConflict(
                 "The artifact changed; refresh the review before deciding."
@@ -307,7 +316,7 @@ class AiAuthoringService:
     ) -> GeneratedQuestionsBatch:
         """Expand an approved artifact across consecutive deterministic seeds."""
         job = await self.get_job(owner_id, job_id)
-        self._require_usable(job)
+        await self._require_review_evidence(job)
         limit = min(self.settings.max_quantity, 50)
         if request.quantity > limit:
             raise AuthoringValidationError(
@@ -407,25 +416,19 @@ class AiAuthoringService:
                 return profile
         raise AuthoringValidationError("Unknown model profile.")
 
-    def _require_usable(self, job: StoredJob) -> None:
-        technical = (
-            [check for check in job.result.checks if not check.advisory]
-            if job.result is not None
-            else []
-        )
-        if (
-            job.state != "completed"
-            or job.result is None
-            or job.result.status != "checked"
-            or job.artifact_id is None
-            or job.artifact_sha256 is None
-            or not technical
-            or any(check.status != "passed" for check in technical)
-        ):
+    async def _require_review_evidence(self, job: StoredJob) -> None:
+        """Require the saved report and bind its artifact to the job."""
+        if job.artifact_sha256 is None:
             raise AuthoringConflict(
-                "Only a technically checked artifact can be previewed, "
-                "approved or generated."
+                "Only a technically checked artifact with saved review evidence "
+                "can be previewed, approved or generated."
             )
+        report = await asyncio.to_thread(self.store.read_report, job.job_id)
+        require_reusable_evidence(
+            job,
+            expected_artifact_sha256=job.artifact_sha256,
+            report=report,
+        )
 
     async def _verified_artifact(
         self, job: StoredJob

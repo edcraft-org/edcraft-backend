@@ -1,11 +1,14 @@
 """Durable file store, ownership and restart reconciliation tests."""
 
 from datetime import UTC, datetime
-from uuid import uuid4
+from pathlib import Path
+from typing import Literal
+from uuid import UUID, uuid4
 
 import pytest
 
 from edcraft_backend.config.settings import AuthoringSettings
+from edcraft_backend.schemas.ai_authoring import GenerationMetadata
 from edcraft_backend.services.ai_authoring_store import (
     ApprovalRecord,
     AuthoringConflict,
@@ -137,3 +140,81 @@ def test_refuses_duplicate_job_and_non_writable_volume(tmp_path) -> None:
     bad_store = AuthoringStore(AuthoringSettings(storage_dir=blocking_file / "child"))
     with pytest.raises(AuthoringStorageUnavailable):
         bad_store.ensure_ready()
+
+
+def _approval(
+    digest: str,
+    owner: UUID,
+    decision: Literal["approved", "rejected"] = "approved",
+) -> ApprovalRecord:
+    return ApprovalRecord(
+        decision=decision,
+        artifact_sha256=digest,
+        reviewer_id=owner,
+        reviewer=str(owner),
+        decided_at=datetime.now(UTC),
+    )
+
+
+def _generation(digest: str) -> GenerationMetadata:
+    return GenerationMetadata(
+        artifact_sha256=digest,
+        base_seed=0,
+        requested_quantity=1,
+        actual_quantity=1,
+        distinct_count=1,
+        duplicates=0,
+        warnings=[],
+        created_at=datetime.now(UTC),
+    )
+
+
+def test_save_approval_and_generation_require_saved_report(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    owner = uuid4()
+    command = make_command()
+    job = _job(owner, command.job_id)
+    store.create_job(job)
+    store.mark_started(job.job_id)
+    completed = store.complete_job(job.job_id, make_checked_report(command))
+    digest = completed.artifact_sha256 or ""
+
+    report_path = store.root / "artifacts" / str(job.job_id) / "report.json"
+    report_path.unlink()
+
+    with pytest.raises(AuthoringConflict):
+        store.save_approval(job.job_id, _approval(digest, owner))
+    assert store.get_job(job.job_id).approval is None
+
+    with pytest.raises(AuthoringConflict):
+        store.save_generation(job.job_id, _generation(digest))
+    assert store.get_job(job.job_id).last_generation is None
+
+
+def test_save_approval_and_generation_reject_changed_artifact(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    owner = uuid4()
+    command = make_command()
+    job = _job(owner, command.job_id)
+    store.create_job(job)
+    store.mark_started(job.job_id)
+    completed = store.complete_job(job.job_id, make_checked_report(command))
+    digest = completed.artifact_sha256 or ""
+    store.save_approval(job.job_id, _approval(digest, owner))
+
+    artifact_path = (
+        store.root / "artifacts" / str(job.job_id) / "artifact.json"
+    )
+    artifact_path.write_bytes(b'{"tampered":true}')
+
+    with pytest.raises(AuthoringConflict, match="integrity"):
+        store.save_approval(job.job_id, _approval(digest, owner, "rejected"))
+    with pytest.raises(AuthoringConflict, match="integrity"):
+        store.save_generation(job.job_id, _generation(digest))
+
+    stored = store.get_job(job.job_id)
+    assert stored.approval is not None
+    assert stored.approval.decision == "approved"
+    assert stored.last_generation is None
