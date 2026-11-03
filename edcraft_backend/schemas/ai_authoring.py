@@ -1,0 +1,334 @@
+"""Request and response contracts for AI template authoring."""
+
+from datetime import datetime
+from typing import Annotated, Literal
+from uuid import UUID
+
+from edcraft_validator.application.authoring_api import (
+    AuthoringSummary,
+    PublicAuthoringError,
+)
+from edcraft_validator.application.authoring_contracts import (
+    AuthoringProgress,
+    DifficultyOutcome,
+    RelevanceOutcome,
+)
+from edcraft_validator.domains.code.code_schemas import (
+    CodeQuestionInstance,
+    CodeTemplateCandidate,
+)
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+Difficulty = Literal["easy", "medium", "hard"]
+MAX_SEED = 2_147_483_647
+StrictSeed = Annotated[int, Field(strict=True, ge=0, le=MAX_SEED)]
+StrictQuantity = Annotated[int, Field(strict=True, ge=1, le=50)]
+Sha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+
+
+class ErrorResponse(BaseModel):
+    """Sanitized error envelope used by all AI authoring endpoints."""
+
+    detail: str
+    error_type: str | None = None
+
+
+class AuthoringModelProfile(BaseModel):
+    """Safe display metadata for a server-configured authoring model."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str = Field(min_length=1, max_length=64)
+    label: str = Field(min_length=1, max_length=120)
+    provider: str = Field(min_length=1, max_length=64)
+    model: str = Field(min_length=1, max_length=120)
+
+
+class JudgeDisplay(BaseModel):
+    """Safe display metadata for the separately configured advisory judge."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    label: str = Field(min_length=1, max_length=120)
+    provider: str = Field(min_length=1, max_length=64)
+    model: str = Field(min_length=1, max_length=120)
+
+
+class AuthoringCapabilitiesResponse(BaseModel):
+    """Enabled domains and server-configured model choices."""
+
+    enabled_domains: list[Literal["code"]]
+    difficulty_labels: list[Difficulty]
+    model_profiles: list[AuthoringModelProfile]
+    judge: JudgeDisplay | None = None
+    max_quantity: int
+
+
+class SubmitAuthoringJobRequest(BaseModel):
+    """One request to author a reusable code-question template."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    domain: Literal["code"] = "code"
+    prompt: str = Field(min_length=1, max_length=4000)
+    difficulty: Difficulty
+    num_distractors: Literal[2, 3] = 3
+    model_profile: str = Field(min_length=1, max_length=64)
+
+    @field_validator("prompt")
+    @classmethod
+    def reject_blank_prompt(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("prompt must not be blank")
+        return value
+
+
+class AuthoringJobSubmittedResponse(BaseModel):
+    """Accepted job identity and polling URL."""
+
+    job_id: UUID
+    status_url: str
+
+
+class StoredReviewerApproval(BaseModel):
+    """Current human decision bound to one exact artifact digest."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["approved", "rejected"]
+    artifact_sha256: Sha256
+    reviewer: str
+    note: str | None = None
+    decided_at: datetime
+
+
+class GenerationMetadata(BaseModel):
+    """Minimal server-persisted record of the latest deterministic batch."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    artifact_sha256: Sha256
+    base_seed: StrictSeed
+    requested_quantity: StrictQuantity
+    actual_quantity: int = Field(ge=0)
+    distinct_count: int = Field(ge=0)
+    duplicates: int = Field(ge=0)
+    warnings: list[str] = Field(default_factory=list)
+    created_at: datetime
+
+
+class AuthoringJobStatusResponse(BaseModel):
+    """Owner-scoped authoring job state and safe public summary."""
+
+    job_id: UUID
+    state: Literal["queued", "running", "completed", "failed"]
+    progress: AuthoringProgress | None = None
+    result: AuthoringSummary | None = None
+    error: PublicAuthoringError | None = None
+    created_at: datetime
+    approval: StoredReviewerApproval | None = None
+    last_generation: GenerationMetadata | None = None
+
+
+class AuthoringJobSummary(BaseModel):
+    """Small owned-job item used to reopen saved work."""
+
+    job_id: UUID
+    state: Literal["queued", "running", "completed", "failed"]
+    created_at: datetime
+    prompt_preview: str
+    difficulty: Difficulty
+    approval: StoredReviewerApproval | None = None
+
+
+class AuthoringRequestView(BaseModel):
+    """Original author request returned during review."""
+
+    prompt: str
+    difficulty: Difficulty
+    num_distractors: Literal[2, 3]
+    domain: Literal["code"]
+    model_profile: str
+
+
+class ReviewFinding(BaseModel):
+    """One safe check finding; provider details and raw exceptions are omitted."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    message: str
+    field: str | None = None
+
+
+class ReviewCheck(BaseModel):
+    """One technical or advisory check projected from the retained report."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tool: str
+    status: Literal["passed", "failed", "error", "skipped"]
+    advisory: bool
+    findings: list[ReviewFinding] = Field(default_factory=list)
+    error: str | None = None
+
+
+class ReviewAttempt(BaseModel):
+    """One historical candidate attempt with its check findings."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    number: int
+    candidate: CodeTemplateCandidate | None = None
+    pending: list[str] = Field(default_factory=list)
+    complete: bool
+    passed: bool
+    checks: list[ReviewCheck] = Field(default_factory=list)
+
+
+class ReviewTemplate(BaseModel):
+    """Exact technically checked template an educator should review."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    template_id: str
+    candidate: CodeTemplateCandidate
+    language: Literal["python"] = "python"
+
+
+class ValidationLimits(BaseModel):
+    """Sampled-check budget recorded by the AI library."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    validator_version: str
+    checking_mode: str
+    examples_checked: int
+    execution_calls: int
+    max_examples: int
+    max_execution_calls: int
+    timeout_seconds: float
+    seed: int
+
+
+class AuthoringReviewResponse(BaseModel):
+    """Safe, complete-enough review envelope for one owned job."""
+
+    job_id: UUID
+    state: Literal["queued", "running", "completed", "failed"]
+    artifact_id: str | None = None
+    artifact_sha256: Sha256 | None = None
+    library_revision: str
+    request: AuthoringRequestView
+    template: ReviewTemplate | None = None
+    checks: list[ReviewCheck] = Field(default_factory=list)
+    attempts: list[ReviewAttempt] = Field(default_factory=list)
+    fixed_plan: list[str] = Field(default_factory=list)
+    validation_limits: ValidationLimits | None = None
+    candidate: CodeTemplateCandidate | None = None
+    candidate_is_historical_attempt: bool = False
+    difficulty: DifficultyOutcome | None = None
+    relevance: RelevanceOutcome | None = None
+    warnings: list[str] = Field(default_factory=list)
+    approval: StoredReviewerApproval | None = None
+    error: PublicAuthoringError | None = None
+
+
+class PreviewRequest(BaseModel):
+    """Deterministic local preview seed."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    seed: StrictSeed
+
+
+class PreviewResponse(BaseModel):
+    """One deterministic question generated from the exact artifact."""
+
+    job_id: UUID
+    artifact_id: str
+    artifact_sha256: Sha256
+    seed: StrictSeed
+    question: CodeQuestionInstance
+
+
+class ApprovalRequest(BaseModel):
+    """Human decision bound to the exact artifact digest shown during review."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    artifact_sha256: Sha256
+    decision: Literal["approved", "rejected"]
+    note: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("note")
+    @classmethod
+    def reject_blank_note(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+
+class ApprovalResponse(StoredReviewerApproval):
+    """Persisted decision returned to the reviewer."""
+
+    job_id: UUID
+
+
+class GenerateRequest(BaseModel):
+    """Synchronous deterministic batch request for an approved artifact."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    artifact_sha256: Sha256
+    seed: StrictSeed
+    quantity: StrictQuantity
+
+    @model_validator(mode="after")
+    def validate_seed_range(self) -> "GenerateRequest":
+        if self.seed + self.quantity - 1 > MAX_SEED:
+            raise ValueError("seed plus quantity exceeds the supported seed range")
+        return self
+
+
+class GeneratedQuestionsBatch(BaseModel):
+    """Downloadable JSON batch with canonical question instances."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    format_version: Literal["1"] = "1"
+    job_id: UUID
+    artifact_id: str
+    artifact_sha256: Sha256
+    base_seed: StrictSeed
+    requested_quantity: StrictQuantity
+    actual_quantity: int
+    distinct_count: int
+    duplicates: int
+    questions: list[CodeQuestionInstance]
+    warnings: list[str] = Field(default_factory=list)
+
+
+__all__ = [
+    "ApprovalRequest",
+    "ApprovalResponse",
+    "AuthoringCapabilitiesResponse",
+    "AuthoringJobStatusResponse",
+    "AuthoringJobSubmittedResponse",
+    "AuthoringJobSummary",
+    "AuthoringModelProfile",
+    "AuthoringReviewResponse",
+    "ErrorResponse",
+    "GenerateRequest",
+    "GeneratedQuestionsBatch",
+    "GenerationMetadata",
+    "JudgeDisplay",
+    "PreviewRequest",
+    "PreviewResponse",
+    "ReviewCheck",
+    "ReviewFinding",
+    "StoredReviewerApproval",
+    "SubmitAuthoringJobRequest",
+    "ValidationLimits",
+]

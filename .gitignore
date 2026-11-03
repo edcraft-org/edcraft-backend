@@ -45,6 +45,9 @@ dmypy.json
 # Database
 *.db
 
+# Local durable AI authoring state
+.data/
+
 # Logs
 *.log
 logs/

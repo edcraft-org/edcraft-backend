@@ -28,9 +28,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user for security
+# Create non-root user and writable durable AI authoring directory
 RUN useradd -m -u 1000 edcraft && \
-    mkdir -p /app && \
+    mkdir -p /app/.data/authoring && \
     chown -R edcraft:edcraft /app
 
 # Set working directory
@@ -41,6 +41,9 @@ COPY --from=builder --chown=edcraft:edcraft /app/.venv /app/.venv
 
 # Add venv to PATH so we can use installed executables
 ENV PATH="/app/.venv/bin:$PATH"
+
+# Durable AI authoring state (mounted as a volume in docker-compose)
+ENV AUTHORING_STORAGE_DIR=/app/.data/authoring
 
 # Copy application code
 COPY --chown=edcraft:edcraft pyproject.toml ./

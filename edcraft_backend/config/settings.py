@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from pydantic import Field, PostgresDsn, field_validator
+from pydantic import BaseModel, Field, PostgresDsn, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from edcraft_backend.config.environments import Environment
@@ -191,6 +191,45 @@ class EmailSettings(BaseSettings):
     )
 
 
+class AuthoringProfileSettings(BaseModel):
+    """One server-configured authoring model profile (never credentials)."""
+
+    model_config = {"extra": "forbid", "frozen": True}
+
+    id: str = Field(min_length=1, max_length=64)
+    label: str = Field(min_length=1, max_length=120)
+    provider: str = Field(min_length=1, max_length=64)
+    model: str = Field(min_length=1, max_length=120)
+
+
+class AuthoringSettings(BaseSettings):
+    """File-backed AI authoring configuration. Env prefix: AUTHORING_"""
+
+    model_config = SettingsConfigDict(
+        env_file=None, env_prefix="AUTHORING_", case_sensitive=False, extra="ignore"
+    )
+
+    storage_dir: Path = Field(
+        default=Path(".data/authoring"),
+        description=(
+            "Durable directory for owner-scoped authoring job records. "
+            "Docker deployments set an absolute path on a mounted volume."
+        ),
+    )
+    max_active_jobs: int = Field(default=1, ge=1, le=4)
+    max_queue: int = Field(default=10, ge=0, le=100)
+    max_quantity: int = Field(default=50, ge=1, le=50)
+    shutdown_timeout_seconds: float = Field(default=30.0, gt=0)
+    model_profiles: list[AuthoringProfileSettings] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def require_unique_profiles(self) -> "AuthoringSettings":
+        ids = [profile.id for profile in self.model_profiles]
+        if len(ids) != len(set(ids)):
+            raise ValueError("authoring model profile ids must be unique")
+        return self
+
+
 class Settings(BaseSettings):
     """
     Application settings with environment-based configuration.
@@ -210,6 +249,7 @@ class Settings(BaseSettings):
     oauth_github: OAuthGithubSettings = Field(default_factory=OAuthGithubSettings)
     email: EmailSettings = Field(default_factory=EmailSettings)
     nomad: NomadSettings = Field(default_factory=NomadSettings)
+    authoring: AuthoringSettings = Field(default_factory=AuthoringSettings)
 
     # Standalone settings
     log_level: str = Field(default="info", description="Logging level")
