@@ -197,6 +197,12 @@ non-root `edcraft` user. Files are written atomically with `os.replace`;
 startup marks interrupted queued/running jobs failed with `SERVER_RESTARTED`
 instead of replaying them.
 
+Advisory difficulty and relevance checks use the same model and credentials as
+the selected authoring model, so BYOK jobs are billed entirely to the caller's
+key. `EDCRAFT_JUDGE_REASONING_EFFORT` and `EDCRAFT_RELEVANCE_THRESHOLD` still
+configure those checks; `EDCRAFT_JUDGE_PROVIDER`/`MODEL` only affect direct
+CLI or MCP use of `edcraft-validator`.
+
 ## 🖥️ WSL2 Nomad Setup
 
 If you're using **WSL2**, if you are facing issues using nomad, follow the instructions in this section.

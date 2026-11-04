@@ -15,9 +15,14 @@ from edcraft_validator.application.authoring_api import (
     run_authoring_job_sync,
 )
 from edcraft_validator.application.authoring_contracts import AuthoringProgress
+from edcraft_validator.application.template_workflow import TemplateApplication
 
 from edcraft_backend.config.settings import AuthoringSettings
 from edcraft_backend.exceptions import EdCraftBaseException
+from edcraft_backend.services.ai_authoring_judge import (
+    build_credential_tool_client,
+    build_profile_tool_client,
+)
 from edcraft_backend.services.ai_authoring_providers import (
     ProviderCredentials,
     build_managed_provider,
@@ -52,11 +57,18 @@ def run_library_authoring_job(
     credentials: ProviderCredentials | None,
     on_progress: ProgressCallback | None,
 ) -> AuthoringJobRecord:
-    """Run the validator with either per-job BYOK credentials or env profiles."""
+    """Run the validator with the selected model for authoring and judging."""
     if credentials is None:
-        return run_authoring_job_sync(command, on_progress=on_progress)
+        tool_client = build_profile_tool_client(command.author)
+        return run_authoring_job_sync(
+            command,
+            application_factory=lambda: TemplateApplication(tool_client=tool_client),
+            on_progress=on_progress,
+        )
+    tool_client = build_credential_tool_client(credentials)
     return run_authoring_job_sync(
         command,
+        application_factory=lambda: TemplateApplication(tool_client=tool_client),
         provider_factory=lambda _selection: build_managed_provider(credentials),
         on_progress=on_progress,
     )
