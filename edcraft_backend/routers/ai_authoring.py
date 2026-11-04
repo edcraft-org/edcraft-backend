@@ -17,6 +17,7 @@ from edcraft_backend.schemas.ai_authoring import (
     AuthoringJobStatusResponse,
     AuthoringJobSubmittedResponse,
     AuthoringJobSummary,
+    AuthoringModelSelection,
     AuthoringReviewResponse,
     ErrorResponse,
     GeneratedQuestionsBatch,
@@ -24,6 +25,10 @@ from edcraft_backend.schemas.ai_authoring import (
     PreviewRequest,
     PreviewResponse,
     SubmitAuthoringJobRequest,
+)
+from edcraft_backend.services.ai_authoring_providers import (
+    JobCredentials,
+    ProviderCredentials,
 )
 
 # FastAPI keeps its standard HTTPValidationError 422 body for request
@@ -70,10 +75,35 @@ async def submit_job(
     connections: ProviderConnectionServiceDep,
 ) -> AuthoringJobSubmittedResponse:
     """Admit one authoring job and return its polling URL."""
-    credentials = None
+
+    async def resolve_credentials(
+        selection: AuthoringModelSelection | None,
+    ) -> ProviderCredentials | None:
+        if selection is None or selection.connection_id is None:
+            return None
+        return await connections.resolve(
+            user.id, selection.connection_id, selection.model
+        )
+
+    author_credentials = None
     if payload.connection_id is not None:
-        credentials = await connections.resolve(user.id, payload.connection_id, payload.model)
-    job = await service.submit(user.id, payload, credentials)
+        author_credentials = await connections.resolve(
+            user.id, payload.connection_id, payload.model
+        )
+    judges = payload.judges
+    job = await service.submit(
+        user.id,
+        payload,
+        JobCredentials(
+            author=author_credentials,
+            difficulty=await resolve_credentials(
+                judges.difficulty if judges else None
+            ),
+            relevance=await resolve_credentials(
+                judges.relevance if judges else None
+            ),
+        ),
+    )
     return AuthoringJobSubmittedResponse(
         job_id=job.job_id,
         status_url=f"/ai-authoring/jobs/{job.job_id}",

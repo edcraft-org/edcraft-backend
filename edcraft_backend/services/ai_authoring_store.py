@@ -34,7 +34,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from edcraft_backend.config.settings import AuthoringSettings
 from edcraft_backend.exceptions import EdCraftBaseException
-from edcraft_backend.schemas.ai_authoring import GenerationMetadata
+from edcraft_backend.schemas.ai_authoring import AuthoringJudgeSelections, GenerationMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +81,7 @@ class AuthoringRequestRecord(BaseModel):
     model_profile: str | None = None
     connection_id: UUID | None = None
     model: str | None = None
+    judges: AuthoringJudgeSelections | None = None
 
 
 class ApprovalRecord(BaseModel):

@@ -19,12 +19,9 @@ from edcraft_validator.application.template_workflow import TemplateApplication
 
 from edcraft_backend.config.settings import AuthoringSettings
 from edcraft_backend.exceptions import EdCraftBaseException
-from edcraft_backend.services.ai_authoring_judge import (
-    build_credential_tool_client,
-    build_profile_tool_client,
-)
+from edcraft_backend.services.ai_authoring_judge import build_model_tool_client
 from edcraft_backend.services.ai_authoring_providers import (
-    ProviderCredentials,
+    JobModelPlan,
     build_managed_provider,
 )
 from edcraft_backend.services.ai_authoring_store import AuthoringStore
@@ -40,7 +37,7 @@ class JobExecutor(Protocol):
     def __call__(
         self,
         command: AuthoringJobCommand,
-        credentials: ProviderCredentials | None,
+        plan: JobModelPlan,
         on_progress: ProgressCallback | None,
     ) -> AuthoringJobRecord: ...
 
@@ -54,21 +51,27 @@ class AuthoringAdmissionFull(EdCraftBaseException):
 
 def run_library_authoring_job(
     command: AuthoringJobCommand,
-    credentials: ProviderCredentials | None,
+    plan: JobModelPlan,
     on_progress: ProgressCallback | None,
 ) -> AuthoringJobRecord:
-    """Run the validator with the selected model for authoring and judging."""
-    if credentials is None:
-        tool_client = build_profile_tool_client(command.author)
+    """Run the validator with separately selected author and advisory models."""
+    tool_client = build_model_tool_client(
+        difficulty=plan.difficulty,
+        relevance=plan.relevance,
+    )
+    def application_factory() -> TemplateApplication:
+        return TemplateApplication(tool_client=tool_client)
+
+    if plan.author.credentials is None:
         return run_authoring_job_sync(
             command,
-            application_factory=lambda: TemplateApplication(tool_client=tool_client),
+            application_factory=application_factory,
             on_progress=on_progress,
         )
-    tool_client = build_credential_tool_client(credentials)
+    credentials = plan.author.credentials
     return run_authoring_job_sync(
         command,
-        application_factory=lambda: TemplateApplication(tool_client=tool_client),
+        application_factory=application_factory,
         provider_factory=lambda _selection: build_managed_provider(credentials),
         on_progress=on_progress,
     )
@@ -126,12 +129,12 @@ class AuthoringRunner:
         self,
         job_id: UUID,
         command: AuthoringJobCommand,
-        credentials: ProviderCredentials | None = None,
+        plan: JobModelPlan,
     ) -> None:
         """Schedule an admitted job without waiting for model work."""
         self._ensure_loop_state()
         task = asyncio.create_task(
-            self._run(job_id, command, credentials),
+            self._run(job_id, command, plan),
             name=f"ai-authoring-{job_id}",
         )
         self._tasks.add(task)
@@ -162,7 +165,7 @@ class AuthoringRunner:
         self,
         job_id: UUID,
         command: AuthoringJobCommand,
-        credentials: ProviderCredentials | None,
+        plan: JobModelPlan,
     ) -> None:
         if self._semaphore is None:
             await asyncio.to_thread(
@@ -182,7 +185,7 @@ class AuthoringRunner:
                     record = await asyncio.to_thread(
                         self._executor,
                         command,
-                        credentials,
+                        plan,
                         self._progress_callback(job_id),
                     )
                     await asyncio.to_thread(self._store.complete_job, job_id, record.report)

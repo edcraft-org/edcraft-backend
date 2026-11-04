@@ -9,6 +9,7 @@ from edcraft_validator.llm.forced_decision import ClassDecision
 from edcraft_validator.llm.llm_contracts import (
     ModelProvider,
     StructuredGenerationRequest,
+    TemplateProviderSelection,
 )
 from edcraft_validator.llm.openai_compatible_provider import (
     OpenAIProvider,
@@ -34,6 +35,32 @@ class ProviderCredentials:
     @property
     def timeout_seconds(self) -> float:
         return DEFAULT_TIMEOUT_SECONDS.get(self.provider, 120.0)
+
+
+@dataclass(frozen=True, slots=True)
+class ModelPlan:
+    """One resolved model role; credentials stay in memory only."""
+
+    selection: TemplateProviderSelection
+    credentials: ProviderCredentials | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class JobCredentials:
+    """Credentials resolved from the request; omitted roles inherit the author."""
+
+    author: ProviderCredentials | None = None
+    difficulty: ProviderCredentials | None = None
+    relevance: ProviderCredentials | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class JobModelPlan:
+    """Author and advisory roles for exactly one authoring job."""
+
+    author: ModelPlan
+    difficulty: ModelPlan
+    relevance: ModelPlan
 
 
 class ManagedProvider:

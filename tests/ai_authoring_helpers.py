@@ -32,7 +32,10 @@ from edcraft_validator.llm.llm_contracts import PlannedGenerationResponse
 from edcraft_validator.validation.check_contracts import ToolEvidence, ToolFinding
 from edcraft_validator.validation.validation_contracts import ValidationEvidence
 
-from edcraft_backend.services.ai_authoring_providers import ProviderCredentials
+from edcraft_backend.services.ai_authoring_providers import (
+    JobModelPlan,
+    ProviderCredentials,
+)
 
 CANDIDATE: dict[str, Any] = {
     "template_id": "arithmetic.linear_sum",
@@ -265,17 +268,22 @@ class StaticExecutor:
         self._factory = report_factory
         self.calls = 0
         self.commands: list[AuthoringJobCommand] = []
-        self.credentials: list[ProviderCredentials | None] = []
+        self.plans: list[JobModelPlan] = []
+
+    @property
+    def credentials(self) -> list[ProviderCredentials | None]:
+        """Convenience view of the author credentials used by each job."""
+        return [plan.author.credentials for plan in self.plans]
 
     def __call__(
         self,
         command: AuthoringJobCommand,
-        credentials: ProviderCredentials | None = None,
+        plan: JobModelPlan,
         on_progress: Callable[[AuthoringProgress], None] | None = None,
     ) -> AuthoringJobRecord:
         self.calls += 1
         self.commands.append(command)
-        self.credentials.append(credentials)
+        self.plans.append(plan)
         report = self._factory(command)
         if on_progress is not None:
             on_progress(AuthoringProgress(phase="generating", attempt=1))

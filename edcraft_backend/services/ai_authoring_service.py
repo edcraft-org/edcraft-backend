@@ -38,6 +38,7 @@ from edcraft_backend.schemas.ai_authoring import (
     AuthoringJobStatusResponse,
     AuthoringJobSummary,
     AuthoringModelProfile,
+    AuthoringModelSelection,
     AuthoringRequestView,
     AuthoringReviewResponse,
     GeneratedQuestionsBatch,
@@ -54,7 +55,12 @@ from edcraft_backend.schemas.ai_authoring import (
     ValidationLimits,
 )
 from edcraft_backend.schemas.provider_connection import ProviderConnectionResponse
-from edcraft_backend.services.ai_authoring_providers import ProviderCredentials
+from edcraft_backend.services.ai_authoring_providers import (
+    JobCredentials,
+    JobModelPlan,
+    ModelPlan,
+    ProviderCredentials,
+)
 from edcraft_backend.services.ai_authoring_runner import AuthoringRunner, JobExecutor
 from edcraft_backend.services.ai_authoring_store import (
     ApprovalRecord,
@@ -147,24 +153,55 @@ class AiAuthoringService:
         self,
         owner_id: UUID,
         request: SubmitAuthoringJobRequest,
-        credentials: ProviderCredentials | None = None,
+        credentials: JobCredentials | None = None,
     ) -> StoredJob:
         """Admit and persist one queued authoring job."""
+        resolved = credentials or JobCredentials()
         if request.connection_id is not None:
-            if credentials is None:
+            if resolved.author is None:
                 raise AuthoringValidationError("Model connection is unavailable.")
-            provider = credentials.provider
-            model = credentials.model
+            author = resolved.author
+            author_plan = ModelPlan(
+                selection=TemplateProviderSelection(
+                    provider=author.provider, model=author.model
+                ),
+                credentials=author,
+            )
+            provider = author.provider
+            model = author.model
             profile_id = None
             connection_id = request.connection_id
         else:
             if request.model_profile is None:
                 raise AuthoringValidationError("Choose a question-writing model.")
             profile = self._profile(request.model_profile)
+            author_plan = ModelPlan(
+                selection=TemplateProviderSelection(
+                    provider=profile.provider, model=profile.model
+                )
+            )
             provider = profile.provider
             model = profile.model
             profile_id = profile.id
             connection_id = None
+
+        difficulty_plan = self._judge_model_plan(
+            request.judges.difficulty if request.judges else None,
+            default=author_plan,
+            credentials=resolved.difficulty,
+            label="Difficulty",
+        )
+        relevance_plan = self._judge_model_plan(
+            request.judges.relevance if request.judges else None,
+            default=author_plan,
+            credentials=resolved.relevance,
+            label="Relevance",
+        )
+        plan = JobModelPlan(
+            author=author_plan,
+            difficulty=difficulty_plan,
+            relevance=relevance_plan,
+        )
 
         await self.runner.reserve()
         job_id = uuid4()
@@ -172,7 +209,7 @@ class AiAuthoringService:
         command = AuthoringJobCommand(
             job_id=job_id,
             domain="code",
-            author=TemplateProviderSelection(provider=provider, model=model),
+            author=author_plan.selection,
             request={
                 "prompt": request.prompt,
                 "difficulty": request.difficulty,
@@ -190,6 +227,7 @@ class AiAuthoringService:
                 model_profile=profile_id,
                 connection_id=connection_id,
                 model=model,
+                judges=request.judges,
             ),
             provider=provider,
             model=model,
@@ -205,7 +243,7 @@ class AiAuthoringService:
             await self.runner.release()
             raise
         try:
-            self.runner.start_job(job_id, command, credentials)
+            self.runner.start_job(job_id, command, plan)
         except Exception:
             await asyncio.to_thread(
                 self.store.fail_job,
@@ -428,6 +466,37 @@ class AiAuthoringService:
             if profile.id == profile_id:
                 return profile
         raise AuthoringValidationError("Unknown model profile.")
+
+    def _judge_model_plan(
+        self,
+        selection: AuthoringModelSelection | None,
+        *,
+        default: ModelPlan,
+        credentials: ProviderCredentials | None,
+        label: str,
+    ) -> ModelPlan:
+        """Resolve one optional advisory override, inheriting the author by default."""
+        if selection is None:
+            return default
+        if selection.connection_id is not None:
+            if credentials is None:
+                raise AuthoringValidationError(
+                    f"{label} model connection is unavailable."
+                )
+            return ModelPlan(
+                selection=TemplateProviderSelection(
+                    provider=credentials.provider, model=credentials.model
+                ),
+                credentials=credentials,
+            )
+        if selection.model_profile is None:
+            raise AuthoringValidationError(f"Choose a {label.lower()} model.")
+        profile = self._profile(selection.model_profile)
+        return ModelPlan(
+            selection=TemplateProviderSelection(
+                provider=profile.provider, model=profile.model
+            )
+        )
 
     async def _require_review_evidence(self, job: StoredJob) -> None:
         """Require the saved report and bind its artifact to the job."""

@@ -587,12 +587,12 @@ async def test_admission_is_bounded_and_progress_is_running_only(
     started = threading.Event()
 
     class BlockingExecutor(StaticExecutor):
-        def __call__(self, command: Any, credentials: Any = None, on_progress: Any = None) -> Any:
+        def __call__(self, command: Any, plan: Any, on_progress: Any = None) -> Any:
             on_progress(AuthoringProgress(phase="generating", attempt=1))
             started.set()
             if not release.wait(5):
                 raise RuntimeError("test executor timed out")
-            return super().__call__(command, credentials, on_progress)
+            return super().__call__(command, plan, on_progress)
 
     async with env_for(
         tmp_path,

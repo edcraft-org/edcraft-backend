@@ -67,29 +67,18 @@ class AuthoringCapabilitiesResponse(BaseModel):
     max_quantity: int
 
 
-class SubmitAuthoringJobRequest(BaseModel):
-    """One request to author a reusable code-question template."""
+class AuthoringModelSelection(BaseModel):
+    """Exactly one configured model source for one authoring role."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    domain: Literal["code"] = "code"
-    prompt: str = Field(min_length=1, max_length=4000)
-    difficulty: Difficulty
-    num_distractors: Literal[2, 3] = 3
     # Legacy server-configured profile. New clients use connection_id + model.
     model_profile: str | None = Field(default=None, min_length=1, max_length=64)
     connection_id: UUID | None = Field(default=None, strict=False)
     model: str | None = Field(default=None, min_length=1, max_length=120)
 
-    @field_validator("prompt")
-    @classmethod
-    def reject_blank_prompt(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("prompt must not be blank")
-        return value
-
     @model_validator(mode="after")
-    def select_one_model_source(self) -> "SubmitAuthoringJobRequest":
+    def select_one_model_source(self) -> "AuthoringModelSelection":
         using_connection = self.connection_id is not None
         if using_connection and self.model_profile is not None:
             raise ValueError("Choose either a model connection or a server model profile.")
@@ -100,6 +89,32 @@ class SubmitAuthoringJobRequest(BaseModel):
         if not using_connection and self.model is not None:
             raise ValueError("A model requires a model connection.")
         return self
+
+
+class AuthoringJudgeSelections(BaseModel):
+    """Optional per-check model overrides; omitted roles use the question model."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    difficulty: AuthoringModelSelection | None = None
+    relevance: AuthoringModelSelection | None = None
+
+
+class SubmitAuthoringJobRequest(AuthoringModelSelection):
+    """One request to author a reusable code-question template."""
+
+    domain: Literal["code"] = "code"
+    prompt: str = Field(min_length=1, max_length=4000)
+    difficulty: Difficulty
+    num_distractors: Literal[2, 3] = 3
+    judges: AuthoringJudgeSelections | None = None
+
+    @field_validator("prompt")
+    @classmethod
+    def reject_blank_prompt(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("prompt must not be blank")
+        return value
 
 
 class AuthoringJobSubmittedResponse(BaseModel):
@@ -170,6 +185,7 @@ class AuthoringRequestView(BaseModel):
     model_profile: str | None = None
     connection_id: UUID | None = None
     model: str | None = None
+    judges: AuthoringJudgeSelections | None = None
 
 
 class ReviewFinding(BaseModel):
@@ -338,7 +354,9 @@ __all__ = [
     "AuthoringJobStatusResponse",
     "AuthoringJobSubmittedResponse",
     "AuthoringJobSummary",
+    "AuthoringJudgeSelections",
     "AuthoringModelProfile",
+    "AuthoringModelSelection",
     "AuthoringReviewResponse",
     "ErrorResponse",
     "GenerateRequest",

@@ -1,28 +1,22 @@
-"""Wire advisory judges to the model selected for one authoring job."""
+"""Wire authoring and advisory models for one authoring job."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 from edcraft_validator.llm.decision import ConfiguredDecisionProvider
 from edcraft_validator.llm.judge_configuration import JudgeSettings, load_judge_settings
-from edcraft_validator.llm.llm_contracts import (
-    ModelProvider,
-    TemplateProviderSelection,
-    supports_decisions,
-)
+from edcraft_validator.llm.llm_contracts import ModelProvider, supports_decisions
 from edcraft_validator.llm.provider_registry import create_model_provider
 from edcraft_validator.mcp.client import FastMcpToolClient
 from edcraft_validator.mcp.server import create_validation_server
 
 from edcraft_backend.services.ai_authoring_providers import (
-    ProviderCredentials,
+    ModelPlan,
     build_managed_provider,
 )
 
 
 class SelectedModelDecisionProvider(ConfiguredDecisionProvider):
-    """Relevance classifier that reuses the provider chosen for the job."""
+    """Relevance classifier that reuses the model selected for the check."""
 
     def __init__(self, settings: JudgeSettings, provider: ModelProvider) -> None:
         if not supports_decisions(provider):
@@ -36,47 +30,42 @@ class SelectedModelDecisionProvider(ConfiguredDecisionProvider):
 
 
 def judge_settings_for(provider: str, model: str) -> JudgeSettings:
-    """Keep server thresholds and timeouts while judging with the selected model."""
+    """Keep server thresholds and reasoning effort while replacing the model."""
     return load_judge_settings().model_copy(
         update={"provider": provider, "model": model}
     )
 
 
-def build_selected_model_tool_client(
+def build_plan_provider(plan: ModelPlan) -> ModelProvider:
+    """Build one role's provider from BYOK credentials or a server profile."""
+    if plan.credentials is not None:
+        return build_managed_provider(plan.credentials)
+    return create_model_provider(plan.selection)
+
+
+def _named_role(plan: ModelPlan) -> tuple[str, str]:
+    model = plan.selection.model
+    if model is None:
+        raise ValueError("An advisory model must name a model")
+    return plan.selection.provider, model
+
+
+def build_model_tool_client(
     *,
-    provider: str,
-    model: str,
-    provider_factory: Callable[[], ModelProvider],
+    difficulty: ModelPlan,
+    relevance: ModelPlan,
 ) -> FastMcpToolClient:
-    """Build the validation tools with difficulty and relevance on one model."""
-    settings = judge_settings_for(provider, model)
+    """Build validation tools with separately selected advisory models."""
+    difficulty_provider, difficulty_model = _named_role(difficulty)
+    relevance_provider, relevance_model = _named_role(relevance)
+    difficulty_settings = judge_settings_for(difficulty_provider, difficulty_model)
+    relevance_settings = judge_settings_for(relevance_provider, relevance_model)
     return FastMcpToolClient(
         create_validation_server(
-            judge_settings=settings,
-            difficulty_provider_factory=provider_factory,
+            judge_settings=difficulty_settings,
+            difficulty_provider_factory=lambda: build_plan_provider(difficulty),
             decision_provider_factory=lambda: SelectedModelDecisionProvider(
-                settings, provider_factory()
+                relevance_settings, build_plan_provider(relevance)
             ),
         )
-    )
-
-
-def build_credential_tool_client(credentials: ProviderCredentials) -> FastMcpToolClient:
-    """Use the caller's own credentials for every model call in the job."""
-    return build_selected_model_tool_client(
-        provider=credentials.provider,
-        model=credentials.model,
-        provider_factory=lambda: build_managed_provider(credentials),
-    )
-
-
-def build_profile_tool_client(selection: TemplateProviderSelection) -> FastMcpToolClient:
-    """Use the profile's server-side credentials for authoring and judging."""
-    model = selection.model
-    if model is None:
-        raise ValueError("A server model profile must name a model")
-    return build_selected_model_tool_client(
-        provider=selection.provider,
-        model=model,
-        provider_factory=lambda: create_model_provider(selection),
     )

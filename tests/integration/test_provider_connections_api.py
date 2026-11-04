@@ -406,6 +406,191 @@ async def test_submit_keeps_legacy_profile_path_working(
         assert command.author.model == "stub-model"
 
 
+async def test_judges_inherit_the_question_model_by_default(
+    test_client: AsyncClient,
+    user: User,
+    tmp_path: Path,
+) -> None:
+    executor = StaticExecutor(lambda command: make_checked_report(command))
+
+    async with authoring_env(tmp_path, executor) as service:
+        response = await test_client.post(
+            "/ai-authoring/jobs",
+            json=connection_payload(
+                connection_id=None,
+                model=None,
+                model_profile="test-profile",
+            ),
+        )
+        assert response.status_code == 202, response.text
+        job_id = UUID(response.json()["job_id"])
+        await service.wait_for_idle()
+
+        plan = executor.plans[0]
+        assert plan.difficulty == plan.author
+        assert plan.relevance == plan.author
+        stored = await service.get_job(user.id, job_id)
+        assert stored.request.judges is None
+
+
+async def test_judges_use_their_own_connection_and_model(
+    test_client: AsyncClient,
+    user: User,
+    tmp_path: Path,
+) -> None:
+    created = await create_connection(test_client)
+    executor = StaticExecutor(lambda command: make_checked_report(command))
+
+    async with authoring_env(tmp_path, executor) as service:
+        response = await test_client.post(
+            "/ai-authoring/jobs",
+            json=connection_payload(
+                connection_id=None,
+                model=None,
+                model_profile="test-profile",
+                judges={
+                    "difficulty": {
+                        "connection_id": created["id"],
+                        "model": "gpt-test",
+                    },
+                    "relevance": {
+                        "connection_id": created["id"],
+                        "model": "gpt-other",
+                    },
+                },
+            ),
+        )
+        assert response.status_code == 202, response.text
+        job_id = UUID(response.json()["job_id"])
+        await service.wait_for_idle()
+
+        plan = executor.plans[0]
+        assert plan.author.selection.provider == "stub"
+        assert plan.author.selection.model == "stub-model"
+        assert plan.difficulty.selection.provider == "openai"
+        assert plan.difficulty.selection.model == "gpt-test"
+        assert plan.relevance.selection.provider == "openai"
+        assert plan.relevance.selection.model == "gpt-other"
+        assert plan.difficulty.credentials == ProviderCredentials(
+            provider="openai",
+            model="gpt-test",
+            api_key=API_KEY,
+            base_url=BASE_URL,
+        )
+        assert plan.relevance.credentials == ProviderCredentials(
+            provider="openai",
+            model="gpt-other",
+            api_key=API_KEY,
+            base_url=BASE_URL,
+        )
+        assert plan.author.credentials is None
+
+        stored = await service.get_job(user.id, job_id)
+        assert stored.request.judges is not None
+        assert stored.request.judges.difficulty is not None
+        assert stored.request.judges.difficulty.connection_id == UUID(created["id"])
+        assert stored.request.judges.difficulty.model == "gpt-test"
+        assert stored.request.judges.relevance is not None
+        assert stored.request.judges.relevance.model == "gpt-other"
+        assert "api_key" not in stored.request.model_dump_json()
+
+
+async def test_judge_can_use_a_server_profile_while_author_uses_a_connection(
+    test_client: AsyncClient,
+    user: User,
+    tmp_path: Path,
+) -> None:
+    created = await create_connection(test_client)
+    executor = StaticExecutor(lambda command: make_checked_report(command))
+
+    async with authoring_env(tmp_path, executor) as service:
+        response = await test_client.post(
+            "/ai-authoring/jobs",
+            json=connection_payload(
+                connection_id=created["id"],
+                judges={
+                    "difficulty": {"model_profile": "test-profile"},
+                },
+            ),
+        )
+        assert response.status_code == 202, response.text
+        await service.wait_for_idle()
+
+        plan = executor.plans[0]
+        assert plan.author.selection.provider == "openai"
+        assert plan.author.selection.model == "gpt-test"
+        assert plan.author.credentials is not None
+        assert plan.difficulty.selection.provider == "stub"
+        assert plan.difficulty.selection.model == "stub-model"
+        assert plan.difficulty.credentials is None
+        assert plan.relevance == plan.author
+
+
+async def test_submit_rejects_unknown_disabled_or_mixed_judge_selections(
+    test_client: AsyncClient,
+    user: User,
+    tmp_path: Path,
+) -> None:
+    created = await create_connection(test_client)
+    executor = StaticExecutor(lambda command: make_checked_report(command))
+
+    missing = await test_client.post(
+        "/ai-authoring/jobs",
+        json=connection_payload(
+            connection_id=None,
+            model=None,
+            model_profile="test-profile",
+            judges={
+                "difficulty": {
+                    "connection_id": "00000000-0000-0000-0000-000000000001",
+                    "model": "gpt-test",
+                }
+            },
+        ),
+    )
+    assert missing.status_code == 404, missing.text
+
+    mixed = await test_client.post(
+        "/ai-authoring/jobs",
+        json=connection_payload(
+            connection_id=None,
+            model=None,
+            model_profile="test-profile",
+            judges={
+                "relevance": {
+                    "connection_id": created["id"],
+                    "model": "gpt-test",
+                    "model_profile": "test-profile",
+                }
+            },
+        ),
+    )
+    assert mixed.status_code == 422, mixed.text
+
+    await test_client.patch(
+        f"/ai-authoring/connections/{created['id']}",
+        json={"enabled": False},
+    )
+    async with authoring_env(tmp_path, executor):
+        disabled = await test_client.post(
+            "/ai-authoring/jobs",
+            json=connection_payload(
+                connection_id=None,
+                model=None,
+                model_profile="test-profile",
+                judges={
+                    "difficulty": {
+                        "connection_id": created["id"],
+                        "model": "gpt-test",
+                    }
+                },
+            ),
+        )
+        assert disabled.status_code == 422, disabled.text
+        assert disabled.json()["detail"] == "This model connection is disabled."
+        assert executor.calls == 0
+
+
 async def test_submit_rejects_unknown_or_disabled_connections(
     test_client: AsyncClient,
     user: User,
