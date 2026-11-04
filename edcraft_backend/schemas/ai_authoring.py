@@ -17,6 +17,11 @@ from edcraft_validator.domains.code.code_schemas import (
     CodeQuestionInstance,
     CodeTemplateCandidate,
 )
+from edcraft_validator.domains.code.code_types import (
+    DEFAULT_DISTRACTORS,
+    MAX_DISTRACTORS,
+    MIN_DISTRACTORS,
+)
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from edcraft_backend.schemas.provider_connection import ProviderConnectionResponse
@@ -25,6 +30,9 @@ Difficulty = Literal["easy", "medium", "hard"]
 MAX_SEED = 2_147_483_647
 StrictSeed = Annotated[int, Field(strict=True, ge=0, le=MAX_SEED)]
 StrictQuantity = Annotated[int, Field(strict=True, ge=1, le=50)]
+DistractorCount = Annotated[
+    int, Field(strict=True, ge=MIN_DISTRACTORS, le=MAX_DISTRACTORS)
+]
 Sha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 
 
@@ -65,6 +73,9 @@ class AuthoringCapabilitiesResponse(BaseModel):
     connections: list[ProviderConnectionResponse] = Field(default_factory=list)
     judge: JudgeDisplay | None = None
     max_quantity: int
+    min_distractors: int
+    max_distractors: int
+    default_distractors: int
 
 
 class AuthoringModelSelection(BaseModel):
@@ -106,7 +117,7 @@ class SubmitAuthoringJobRequest(AuthoringModelSelection):
     domain: Literal["code"] = "code"
     prompt: str = Field(min_length=1, max_length=4000)
     difficulty: Difficulty
-    num_distractors: Literal[2, 3] = 3
+    num_distractors: DistractorCount = DEFAULT_DISTRACTORS
     judges: AuthoringJudgeSelections | None = None
 
     @field_validator("prompt")
@@ -180,7 +191,7 @@ class AuthoringRequestView(BaseModel):
 
     prompt: str
     difficulty: Difficulty
-    num_distractors: Literal[2, 3]
+    num_distractors: DistractorCount
     domain: Literal["code"]
     model_profile: str | None = None
     connection_id: UUID | None = None

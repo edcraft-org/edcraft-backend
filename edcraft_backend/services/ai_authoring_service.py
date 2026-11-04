@@ -24,6 +24,11 @@ from edcraft_validator.domains.code.code_schemas import (
     TemplateValidationSummary,
     ValidatedCodeTemplate,
 )
+from edcraft_validator.domains.code.code_types import (
+    DEFAULT_DISTRACTORS,
+    MAX_DISTRACTORS,
+    MIN_DISTRACTORS,
+)
 from edcraft_validator.domains.domain_registry import create_domain
 from edcraft_validator.llm.judge_configuration import load_judge_settings
 from edcraft_validator.llm.llm_contracts import TemplateProviderSelection
@@ -78,7 +83,7 @@ ApprovalView = StoredReviewerApproval
 
 logger = logging.getLogger(__name__)
 
-LIBRARY_REVISION = "db74f1700d78bd13b3f5f10e9d89bc2f85ad2591"
+LIBRARY_REVISION = "0d4de7e7fa12f35a7c7c92209ac6a5f09c90c6b2"
 MAX_FINDING_TEXT = 2_000
 
 
@@ -147,6 +152,9 @@ class AiAuthoringService:
             connections=[item for item in (connections or []) if item.enabled],
             judge=judge,
             max_quantity=min(self.settings.max_quantity, 50),
+            min_distractors=MIN_DISTRACTORS,
+            max_distractors=MAX_DISTRACTORS,
+            default_distractors=DEFAULT_DISTRACTORS,
         )
 
     async def submit(

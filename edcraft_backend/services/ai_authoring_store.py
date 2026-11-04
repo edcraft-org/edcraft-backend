@@ -30,11 +30,16 @@ from edcraft_validator.application.authoring_contracts import (
     AuthoringProgress,
     AuthoringResult,
 )
+from edcraft_validator.domains.code.code_types import DEFAULT_DISTRACTORS
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from edcraft_backend.config.settings import AuthoringSettings
 from edcraft_backend.exceptions import EdCraftBaseException
-from edcraft_backend.schemas.ai_authoring import AuthoringJudgeSelections, GenerationMetadata
+from edcraft_backend.schemas.ai_authoring import (
+    AuthoringJudgeSelections,
+    DistractorCount,
+    GenerationMetadata,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +82,7 @@ class AuthoringRequestRecord(BaseModel):
     domain: Literal["code"] = "code"
     prompt: str
     difficulty: Literal["easy", "medium", "hard"]
-    num_distractors: Literal[2, 3] = 3
+    num_distractors: DistractorCount = DEFAULT_DISTRACTORS
     model_profile: str | None = None
     connection_id: UUID | None = None
     model: str | None = None

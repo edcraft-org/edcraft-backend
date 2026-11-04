@@ -180,6 +180,9 @@ async def test_capabilities_are_safe_and_server_configured(checked_env: Authorin
         }
     ]
     assert body["max_quantity"] == 50
+    assert body["min_distractors"] == 1
+    assert body["max_distractors"] == 10
+    assert body["default_distractors"] == 3
     assert body["judge"]["provider"]
     assert body["judge"]["model"]
     assert "api_key" not in response.text
@@ -542,12 +545,27 @@ async def test_generation_rechecks_revoked_approval_under_store_lock(
 
 
 @pytest.mark.asyncio
+async def test_non_default_distractor_count_is_accepted_and_stored(
+    checked_env: AuthoringHarness,
+) -> None:
+    response = await checked_env.client.post(
+        "/ai-authoring/jobs", json=payload(num_distractors=7)
+    )
+    assert response.status_code == 202, response.text
+
+    job_id = UUID(response.json()["job_id"])
+    stored = checked_env.service.store.get_job(job_id)
+    assert stored.request.num_distractors == 7
+
+
+@pytest.mark.asyncio
 async def test_strict_input_bounds_and_unknown_profile(checked_env: AuthoringHarness) -> None:
     env = checked_env
     for bad_payload in (
         payload(prompt=""),
         payload(prompt="   "),
-        payload(num_distractors=4),
+        payload(num_distractors=0),
+        payload(num_distractors=11),
         payload(num_distractors=True),
         payload(domain="math"),
         payload(model_profile="missing"),
