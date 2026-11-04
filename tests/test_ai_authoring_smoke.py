@@ -12,7 +12,7 @@ from tests.ai_authoring_helpers import (
 def test_scripted_library_pipeline_checks_and_reloads_a_real_artifact() -> None:
     command = make_command()
     progress = []
-    record = run_scripted_pipeline(command, progress.append)
+    record = run_scripted_pipeline(command, on_progress=progress.append)
 
     assert record.response.job_id == command.job_id
     assert record.report.status == "checked"
@@ -26,9 +26,7 @@ def test_scripted_library_pipeline_checks_and_reloads_a_real_artifact() -> None:
         "finalizing",
     ]
 
-    reloaded = ValidatedCodeTemplate.model_validate_json(
-        record.report.artifact.model_dump_json()
-    )
+    reloaded = ValidatedCodeTemplate.model_validate_json(record.report.artifact.model_dump_json())
     first = generate(reloaded, 11)
     second = generate(reloaded, 11)
     assert first == second

@@ -20,6 +20,7 @@ from edcraft_backend.routers import (
     folders,
     input_generator,
     jobs,
+    provider_connections,
     question_bank,
     question_generation,
     question_template_banks,
@@ -87,6 +88,7 @@ app.include_router(input_generator.router)
 app.include_router(question_generation.router)
 app.include_router(jobs.router)
 app.include_router(ai_authoring.router)
+app.include_router(provider_connections.router)
 app.include_router(users.router)
 app.include_router(auth.router)
 app.include_router(folders.router)

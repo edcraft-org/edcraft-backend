@@ -21,7 +21,11 @@ from edcraft_backend.config.settings import (
     AuthoringProfileSettings,
     AuthoringSettings,
 )
-from edcraft_backend.dependencies import get_ai_authoring_service, get_current_user
+from edcraft_backend.dependencies import (
+    get_ai_authoring_service,
+    get_current_user,
+    get_provider_connection_service,
+)
 from edcraft_backend.main import app
 from edcraft_backend.services.ai_authoring_service import AiAuthoringService
 from edcraft_backend.services.ai_authoring_store import (
@@ -56,6 +60,13 @@ class AuthoringHarness:
     executor: Any
 
 
+class NoConnections:
+    """Connection service stub for authoring tests without a database."""
+
+    async def list_connections(self, owner_id: UUID) -> list[Any]:
+        return []
+
+
 @asynccontextmanager
 async def env_for(
     tmp_path: Path,
@@ -84,12 +95,11 @@ async def env_for(
 
     app.dependency_overrides[get_ai_authoring_service] = authoring_service
     app.dependency_overrides[get_current_user] = current_user
+    app.dependency_overrides[get_provider_connection_service] = NoConnections
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     try:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            yield AuthoringHarness(
-                client=client, service=service, user=user, executor=executor
-            )
+            yield AuthoringHarness(client=client, service=service, user=user, executor=executor)
     finally:
         app.dependency_overrides.clear()
         await service.wait_for_idle()
@@ -202,12 +212,8 @@ async def test_review_preview_approval_and_generation_flow(checked_env: Authorin
     assert "provider_settings" not in str(envelope)
     assert "api_key" not in str(envelope)
 
-    preview = await env.client.post(
-        f"/ai-authoring/jobs/{job_id}/preview", json={"seed": 7}
-    )
-    again = await env.client.post(
-        f"/ai-authoring/jobs/{job_id}/preview", json={"seed": 7}
-    )
+    preview = await env.client.post(f"/ai-authoring/jobs/{job_id}/preview", json={"seed": 7})
+    again = await env.client.post(f"/ai-authoring/jobs/{job_id}/preview", json={"seed": 7})
     assert preview.status_code == 200, preview.text
     assert preview.json() == again.json()
     assert preview.json()["question"]["question"]["code"].startswith("def calculate")
@@ -287,13 +293,9 @@ async def test_real_scripted_library_pipeline_round_trips_through_api(
 
         digest = envelope["artifact_sha256"]
         assert (await approve(env, job_id, digest)).status_code == 200
-        preview = await env.client.post(
-            f"/ai-authoring/jobs/{job_id}/preview", json={"seed": 3}
-        )
+        preview = await env.client.post(f"/ai-authoring/jobs/{job_id}/preview", json={"seed": 3})
         assert preview.status_code == 200, preview.text
-        assert preview.json()["question"]["template_id"] == envelope["template"][
-            "template_id"
-        ]
+        assert preview.json()["question"]["template_id"] == envelope["template"]["template_id"]
         batch = await env.client.post(
             f"/ai-authoring/jobs/{job_id}/generate",
             json={"artifact_sha256": digest, "seed": 3, "quantity": 2},
@@ -308,9 +310,7 @@ async def test_advisory_mismatch_is_visible_but_never_blocks(
 ) -> None:
     async with env_for(
         tmp_path,
-        StaticExecutor(
-            lambda command: make_checked_report(command, advisory_failure=True)
-        ),
+        StaticExecutor(lambda command: make_checked_report(command, advisory_failure=True)),
     ) as env:
         job_id = await complete_job(env)
         envelope = await review(env, job_id)
@@ -369,16 +369,10 @@ async def test_technical_failure_has_no_usable_artifact(tmp_path: Path) -> None:
         assert envelope["artifact_id"] is None
         assert envelope["artifact_sha256"] is None
         assert envelope["template"] is None
-        assert any(
-            check["status"] == "failed" for check in envelope["checks"]
-        )
+        assert any(check["status"] == "failed" for check in envelope["checks"])
+        assert (await approve(env, job_id, "0" * 64)).status_code == 409
         assert (
-            await approve(env, job_id, "0" * 64)
-        ).status_code == 409
-        assert (
-            await env.client.post(
-                f"/ai-authoring/jobs/{job_id}/preview", json={"seed": 0}
-            )
+            await env.client.post(f"/ai-authoring/jobs/{job_id}/preview", json={"seed": 0})
         ).status_code == 409
         assert (
             await env.client.post(
@@ -394,9 +388,7 @@ async def test_advisory_unavailable_is_visible_but_never_blocks(
 ) -> None:
     async with env_for(
         tmp_path,
-        StaticExecutor(
-            lambda command: make_checked_report(command, advisory_unavailable=True)
-        ),
+        StaticExecutor(lambda command: make_checked_report(command, advisory_unavailable=True)),
     ) as env:
         job_id = await complete_job(env)
         envelope = await review(env, job_id)
@@ -423,23 +415,18 @@ async def test_checked_status_with_failed_technical_evidence_is_not_usable(
 ) -> None:
     async with env_for(
         tmp_path,
-        StaticExecutor(
-            lambda command: make_checked_report(command, technical_failure=True)
-        ),
+        StaticExecutor(lambda command: make_checked_report(command, technical_failure=True)),
     ) as env:
         job_id = await complete_job(env)
         envelope = await review(env, job_id)
         assert envelope["artifact_sha256"]
         assert any(
-            check["status"] == "failed" and not check["advisory"]
-            for check in envelope["checks"]
+            check["status"] == "failed" and not check["advisory"] for check in envelope["checks"]
         )
         digest = envelope["artifact_sha256"]
         assert (await approve(env, job_id, digest)).status_code == 409
         assert (
-            await env.client.post(
-                f"/ai-authoring/jobs/{job_id}/preview", json={"seed": 0}
-            )
+            await env.client.post(f"/ai-authoring/jobs/{job_id}/preview", json={"seed": 0})
         ).status_code == 409
         assert (
             await env.client.post(
@@ -454,20 +441,14 @@ async def test_tampered_artifact_is_rejected_everywhere(checked_env: AuthoringHa
     env = checked_env
     job_id = await complete_job(env)
     envelope = await review(env, job_id)
-    artifact_path = (
-        env.service.store.root / "artifacts" / str(job_id) / "artifact.json"
-    )
+    artifact_path = env.service.store.root / "artifacts" / str(job_id) / "artifact.json"
     artifact_path.write_bytes(b'{"tampered":true}')
 
     assert (await env.client.get(f"/ai-authoring/jobs/{job_id}/review")).status_code == 409
     assert (
-        await env.client.post(
-            f"/ai-authoring/jobs/{job_id}/preview", json={"seed": 0}
-        )
+        await env.client.post(f"/ai-authoring/jobs/{job_id}/preview", json={"seed": 0})
     ).status_code == 409
-    assert (
-        await approve(env, job_id, envelope["artifact_sha256"])
-    ).status_code == 409
+    assert (await approve(env, job_id, envelope["artifact_sha256"])).status_code == 409
     assert (
         await env.client.post(
             f"/ai-authoring/jobs/{job_id}/generate",
@@ -500,9 +481,7 @@ async def test_damaged_review_report_fails_closed_everywhere(
     assert (await env.client.get(f"/ai-authoring/jobs/{job_id}/review")).status_code == 409
     assert (await approve(env, job_id, digest)).status_code == 409
     assert (
-        await env.client.post(
-            f"/ai-authoring/jobs/{job_id}/preview", json={"seed": 0}
-        )
+        await env.client.post(f"/ai-authoring/jobs/{job_id}/preview", json={"seed": 0})
     ).status_code == 409
     assert (
         await env.client.post(
@@ -590,9 +569,7 @@ async def test_strict_input_bounds_and_unknown_profile(checked_env: AuthoringHar
         {"artifact_sha256": digest, "seed": 2_147_483_647, "quantity": 2},
         {"artifact_sha256": "not-a-digest", "seed": 0, "quantity": 1},
     ):
-        response = await env.client.post(
-            f"/ai-authoring/jobs/{job_id}/generate", json=body
-        )
+        response = await env.client.post(f"/ai-authoring/jobs/{job_id}/generate", json=body)
         assert response.status_code == 422, (body, response.text)
 
     for seed in (-1, True, 1.5):
@@ -610,15 +587,16 @@ async def test_admission_is_bounded_and_progress_is_running_only(
     started = threading.Event()
 
     class BlockingExecutor(StaticExecutor):
-        def __call__(self, command: Any, on_progress: Any) -> Any:
+        def __call__(self, command: Any, credentials: Any = None, on_progress: Any = None) -> Any:
             on_progress(AuthoringProgress(phase="generating", attempt=1))
             started.set()
             if not release.wait(5):
                 raise RuntimeError("test executor timed out")
-            return super().__call__(command, on_progress)
+            return super().__call__(command, credentials, on_progress)
 
     async with env_for(
-        tmp_path, BlockingExecutor(lambda command: make_checked_report(command)),
+        tmp_path,
+        BlockingExecutor(lambda command: make_checked_report(command)),
         max_queue=1,
     ) as env:
         first = await submit(env)
@@ -628,20 +606,14 @@ async def test_admission_is_bounded_and_progress_is_running_only(
         assert running["progress"] == {"phase": "generating", "attempt": 1}
 
         second = await submit(env)
-        assert (await env.client.get(f"/ai-authoring/jobs/{second}")).json()[
-            "state"
-        ] == "queued"
+        assert (await env.client.get(f"/ai-authoring/jobs/{second}")).json()["state"] == "queued"
         third = await env.client.post("/ai-authoring/jobs", json=payload())
         assert third.status_code == 429
 
         release.set()
         await env.service.wait_for_idle()
-        assert (
-            await env.client.get(f"/ai-authoring/jobs/{first}")
-        ).json()["state"] == "completed"
-        assert (
-            await env.client.get(f"/ai-authoring/jobs/{second}")
-        ).json()["state"] == "completed"
+        assert (await env.client.get(f"/ai-authoring/jobs/{first}")).json()["state"] == "completed"
+        assert (await env.client.get(f"/ai-authoring/jobs/{second}")).json()["state"] == "completed"
 
 
 @pytest.mark.asyncio
@@ -675,9 +647,7 @@ async def test_restart_reconciles_only_unfinished_jobs(checked_env: AuthoringHar
 
     await env.service.startup()
 
-    interrupted = (
-        await env.client.get(f"/ai-authoring/jobs/{interrupted_id}")
-    ).json()
+    interrupted = (await env.client.get(f"/ai-authoring/jobs/{interrupted_id}")).json()
     assert interrupted["state"] == "failed"
     assert interrupted["result"] is None
     assert interrupted["error"]["code"] == "SERVER_RESTARTED"

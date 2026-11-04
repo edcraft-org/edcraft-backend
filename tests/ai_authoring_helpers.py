@@ -32,6 +32,8 @@ from edcraft_validator.llm.llm_contracts import PlannedGenerationResponse
 from edcraft_validator.validation.check_contracts import ToolEvidence, ToolFinding
 from edcraft_validator.validation.validation_contracts import ValidationEvidence
 
+from edcraft_backend.services.ai_authoring_providers import ProviderCredentials
+
 CANDIDATE: dict[str, Any] = {
     "template_id": "arithmetic.linear_sum",
     "topic": "arithmetic",
@@ -72,9 +74,7 @@ PROPOSAL_FIELDS = (
 
 
 def proposal() -> CodeTemplateProposal:
-    return CodeTemplateProposal.model_validate(
-        {key: CANDIDATE[key] for key in PROPOSAL_FIELDS}
-    )
+    return CodeTemplateProposal.model_validate({key: CANDIDATE[key] for key in PROPOSAL_FIELDS})
 
 
 class ScriptedProvider:
@@ -90,14 +90,13 @@ class ScriptedProvider:
         assert request.response_model
         return PlannedGenerationResponse(
             proposal=proposal(),
-            checks=[
-                {"name": "code_validate_answers_and_distractors", "arguments": {}}
-            ],
+            checks=[{"name": "code_validate_answers_and_distractors", "arguments": {}}],
         )
 
 
 def run_scripted_pipeline(
     command: AuthoringJobCommand,
+    credentials: object | None = None,
     on_progress: Callable[[AuthoringProgress], None] | None = None,
 ) -> AuthoringJobRecord:
     """Run the real library workflow with a scripted provider and real MCP checks."""
@@ -155,9 +154,7 @@ def make_checked_report(
         timeout_seconds=2.0,
         seed=0,
         evidence=[
-            ValidationEvidence(
-                check="code_validate_answers_and_distractors", status="passed"
-            )
+            ValidationEvidence(check="code_validate_answers_and_distractors", status="passed")
         ],
     )
     artifact = ValidatedCodeTemplate(
@@ -171,9 +168,7 @@ def make_checked_report(
             tool="code_validate_answers_and_distractors",
             advisory=False,
             requested_arguments={},
-            evidence=_evidence(
-                "code_validate_answers_and_distractors", technical_status
-            ),
+            evidence=_evidence("code_validate_answers_and_distractors", technical_status),
         )
     ]
     if advisory_failure:
@@ -242,9 +237,7 @@ def make_needs_review_report(command: AuthoringJobCommand) -> AuthoringResult:
     )
     attempt = GenerationAttempt(
         number=1,
-        candidate=CodeTemplateCandidate.model_validate(CANDIDATE).model_dump(
-            mode="json"
-        ),
+        candidate=CodeTemplateCandidate.model_validate(CANDIDATE).model_dump(mode="json"),
         executions=[execution],
         pending=[],
         complete=True,
@@ -271,13 +264,18 @@ class StaticExecutor:
     def __init__(self, report_factory: Callable[[AuthoringJobCommand], AuthoringResult]):
         self._factory = report_factory
         self.calls = 0
+        self.commands: list[AuthoringJobCommand] = []
+        self.credentials: list[ProviderCredentials | None] = []
 
     def __call__(
         self,
         command: AuthoringJobCommand,
-        on_progress: Callable[[AuthoringProgress], None] | None,
+        credentials: ProviderCredentials | None = None,
+        on_progress: Callable[[AuthoringProgress], None] | None = None,
     ) -> AuthoringJobRecord:
         self.calls += 1
+        self.commands.append(command)
+        self.credentials.append(credentials)
         report = self._factory(command)
         if on_progress is not None:
             on_progress(AuthoringProgress(phase="generating", attempt=1))

@@ -78,7 +78,9 @@ class AuthoringRequestRecord(BaseModel):
     prompt: str
     difficulty: Literal["easy", "medium", "hard"]
     num_distractors: Literal[2, 3] = 3
-    model_profile: str
+    model_profile: str | None = None
+    connection_id: UUID | None = None
+    model: str | None = None
 
 
 class ApprovalRecord(BaseModel):
@@ -105,6 +107,7 @@ class StoredJob(BaseModel):
     request: AuthoringRequestRecord
     provider: str | None = None
     model: str | None = None
+    connection_id: UUID | None = None
     library_revision: str
     state: JobState = "queued"
     progress: AuthoringProgress | None = None
@@ -134,24 +137,14 @@ def require_bound_report(
         or job.result is None
         or job.result.artifact_id != job.artifact_id
     ):
-        raise AuthoringConflict(
-            "Authoring review evidence does not match the job artifact."
-        )
+        raise AuthoringConflict("Authoring review evidence does not match the job artifact.")
     if report is None or report.status != "checked" or report.artifact is None:
-        raise AuthoringConflict(
-            "Authoring review evidence is missing or invalid; start a new run."
-        )
+        raise AuthoringConflict("Authoring review evidence is missing or invalid; start a new run.")
     if report.artifact.artifact_id != job.artifact_id:
-        raise AuthoringConflict(
-            "Authoring review evidence does not match the job artifact."
-        )
-    report_digest = hashlib.sha256(
-        report.artifact.model_dump_json().encode()
-    ).hexdigest()
+        raise AuthoringConflict("Authoring review evidence does not match the job artifact.")
+    report_digest = hashlib.sha256(report.artifact.model_dump_json().encode()).hexdigest()
     if report_digest != expected_artifact_sha256:
-        raise AuthoringConflict(
-            "Authoring review evidence no longer matches the job artifact."
-        )
+        raise AuthoringConflict("Authoring review evidence no longer matches the job artifact.")
     return report
 
 
@@ -270,9 +263,7 @@ class AuthoringStore:
             if job.state != "queued":
                 raise AuthoringConflict("Authoring job is not queued.")
             now = _now()
-            return job.model_copy(
-                update={"state": "running", "started_at": now, "updated_at": now}
-            )
+            return job.model_copy(update={"state": "running", "started_at": now, "updated_at": now})
 
         return self._mutate(job_id, mutate)
 
@@ -306,18 +297,14 @@ class AuthoringStore:
             artifact_sha256: str | None = None
             if report.status == "checked":
                 if artifact is None or artifact.artifact_id is None:
-                    raise AuthoringConflict(
-                        "Checked authoring report did not contain an artifact."
-                    )
+                    raise AuthoringConflict("Checked authoring report did not contain an artifact.")
                 artifact_bytes = artifact.model_dump_json().encode()
                 artifact_sha256 = hashlib.sha256(artifact_bytes).hexdigest()
                 self._write_artifact(job_id, artifact_bytes)
 
             try:
                 report_bytes = report.model_dump_json().encode()
-                self._write_bytes(
-                    self._report_path(job_id), report_bytes, overwrite=True
-                )
+                self._write_bytes(self._report_path(job_id), report_bytes, overwrite=True)
             except Exception:
                 if report.status == "checked":
                     self._artifact_path(job_id).unlink(missing_ok=True)
@@ -336,9 +323,7 @@ class AuthoringStore:
                     "state": state,
                     "progress": None,
                     "result": summary,
-                    "artifact_id": (
-                        artifact.artifact_id if report.status == "checked" else None
-                    ),
+                    "artifact_id": (artifact.artifact_id if report.status == "checked" else None),
                     "artifact_sha256": artifact_sha256,
                     "error": error if state == "failed" else None,
                     "approval": None,
@@ -374,19 +359,13 @@ class AuthoringStore:
 
         def mutate(job: StoredJob) -> StoredJob:
             if approval.artifact_sha256 != job.artifact_sha256:
-                raise AuthoringConflict(
-                    "The artifact changed; refresh the review before deciding."
-                )
+                raise AuthoringConflict("The artifact changed; refresh the review before deciding.")
             self._require_reusable_unlocked(job, approval.artifact_sha256)
-            return job.model_copy(
-                update={"approval": approval, "updated_at": _now()}
-            )
+            return job.model_copy(update={"approval": approval, "updated_at": _now()})
 
         return self._mutate(job_id, mutate)
 
-    def save_generation(
-        self, job_id: UUID, metadata: GenerationMetadata
-    ) -> StoredJob:
+    def save_generation(self, job_id: UUID, metadata: GenerationMetadata) -> StoredJob:
         """Record batch metadata only while the exact approval remains current."""
 
         def mutate(job: StoredJob) -> StoredJob:
@@ -404,9 +383,7 @@ class AuthoringStore:
                 raise AuthoringConflict(
                     "The exact artifact must remain approved while generating questions."
                 )
-            return job.model_copy(
-                update={"last_generation": metadata, "updated_at": _now()}
-            )
+            return job.model_copy(update={"last_generation": metadata, "updated_at": _now()})
 
         return self._mutate(job_id, mutate)
 
@@ -453,9 +430,7 @@ class AuthoringStore:
         """Mark prior queued/running jobs failed; never replay model work."""
         interrupted = 0
         now = _now()
-        error = PublicAuthoringError(
-            code="SERVER_RESTARTED", message=SERVER_RESTARTED_MESSAGE
-        )
+        error = PublicAuthoringError(code="SERVER_RESTARTED", message=SERVER_RESTARTED_MESSAGE)
         with self._lock:
             for path in self.jobs_dir.glob("*.json"):
                 try:

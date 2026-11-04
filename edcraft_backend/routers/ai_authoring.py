@@ -5,7 +5,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, status
 
-from edcraft_backend.dependencies import AiAuthoringServiceDep, CurrentUserDep
+from edcraft_backend.dependencies import (
+    AiAuthoringServiceDep,
+    CurrentUserDep,
+    ProviderConnectionServiceDep,
+)
 from edcraft_backend.schemas.ai_authoring import (
     ApprovalRequest,
     ApprovalResponse,
@@ -48,9 +52,10 @@ router = APIRouter(
 async def get_capabilities(
     user: CurrentUserDep,
     service: AiAuthoringServiceDep,
+    connections: ProviderConnectionServiceDep,
 ) -> AuthoringCapabilitiesResponse:
-    """Return enabled domains and safe configured model display metadata."""
-    return await service.capabilities()
+    """Return server profiles and the caller's own BYOK connections."""
+    return await service.capabilities(await connections.list_connections(user.id))
 
 
 @router.post(
@@ -62,9 +67,13 @@ async def submit_job(
     payload: SubmitAuthoringJobRequest,
     user: CurrentUserDep,
     service: AiAuthoringServiceDep,
+    connections: ProviderConnectionServiceDep,
 ) -> AuthoringJobSubmittedResponse:
     """Admit one authoring job and return its polling URL."""
-    job = await service.submit(user.id, payload)
+    credentials = None
+    if payload.connection_id is not None:
+        credentials = await connections.resolve(user.id, payload.connection_id, payload.model)
+    job = await service.submit(user.id, payload, credentials)
     return AuthoringJobSubmittedResponse(
         job_id=job.job_id,
         status_url=f"/ai-authoring/jobs/{job.job_id}",

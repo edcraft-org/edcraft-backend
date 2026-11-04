@@ -18,6 +18,10 @@ from edcraft_validator.application.authoring_contracts import AuthoringProgress
 
 from edcraft_backend.config.settings import AuthoringSettings
 from edcraft_backend.exceptions import EdCraftBaseException
+from edcraft_backend.services.ai_authoring_providers import (
+    ProviderCredentials,
+    build_managed_provider,
+)
 from edcraft_backend.services.ai_authoring_store import AuthoringStore
 
 logger = logging.getLogger(__name__)
@@ -29,7 +33,10 @@ class JobExecutor(Protocol):
     """Synchronous library boundary executed inside a worker thread."""
 
     def __call__(
-        self, command: AuthoringJobCommand, on_progress: ProgressCallback | None
+        self,
+        command: AuthoringJobCommand,
+        credentials: ProviderCredentials | None,
+        on_progress: ProgressCallback | None,
     ) -> AuthoringJobRecord: ...
 
 
@@ -41,10 +48,18 @@ class AuthoringAdmissionFull(EdCraftBaseException):
 
 
 def run_library_authoring_job(
-    command: AuthoringJobCommand, on_progress: ProgressCallback | None
+    command: AuthoringJobCommand,
+    credentials: ProviderCredentials | None,
+    on_progress: ProgressCallback | None,
 ) -> AuthoringJobRecord:
-    """Call the installed edcraft-validator workflow with configured providers."""
-    return run_authoring_job_sync(command, on_progress=on_progress)
+    """Run the validator with either per-job BYOK credentials or env profiles."""
+    if credentials is None:
+        return run_authoring_job_sync(command, on_progress=on_progress)
+    return run_authoring_job_sync(
+        command,
+        provider_factory=lambda _selection: build_managed_provider(credentials),
+        on_progress=on_progress,
+    )
 
 
 class AuthoringRunner:
@@ -95,11 +110,17 @@ class AuthoringRunner:
         async with self._admission_lock:
             self._admitted = max(0, self._admitted - 1)
 
-    def start_job(self, job_id: UUID, command: AuthoringJobCommand) -> None:
+    def start_job(
+        self,
+        job_id: UUID,
+        command: AuthoringJobCommand,
+        credentials: ProviderCredentials | None = None,
+    ) -> None:
         """Schedule an admitted job without waiting for model work."""
         self._ensure_loop_state()
         task = asyncio.create_task(
-            self._run(job_id, command), name=f"ai-authoring-{job_id}"
+            self._run(job_id, command, credentials),
+            name=f"ai-authoring-{job_id}",
         )
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
@@ -125,7 +146,12 @@ class AuthoringRunner:
                 len(pending),
             )
 
-    async def _run(self, job_id: UUID, command: AuthoringJobCommand) -> None:
+    async def _run(
+        self,
+        job_id: UUID,
+        command: AuthoringJobCommand,
+        credentials: ProviderCredentials | None,
+    ) -> None:
         if self._semaphore is None:
             await asyncio.to_thread(
                 self._store.fail_job,
@@ -142,29 +168,24 @@ class AuthoringRunner:
                 await asyncio.to_thread(self._store.mark_started, job_id)
                 try:
                     record = await asyncio.to_thread(
-                        self._executor, command, self._progress_callback(job_id)
+                        self._executor,
+                        command,
+                        credentials,
+                        self._progress_callback(job_id),
                     )
-                    await asyncio.to_thread(
-                        self._store.complete_job, job_id, record.report
-                    )
+                    await asyncio.to_thread(self._store.complete_job, job_id, record.report)
                 except Exception:
-                    logger.exception(
-                        "AI authoring job failed", extra={"job_id": str(job_id)}
-                    )
+                    logger.exception("AI authoring job failed", extra={"job_id": str(job_id)})
                     await asyncio.to_thread(
                         self._store.fail_job,
                         job_id,
                         PublicAuthoringError(
                             code="AUTHORING_FAILED",
-                            message=(
-                                "Authoring stopped before a usable artifact was saved."
-                            ),
+                            message=("Authoring stopped before a usable artifact was saved."),
                         ),
                     )
         except Exception:
-            logger.exception(
-                "AI authoring runner failed", extra={"job_id": str(job_id)}
-            )
+            logger.exception("AI authoring runner failed", extra={"job_id": str(job_id)})
             await asyncio.to_thread(
                 self._store.fail_job,
                 job_id,
@@ -184,12 +205,8 @@ class AuthoringRunner:
 
         return publish
 
-    def _schedule_progress(
-        self, job_id: UUID, progress: AuthoringProgress
-    ) -> None:
-        task = asyncio.create_task(
-            asyncio.to_thread(self._store.update_progress, job_id, progress)
-        )
+    def _schedule_progress(self, job_id: UUID, progress: AuthoringProgress) -> None:
+        task = asyncio.create_task(asyncio.to_thread(self._store.update_progress, job_id, progress))
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
 

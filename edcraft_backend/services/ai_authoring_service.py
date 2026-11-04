@@ -53,6 +53,8 @@ from edcraft_backend.schemas.ai_authoring import (
     SubmitAuthoringJobRequest,
     ValidationLimits,
 )
+from edcraft_backend.schemas.provider_connection import ProviderConnectionResponse
+from edcraft_backend.services.ai_authoring_providers import ProviderCredentials
 from edcraft_backend.services.ai_authoring_runner import AuthoringRunner, JobExecutor
 from edcraft_backend.services.ai_authoring_store import (
     ApprovalRecord,
@@ -107,8 +109,10 @@ class AiAuthoringService:
             self.settings.shutdown_timeout_seconds if timeout is None else timeout
         )
 
-    async def capabilities(self) -> AuthoringCapabilitiesResponse:
-        """Return only safe server-configured model display metadata."""
+    async def capabilities(
+        self, connections: list[ProviderConnectionResponse] | None = None
+    ) -> AuthoringCapabilitiesResponse:
+        """Return safe server profiles plus the caller's own connections."""
         profiles = [
             AuthoringModelProfile(
                 id=profile.id,
@@ -133,24 +137,42 @@ class AiAuthoringService:
             enabled_domains=["code"],
             difficulty_labels=["easy", "medium", "hard"],
             model_profiles=profiles,
+            # Disabled connections stay visible in settings but cannot write questions.
+            connections=[item for item in (connections or []) if item.enabled],
             judge=judge,
             max_quantity=min(self.settings.max_quantity, 50),
         )
 
     async def submit(
-        self, owner_id: UUID, request: SubmitAuthoringJobRequest
+        self,
+        owner_id: UUID,
+        request: SubmitAuthoringJobRequest,
+        credentials: ProviderCredentials | None = None,
     ) -> StoredJob:
         """Admit and persist one queued authoring job."""
-        profile = self._profile(request.model_profile)
+        if request.connection_id is not None:
+            if credentials is None:
+                raise AuthoringValidationError("Model connection is unavailable.")
+            provider = credentials.provider
+            model = credentials.model
+            profile_id = None
+            connection_id = request.connection_id
+        else:
+            if request.model_profile is None:
+                raise AuthoringValidationError("Choose a question-writing model.")
+            profile = self._profile(request.model_profile)
+            provider = profile.provider
+            model = profile.model
+            profile_id = profile.id
+            connection_id = None
+
         await self.runner.reserve()
         job_id = uuid4()
         now = _now()
         command = AuthoringJobCommand(
             job_id=job_id,
             domain="code",
-            author=TemplateProviderSelection(
-                provider=profile.provider, model=profile.model
-            ),
+            author=TemplateProviderSelection(provider=provider, model=model),
             request={
                 "prompt": request.prompt,
                 "difficulty": request.difficulty,
@@ -165,10 +187,13 @@ class AiAuthoringService:
                 difficulty=request.difficulty,
                 num_distractors=request.num_distractors,
                 domain="code",
-                model_profile=profile.id,
+                model_profile=profile_id,
+                connection_id=connection_id,
+                model=model,
             ),
-            provider=profile.provider,
-            model=profile.model,
+            provider=provider,
+            model=model,
+            connection_id=connection_id,
             library_revision=LIBRARY_REVISION,
             state="queued",
             created_at=now,
@@ -180,7 +205,7 @@ class AiAuthoringService:
             await self.runner.release()
             raise
         try:
-            self.runner.start_job(job_id, command)
+            self.runner.start_job(job_id, command, credentials)
         except Exception:
             await asyncio.to_thread(
                 self.store.fail_job,
@@ -230,9 +255,7 @@ class AiAuthoringService:
         ]
         checks = attempts[-1].checks if attempts else []
         candidate = attempts[-1].candidate if attempts else None
-        limits = (
-            self._limits(artifact.validation) if artifact is not None else None
-        )
+        limits = self._limits(artifact.validation) if artifact is not None else None
         summary = job.result
         return AuthoringReviewResponse(
             job_id=job.job_id,
@@ -262,9 +285,7 @@ class AiAuthoringService:
             error=job.error,
         )
 
-    async def preview(
-        self, owner_id: UUID, job_id: UUID, seed: int
-    ) -> PreviewResponse:
+    async def preview(self, owner_id: UUID, job_id: UUID, seed: int) -> PreviewResponse:
         """Generate one deterministic draft locally without model or MCP calls."""
         job = await self.get_job(owner_id, job_id)
         await self._require_review_evidence(job)
@@ -290,9 +311,7 @@ class AiAuthoringService:
         job = await self.get_job(owner_id, job_id)
         await self._require_review_evidence(job)
         if request.artifact_sha256 != job.artifact_sha256:
-            raise AuthoringConflict(
-                "The artifact changed; refresh the review before deciding."
-            )
+            raise AuthoringConflict("The artifact changed; refresh the review before deciding.")
         await self._verified_artifact(job)
         approval = ApprovalRecord(
             decision=request.decision,
@@ -319,13 +338,9 @@ class AiAuthoringService:
         await self._require_review_evidence(job)
         limit = min(self.settings.max_quantity, 50)
         if request.quantity > limit:
-            raise AuthoringValidationError(
-                f"Quantity must be at most {limit} for this server."
-            )
+            raise AuthoringValidationError(f"Quantity must be at most {limit} for this server.")
         if request.artifact_sha256 != job.artifact_sha256:
-            raise AuthoringConflict(
-                "The artifact changed; refresh the review before generating."
-            )
+            raise AuthoringConflict("The artifact changed; refresh the review before generating.")
         approval = job.approval
         if (
             approval is None
@@ -348,9 +363,7 @@ class AiAuthoringService:
                     f"Seed {seed} did not produce a usable question from the "
                     "finite template domain."
                 )
-        fingerprints = {
-            question.model_dump_json(exclude={"seed"}) for question in questions
-        }
+        fingerprints = {question.model_dump_json(exclude={"seed"}) for question in questions}
         distinct_count = len(fingerprints)
         duplicates = len(questions) - distinct_count
         if duplicates:
@@ -430,9 +443,7 @@ class AiAuthoringService:
             report=report,
         )
 
-    async def _verified_artifact(
-        self, job: StoredJob
-    ) -> tuple[bytes, ValidatedCodeTemplate]:
+    async def _verified_artifact(self, job: StoredJob) -> tuple[bytes, ValidatedCodeTemplate]:
         if job.artifact_sha256 is None or job.artifact_id is None:
             raise AuthoringConflict("The validated artifact is unavailable.")
         data = await asyncio.to_thread(self.store.read_artifact, job.job_id)
@@ -450,18 +461,14 @@ class AiAuthoringService:
         return data, artifact
 
     @staticmethod
-    def _generate_raw(
-        artifact: ValidatedCodeTemplate, seed: int
-    ) -> CodeQuestionInstance:
+    def _generate_raw(artifact: ValidatedCodeTemplate, seed: int) -> CodeQuestionInstance:
         result = TemplateApplication().generate_question(
             artifact, domain=create_domain("code"), seed=seed
         )
         return CodeQuestionInstance.model_validate(result.model_dump())
 
     @classmethod
-    def _generate(
-        cls, artifact: ValidatedCodeTemplate, seed: int
-    ) -> CodeQuestionInstance:
+    def _generate(cls, artifact: ValidatedCodeTemplate, seed: int) -> CodeQuestionInstance:
         try:
             return cls._generate_raw(artifact, seed)
         except (ValidationError, ValueError) as exc:

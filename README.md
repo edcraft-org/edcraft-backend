@@ -181,11 +181,21 @@ AUTHORING_MODEL_PROFILES=[{"id":"default","label":"Default code author","provide
 AUTHORING_STORAGE_DIR=.data/authoring
 ```
 
-Provider credentials remain in the provider-specific environment. They are
-never returned by the API. Docker Compose mounts the durable `authoring_data`
-volume at `/app/.data`, and the image runs as the non-root `edcraft` user.
-Files are written atomically with `os.replace`; startup marks interrupted
-queued/running jobs failed with `SERVER_RESTARTED` instead of replaying them.
+Server profiles are the legacy fallback. Users can instead bring their own
+OpenAI or SocLaas key under **Settings → Model connections**. The backend
+stores only an encrypted key (never plaintext) and returns safe metadata such
+as the key's last four characters. Keys are decrypted in memory for a single
+job and are never written to job records or logs. Set a stable
+`AUTHORING_ENCRYPTION_KEY` in production (generate with
+`openssl rand -hex 32`); when omitted, the installation `JWT_SECRET` is used.
+Changing the encryption key makes existing connections undecryptable.
+
+Provider credentials for server profiles remain in the provider-specific
+environment. They are never returned by the API. Docker Compose mounts the
+durable `authoring_data` volume at `/app/.data`, and the image runs as the
+non-root `edcraft` user. Files are written atomically with `os.replace`;
+startup marks interrupted queued/running jobs failed with `SERVER_RESTARTED`
+instead of replaying them.
 
 ## 🖥️ WSL2 Nomad Setup
 

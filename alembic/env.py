@@ -18,6 +18,7 @@ from edcraft_backend.models import (  # noqa: F401
     Job,
     JobToken,
     OAuthAccount,
+    ProviderConnection,
     Question,
     QuestionBank,
     QuestionTemplate,

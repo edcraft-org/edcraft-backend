@@ -19,6 +19,8 @@ from edcraft_validator.domains.code.code_schemas import (
 )
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from edcraft_backend.schemas.provider_connection import ProviderConnectionResponse
+
 Difficulty = Literal["easy", "medium", "hard"]
 MAX_SEED = 2_147_483_647
 StrictSeed = Annotated[int, Field(strict=True, ge=0, le=MAX_SEED)]
@@ -60,6 +62,7 @@ class AuthoringCapabilitiesResponse(BaseModel):
     enabled_domains: list[Literal["code"]]
     difficulty_labels: list[Difficulty]
     model_profiles: list[AuthoringModelProfile]
+    connections: list[ProviderConnectionResponse] = Field(default_factory=list)
     judge: JudgeDisplay | None = None
     max_quantity: int
 
@@ -73,7 +76,10 @@ class SubmitAuthoringJobRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=4000)
     difficulty: Difficulty
     num_distractors: Literal[2, 3] = 3
-    model_profile: str = Field(min_length=1, max_length=64)
+    # Legacy server-configured profile. New clients use connection_id + model.
+    model_profile: str | None = Field(default=None, min_length=1, max_length=64)
+    connection_id: UUID | None = Field(default=None, strict=False)
+    model: str | None = Field(default=None, min_length=1, max_length=120)
 
     @field_validator("prompt")
     @classmethod
@@ -81,6 +87,19 @@ class SubmitAuthoringJobRequest(BaseModel):
         if not value.strip():
             raise ValueError("prompt must not be blank")
         return value
+
+    @model_validator(mode="after")
+    def select_one_model_source(self) -> "SubmitAuthoringJobRequest":
+        using_connection = self.connection_id is not None
+        if using_connection and self.model_profile is not None:
+            raise ValueError("Choose either a model connection or a server model profile.")
+        if not using_connection and self.model_profile is None:
+            raise ValueError("Choose a model connection or a server model profile.")
+        if using_connection and self.model is None:
+            raise ValueError("Choose a model for this connection.")
+        if not using_connection and self.model is not None:
+            raise ValueError("A model requires a model connection.")
+        return self
 
 
 class AuthoringJobSubmittedResponse(BaseModel):
@@ -148,7 +167,9 @@ class AuthoringRequestView(BaseModel):
     difficulty: Difficulty
     num_distractors: Literal[2, 3]
     domain: Literal["code"]
-    model_profile: str
+    model_profile: str | None = None
+    connection_id: UUID | None = None
+    model: str | None = None
 
 
 class ReviewFinding(BaseModel):

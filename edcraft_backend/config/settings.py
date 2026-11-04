@@ -5,7 +5,14 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field, PostgresDsn, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    PostgresDsn,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from edcraft_backend.config.environments import Environment
@@ -221,6 +228,13 @@ class AuthoringSettings(BaseSettings):
     max_quantity: int = Field(default=50, ge=1, le=50)
     shutdown_timeout_seconds: float = Field(default=30.0, gt=0)
     model_profiles: list[AuthoringProfileSettings] = Field(default_factory=list)
+    encryption_key: SecretStr | None = Field(
+        default=None,
+        description=(
+            "Secret used to encrypt user provider keys at rest. When omitted, "
+            "the installation JWT secret is used."
+        ),
+    )
 
     @model_validator(mode="after")
     def require_unique_profiles(self) -> "AuthoringSettings":
