@@ -18,7 +18,7 @@ from edcraft_validator.llm.openai_compatible_provider import (
 from openai import OpenAI
 
 DEFAULT_TIMEOUT_SECONDS = {
-    "soclaas": 300.0,
+    "soclaas": 600.0,
     "openai": 120.0,
 }
 
