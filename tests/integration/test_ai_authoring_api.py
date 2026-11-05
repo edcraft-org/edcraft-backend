@@ -277,6 +277,7 @@ async def test_review_preview_approval_and_generation_flow(checked_env: Authorin
     listed = await env.client.get("/ai-authoring/jobs")
     assert listed.status_code == 200
     assert [item["job_id"] for item in listed.json()] == [str(job_id)]
+    assert listed.json()[0]["result_status"] == "checked"
 
     env.user.id = uuid4()
     assert (await env.client.get(f"/ai-authoring/jobs/{job_id}")).status_code == 404
@@ -368,6 +369,9 @@ async def test_technical_failure_has_no_usable_artifact(tmp_path: Path) -> None:
         job_id = await complete_job(env)
         status = (await env.client.get(f"/ai-authoring/jobs/{job_id}")).json()
         assert status["result"]["status"] == "needs_review"
+        listed = (await env.client.get("/ai-authoring/jobs")).json()
+        assert listed[0]["state"] == "completed"
+        assert listed[0]["result_status"] == "needs_review"
         envelope = await review(env, job_id)
         assert envelope["artifact_id"] is None
         assert envelope["artifact_sha256"] is None

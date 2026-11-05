@@ -180,6 +180,7 @@ class AuthoringJobSummary(BaseModel):
 
     job_id: UUID
     state: Literal["queued", "running", "completed", "failed"]
+    result_status: Literal["checked", "needs_review", "error"] | None = None
     created_at: datetime
     prompt_preview: str
     difficulty: Difficulty

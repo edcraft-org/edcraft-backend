@@ -463,6 +463,7 @@ class AiAuthoringService:
         return AuthoringJobSummary(
             job_id=job.job_id,
             state=job.state,
+            result_status=job.result.status if job.result is not None else None,
             created_at=job.created_at,
             prompt_preview=_truncate(job.request.prompt, 160),
             difficulty=job.request.difficulty,
