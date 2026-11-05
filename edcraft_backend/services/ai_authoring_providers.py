@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from edcraft_validator.llm.forced_decision import ClassDecision
@@ -29,7 +29,7 @@ class ProviderCredentials:
 
     provider: str
     model: str
-    api_key: str
+    api_key: str = field(repr=False)
     base_url: str | None
 
     @property

@@ -120,6 +120,22 @@ def test_selected_model_decision_provider_rejects_providers_without_decisions() 
         )
 
 
+def test_provider_credentials_repr_hides_api_key() -> None:
+    credentials = ProviderCredentials(
+        provider="openai",
+        model="gpt-4.1-mini",
+        api_key="sk-secret-value",
+        base_url="https://api.openai.com/v1",
+    )
+
+    rendered = repr(credentials)
+
+    assert "sk-secret-value" not in rendered
+    assert "openai" in rendered
+    assert "gpt-4.1-mini" in rendered
+    assert "https://api.openai.com/v1" in rendered
+
+
 def test_build_plan_provider_prefers_byok_credentials(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -6,6 +6,7 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 import pytest
+from edcraft_validator.application.authoring_contracts import AuthoringError
 
 from edcraft_backend.config.settings import AuthoringSettings
 from edcraft_backend.schemas.ai_authoring import GenerationMetadata
@@ -18,7 +19,11 @@ from edcraft_backend.services.ai_authoring_store import (
     AuthoringStore,
     StoredJob,
 )
-from tests.ai_authoring_helpers import make_checked_report, make_command
+from tests.ai_authoring_helpers import (
+    make_checked_report,
+    make_command,
+    make_needs_review_report,
+)
 
 
 def _store(tmp_path) -> AuthoringStore:
@@ -64,6 +69,28 @@ def test_store_is_owner_scoped_and_uses_clean_atomic_paths(tmp_path) -> None:
     assert store.list_jobs(other) == []
     assert not list(store.jobs_dir.glob(".tmp-*"))
     assert (store.jobs_dir / f"{job.job_id}.json").is_file()
+
+
+def test_needs_review_failure_keeps_job_completed_with_structured_code(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    command = make_command()
+    job = _job(uuid4(), command.job_id)
+    store.create_job(job)
+    store.mark_started(job.job_id)
+    report = make_needs_review_report(
+        command,
+        failure=AuthoringError(stage="checking", code="TEMPLATE_CHECKS_FAILED"),
+    )
+
+    completed = store.complete_job(job.job_id, report)
+
+    assert completed.state == "completed"
+    assert completed.result is not None
+    assert completed.result.error is not None
+    assert completed.result.error.code == "TEMPLATE_CHECKS_FAILED"
+    assert completed.error is None
 
 
 def test_checked_report_stores_exact_artifact_and_report(tmp_path) -> None:

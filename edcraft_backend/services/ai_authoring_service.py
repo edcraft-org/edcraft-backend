@@ -83,7 +83,7 @@ ApprovalView = StoredReviewerApproval
 
 logger = logging.getLogger(__name__)
 
-LIBRARY_REVISION = "0d4de7e7fa12f35a7c7c92209ac6a5f09c90c6b2"
+LIBRARY_REVISION = "a9ae1a087c0c678b1207479d637a72e42e158adf"
 MAX_FINDING_TEXT = 2_000
 
 

@@ -14,6 +14,7 @@ from edcraft_validator.application.authoring_api import (
     summarize_authoring,
 )
 from edcraft_validator.application.authoring_contracts import (
+    AuthoringError,
     AuthoringProgress,
     AuthoringResult,
     CheckExecution,
@@ -230,7 +231,9 @@ def make_checked_report(
     )
 
 
-def make_needs_review_report(command: AuthoringJobCommand) -> AuthoringResult:
+def make_needs_review_report(
+    command: AuthoringJobCommand, *, failure: AuthoringError | None = None
+) -> AuthoringResult:
     execution = CheckExecution(
         call_id="attempt-1:code_validate_answers_and_distractors",
         tool="code_validate_answers_and_distractors",
@@ -258,6 +261,7 @@ def make_needs_review_report(command: AuthoringJobCommand) -> AuthoringResult:
         tool_catalogue=[],
         attempts=[attempt],
         reason="raw check failure text must never be returned",
+        failure=failure,
     )
 
 
