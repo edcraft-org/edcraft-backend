@@ -223,8 +223,10 @@ class AuthoringSettings(BaseSettings):
             "Docker deployments set an absolute path on a mounted volume."
         ),
     )
-    max_active_jobs: int = Field(default=1, ge=1, le=4)
-    max_queue: int = Field(default=10, ge=0, le=100)
+    max_active_jobs: int = Field(default=4, ge=1, le=32)
+    max_active_jobs_per_user: int = Field(default=2, ge=1, le=32)
+    max_inflight_jobs_per_user: int = Field(default=6, ge=1, le=100)
+    max_queue: int = Field(default=40, ge=0, le=100)
     max_quantity: int = Field(default=50, ge=1, le=50)
     shutdown_timeout_seconds: float = Field(default=30.0, gt=0)
     model_profiles: list[AuthoringProfileSettings] = Field(default_factory=list)

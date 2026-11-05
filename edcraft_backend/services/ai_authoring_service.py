@@ -211,7 +211,7 @@ class AiAuthoringService:
             relevance=relevance_plan,
         )
 
-        await self.runner.reserve()
+        await self.runner.reserve(owner_id)
         job_id = uuid4()
         now = _now()
         command = AuthoringJobCommand(
@@ -248,10 +248,10 @@ class AiAuthoringService:
         try:
             await asyncio.to_thread(self.store.create_job, job)
         except Exception:
-            await self.runner.release()
+            await self.runner.release(owner_id)
             raise
         try:
-            self.runner.start_job(job_id, command, plan)
+            self.runner.start_job(job_id, command, plan, owner_id)
         except Exception:
             await asyncio.to_thread(
                 self.store.fail_job,
@@ -261,7 +261,7 @@ class AiAuthoringService:
                     message="Authoring could not be scheduled.",
                 ),
             )
-            await self.runner.release()
+            await self.runner.release(owner_id)
             raise
         return job
 

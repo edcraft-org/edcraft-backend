@@ -72,13 +72,18 @@ async def env_for(
     tmp_path: Path,
     executor: Any,
     *,
+    max_active_jobs: int = 1,
+    max_active_jobs_per_user: int = 5,
+    max_inflight_jobs_per_user: int = 10,
     max_queue: int = 10,
     max_quantity: int = 50,
 ) -> AsyncGenerator[AuthoringHarness, None]:
     settings = AuthoringSettings(
         storage_dir=tmp_path / "authoring",
         model_profiles=[PROFILE],
-        max_active_jobs=1,
+        max_active_jobs=max_active_jobs,
+        max_active_jobs_per_user=max_active_jobs_per_user,
+        max_inflight_jobs_per_user=max_inflight_jobs_per_user,
         max_queue=max_queue,
         max_quantity=max_quantity,
         shutdown_timeout_seconds=1.0,
@@ -636,6 +641,53 @@ async def test_admission_is_bounded_and_progress_is_running_only(
         await env.service.wait_for_idle()
         assert (await env.client.get(f"/ai-authoring/jobs/{first}")).json()["state"] == "completed"
         assert (await env.client.get(f"/ai-authoring/jobs/{second}")).json()["state"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_per_user_limits_keep_capacity_for_other_users(tmp_path: Path) -> None:
+    release = threading.Event()
+    started = {
+        "a1": threading.Event(),
+        "a2": threading.Event(),
+        "b1": threading.Event(),
+    }
+
+    class PerPromptBlockingExecutor(StaticExecutor):
+        def __call__(self, command: Any, plan: Any, on_progress: Any = None) -> Any:
+            started[command.request["prompt"]].set()
+            if not release.wait(5):
+                raise RuntimeError("test executor timed out")
+            return super().__call__(command, plan, on_progress)
+
+    async with env_for(
+        tmp_path,
+        PerPromptBlockingExecutor(lambda command: make_checked_report(command)),
+        max_active_jobs=4,
+        max_active_jobs_per_user=1,
+        max_inflight_jobs_per_user=2,
+        max_queue=10,
+    ) as env:
+        owner_a = env.user.id
+        first = await submit(env, prompt="a1")
+        assert await asyncio.to_thread(started["a1"].wait, 2)
+
+        second = await submit(env, prompt="a2")
+        assert (await env.client.get(f"/ai-authoring/jobs/{second}")).json()["state"] == "queued"
+
+        rejected = await env.client.post("/ai-authoring/jobs", json=payload(prompt="a3"))
+        assert rejected.status_code == 429
+
+        owner_b = uuid4()
+        env.user.id = owner_b
+        third = await submit(env, prompt="b1")
+        assert await asyncio.to_thread(started["b1"].wait, 2)
+        assert not started["a2"].is_set()
+
+        release.set()
+        await env.service.wait_for_idle()
+        assert env.service.store.get_owned_job(first, owner_a).state == "completed"
+        assert env.service.store.get_owned_job(second, owner_a).state == "completed"
+        assert env.service.store.get_owned_job(third, owner_b).state == "completed"
 
 
 @pytest.mark.asyncio

@@ -78,7 +78,7 @@ def run_library_authoring_job(
 
 
 class AuthoringRunner:
-    """Admit at most ``max_active_jobs`` plus ``max_queue`` waiting jobs."""
+    """Bound global and per-owner authoring concurrency and admission."""
 
     def __init__(
         self,
@@ -91,10 +91,12 @@ class AuthoringRunner:
         self._executor: JobExecutor = executor or run_library_authoring_job
         self._loop: asyncio.AbstractEventLoop | None = None
         self._semaphore: asyncio.Semaphore | None = None
+        self._owner_semaphores: dict[UUID, asyncio.Semaphore] = {}
         self._admission_lock: asyncio.Lock | None = None
         self._tasks: set[asyncio.Task[None]] = set()
         self._background_tasks: set[asyncio.Task[None]] = set()
         self._admitted = 0
+        self._admitted_by_owner: dict[UUID, int] = {}
         self._shutting_down = False
 
     async def start(self) -> None:
@@ -102,7 +104,7 @@ class AuthoringRunner:
         self._shutting_down = False
         self._ensure_loop_state()
 
-    async def reserve(self) -> None:
+    async def reserve(self, owner_id: UUID) -> None:
         """Reserve one admitted slot before a job record is created."""
         self._ensure_loop_state()
         if self._admission_lock is None:
@@ -110,31 +112,43 @@ class AuthoringRunner:
         async with self._admission_lock:
             if self._shutting_down:
                 raise AuthoringAdmissionFull("The authoring service is shutting down.")
+            owner_inflight = self._admitted_by_owner.get(owner_id, 0)
+            if owner_inflight >= self._settings.max_inflight_jobs_per_user:
+                raise AuthoringAdmissionFull(
+                    "You already have the maximum number of AI authoring jobs in progress."
+                )
             capacity = self._settings.max_active_jobs + self._settings.max_queue
             if self._admitted >= capacity:
                 raise AuthoringAdmissionFull(
                     "AI authoring is at capacity; try again when a job finishes."
                 )
             self._admitted += 1
+            self._admitted_by_owner[owner_id] = owner_inflight + 1
 
-    async def release(self) -> None:
-        """Release a reservation when task creation fails."""
+    async def release(self, owner_id: UUID) -> None:
+        """Release a reservation when a job finishes or scheduling fails."""
         self._ensure_loop_state()
         if self._admission_lock is None:
             raise RuntimeError("Authoring runner admission lock is unavailable.")
         async with self._admission_lock:
             self._admitted = max(0, self._admitted - 1)
+            owner_remaining = self._admitted_by_owner.get(owner_id, 0) - 1
+            if owner_remaining > 0:
+                self._admitted_by_owner[owner_id] = owner_remaining
+            else:
+                self._admitted_by_owner.pop(owner_id, None)
 
     def start_job(
         self,
         job_id: UUID,
         command: AuthoringJobCommand,
         plan: JobModelPlan,
+        owner_id: UUID,
     ) -> None:
         """Schedule an admitted job without waiting for model work."""
         self._ensure_loop_state()
         task = asyncio.create_task(
-            self._run(job_id, command, plan),
+            self._run(job_id, command, plan, owner_id),
             name=f"ai-authoring-{job_id}",
         )
         self._tasks.add(task)
@@ -166,8 +180,10 @@ class AuthoringRunner:
         job_id: UUID,
         command: AuthoringJobCommand,
         plan: JobModelPlan,
+        owner_id: UUID,
     ) -> None:
-        if self._semaphore is None:
+        owner_semaphore = self._owner_semaphore(owner_id)
+        if self._semaphore is None or owner_semaphore is None:
             await asyncio.to_thread(
                 self._store.fail_job,
                 job_id,
@@ -176,29 +192,34 @@ class AuthoringRunner:
                     message="Authoring stopped before it could start.",
                 ),
             )
-            await self.release()
+            await self.release(owner_id)
             return
         try:
-            async with self._semaphore:
-                await asyncio.to_thread(self._store.mark_started, job_id)
-                try:
-                    record = await asyncio.to_thread(
-                        self._executor,
-                        command,
-                        plan,
-                        self._progress_callback(job_id),
-                    )
-                    await asyncio.to_thread(self._store.complete_job, job_id, record.report)
-                except Exception:
-                    logger.exception("AI authoring job failed", extra={"job_id": str(job_id)})
-                    await asyncio.to_thread(
-                        self._store.fail_job,
-                        job_id,
-                        PublicAuthoringError(
-                            code="AUTHORING_FAILED",
-                            message=("Authoring stopped before a usable artifact was saved."),
-                        ),
-                    )
+            async with owner_semaphore:
+                async with self._semaphore:
+                    await asyncio.to_thread(self._store.mark_started, job_id)
+                    try:
+                        record = await asyncio.to_thread(
+                            self._executor,
+                            command,
+                            plan,
+                            self._progress_callback(job_id),
+                        )
+                        await asyncio.to_thread(self._store.complete_job, job_id, record.report)
+                    except Exception:
+                        logger.exception(
+                            "AI authoring job failed", extra={"job_id": str(job_id)}
+                        )
+                        await asyncio.to_thread(
+                            self._store.fail_job,
+                            job_id,
+                            PublicAuthoringError(
+                                code="AUTHORING_FAILED",
+                                message=(
+                                    "Authoring stopped before a usable artifact was saved."
+                                ),
+                            ),
+                        )
         except Exception:
             logger.exception("AI authoring runner failed", extra={"job_id": str(job_id)})
             await asyncio.to_thread(
@@ -210,7 +231,15 @@ class AuthoringRunner:
                 ),
             )
         finally:
-            await self.release()
+            await self.release(owner_id)
+
+    def _owner_semaphore(self, owner_id: UUID) -> asyncio.Semaphore:
+        """Return the loop-bound active-job semaphore for one owner."""
+        semaphore = self._owner_semaphores.get(owner_id)
+        if semaphore is None:
+            semaphore = asyncio.Semaphore(self._settings.max_active_jobs_per_user)
+            self._owner_semaphores[owner_id] = semaphore
+        return semaphore
 
     def _progress_callback(self, job_id: UUID) -> ProgressCallback:
         loop = asyncio.get_running_loop()
@@ -231,9 +260,11 @@ class AuthoringRunner:
             return
         self._loop = loop
         self._semaphore = asyncio.Semaphore(self._settings.max_active_jobs)
+        self._owner_semaphores = {}
         self._admission_lock = asyncio.Lock()
         self._tasks = set()
         self._background_tasks = set()
+        self._admitted_by_owner = {}
 
 
 __all__ = [
