@@ -1,12 +1,24 @@
 """Smoke the real pinned AI workflow with a scripted provider and real MCP checks."""
 
+import tomllib
+from pathlib import Path
+
 from edcraft_validator.domains.code.code_schemas import ValidatedCodeTemplate
 
+from edcraft_backend.services.ai_authoring_service import LIBRARY_REVISION
 from tests.ai_authoring_helpers import (
     generate,
     make_command,
     run_scripted_pipeline,
 )
+
+
+def test_library_revision_matches_the_pyproject_pin() -> None:
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    with pyproject.open("rb") as handle:
+        config = tomllib.load(handle)
+    pinned = config["tool"]["uv"]["sources"]["edcraft-validator"]["rev"]
+    assert LIBRARY_REVISION == pinned
 
 
 def test_scripted_library_pipeline_checks_and_reloads_a_real_artifact() -> None:

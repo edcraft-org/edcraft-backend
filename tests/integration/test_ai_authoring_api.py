@@ -27,6 +27,7 @@ from edcraft_backend.dependencies import (
     get_provider_connection_service,
 )
 from edcraft_backend.main import app
+from edcraft_backend.schemas.ai_authoring import SubmitAuthoringJobRequest
 from edcraft_backend.services.ai_authoring_service import AiAuthoringService
 from edcraft_backend.services.ai_authoring_store import (
     AuthoringRequestRecord,
@@ -557,9 +558,7 @@ async def test_generation_rechecks_revoked_approval_under_store_lock(
 async def test_non_default_distractor_count_is_accepted_and_stored(
     checked_env: AuthoringHarness,
 ) -> None:
-    response = await checked_env.client.post(
-        "/ai-authoring/jobs", json=payload(num_distractors=7)
-    )
+    response = await checked_env.client.post("/ai-authoring/jobs", json=payload(num_distractors=7))
     assert response.status_code == 202, response.text
 
     job_id = UUID(response.json()["job_id"])
@@ -641,6 +640,62 @@ async def test_admission_is_bounded_and_progress_is_running_only(
         await env.service.wait_for_idle()
         assert (await env.client.get(f"/ai-authoring/jobs/{first}")).json()["state"] == "completed"
         assert (await env.client.get(f"/ai-authoring/jobs/{second}")).json()["state"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_cancelled_submit_keeps_a_worker_and_releases_its_slot(tmp_path: Path) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+
+    async with env_for(
+        tmp_path,
+        StaticExecutor(lambda command: make_checked_report(command)),
+        max_queue=0,
+    ) as env:
+        original_create_job = env.service.store.create_job
+
+        def blocked_create_job(job: StoredJob) -> StoredJob:
+            entered.set()
+            if not release.wait(5):
+                raise RuntimeError("test create_job gate timed out")
+            return original_create_job(job)
+
+        env.service.store.create_job = blocked_create_job  # type: ignore[method-assign]
+        request = SubmitAuthoringJobRequest(
+            prompt="Cancel while the queued job is being persisted",
+            difficulty="easy",
+            num_distractors=3,
+            model_profile="test-profile",
+        )
+        submission = asyncio.create_task(env.service.submit(env.user.id, request))
+        assert await asyncio.to_thread(entered.wait, 2)
+        submission.cancel()
+        # Let the cancellation reach the submit task before persistence is
+        # allowed to finish, so the test exercises the cancellation path.
+        await asyncio.sleep(0)
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await submission
+        env.service.store.create_job = original_create_job  # type: ignore[method-assign]
+
+        await env.service.wait_for_idle()
+        jobs = env.service.store.list_jobs(env.user.id)
+        assert len(jobs) == 1
+        assert jobs[0].state == "completed"
+
+        # max_queue=0 leaves exactly one slot. A leaked reservation would make
+        # the next submission fail with 429 before it could be queued.
+        follower = await env.service.submit(
+            env.user.id,
+            SubmitAuthoringJobRequest(
+                prompt="Submit after the cancelled request",
+                difficulty="easy",
+                num_distractors=3,
+                model_profile="test-profile",
+            ),
+        )
+        await env.service.wait_for_idle()
+        assert env.service.store.get_job(follower.job_id).state == "completed"
 
 
 @pytest.mark.asyncio

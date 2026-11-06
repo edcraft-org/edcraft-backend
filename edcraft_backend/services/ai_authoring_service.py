@@ -83,7 +83,8 @@ ApprovalView = StoredReviewerApproval
 
 logger = logging.getLogger(__name__)
 
-LIBRARY_REVISION = "a9ae1a087c0c678b1207479d637a72e42e158adf"
+# Must match [tool.uv.sources].edcraft-validator.rev in pyproject.toml.
+LIBRARY_REVISION = "e90eced9b9c51792ab4afa821ffbd46c9aba4917"
 MAX_FINDING_TEXT = 2_000
 
 
@@ -245,14 +246,46 @@ class AiAuthoringService:
             created_at=now,
             updated_at=now,
         )
+        persistence = asyncio.create_task(asyncio.to_thread(self.store.create_job, job))
         try:
-            await asyncio.to_thread(self.store.create_job, job)
+            await asyncio.shield(persistence)
+        except asyncio.CancelledError:
+            # The write cannot be interrupted, so keep the job and give it
+            # a worker before propagating cancellation to the caller.
+            await self._finish_cancelled_submission(persistence, job, command, plan, owner_id)
+            raise
         except Exception:
             await self.runner.release(owner_id)
             raise
         try:
             self.runner.start_job(job_id, command, plan, owner_id)
         except Exception:
+            await self._fail_scheduled_job(job_id, owner_id)
+            raise
+        return job
+
+    async def _finish_cancelled_submission(
+        self,
+        persistence: asyncio.Task[StoredJob],
+        job: StoredJob,
+        command: AuthoringJobCommand,
+        plan: JobModelPlan,
+        owner_id: UUID,
+    ) -> None:
+        """Let persistence finish, then schedule the job so it is not orphaned."""
+        try:
+            await persistence
+        except Exception:
+            await self.runner.release(owner_id)
+            return
+        try:
+            self.runner.start_job(job.job_id, command, plan, owner_id)
+        except Exception:
+            await self._fail_scheduled_job(job.job_id, owner_id)
+
+    async def _fail_scheduled_job(self, job_id: UUID, owner_id: UUID) -> None:
+        """Fail a persisted job that could not be scheduled and release its slot."""
+        try:
             await asyncio.to_thread(
                 self.store.fail_job,
                 job_id,
@@ -261,9 +294,8 @@ class AiAuthoringService:
                     message="Authoring could not be scheduled.",
                 ),
             )
+        finally:
             await self.runner.release(owner_id)
-            raise
-        return job
 
     async def list_jobs(self, owner_id: UUID) -> list[StoredJob]:
         return await asyncio.to_thread(self.store.list_jobs, owner_id)
