@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import os
+import socket
 from datetime import UTC, datetime
 from typing import cast
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit, urlunsplit
 from uuid import UUID
 
 import httpx
@@ -228,12 +230,17 @@ class ProviderConnectionService:
 
 async def _fetch_models_payload(base_url: str, api_key: str) -> object:
     """Fetch a provider's model list, translating failures to safe errors."""
-    url = f"{base_url.rstrip('/')}/models"
     try:
+        # Resolve immediately before the request so a hostname cannot be
+        # rebound to a private address between validation and use.
+        await asyncio.to_thread(_assert_public_provider_host, base_url)
+        url = _models_url(base_url)
         async with httpx.AsyncClient(
             timeout=PROBE_TIMEOUT_SECONDS, follow_redirects=False
         ) as client:
             response = await client.get(url, headers={"Authorization": f"Bearer {api_key}"})
+    except (httpx.InvalidURL, ValueError) as exc:
+        raise ProviderConnectionInvalid("The provider base URL is not a valid HTTP URL.") from exc
     except httpx.RequestError as exc:
         raise ProviderConnectionUnavailable(
             "Could not reach the provider. Check the base URL and network access."
@@ -246,6 +253,13 @@ async def _fetch_models_payload(base_url: str, api_key: str) -> object:
         raise ProviderConnectionUnavailable(
             "The provider's model list was not valid JSON."
         ) from exc
+
+
+def _models_url(base_url: str) -> str:
+    """Join the models path onto the base path without string concatenation."""
+    parts = urlsplit(base_url)
+    path = f"{parts.path.rstrip('/')}/models"
+    return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
 
 
 def _raise_for_model_response(response: httpx.Response) -> None:
@@ -324,8 +338,20 @@ def _effective_base_url(kind: ProviderKind, raw: str | None) -> str:
     value = _resolve_base_url(kind, raw)
     if len(value) > 500:
         raise ProviderConnectionInvalid("Base URL must be 500 characters or fewer.")
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in value):
+        raise ProviderConnectionInvalid("Base URL must not contain control characters.")
 
-    parsed = urlparse(value)
+    try:
+        parsed = urlparse(value)
+        # Accessing .port validates malformed and out-of-range port values.
+        _ = parsed.port
+    except ValueError as exc:
+        raise ProviderConnectionInvalid("Base URL has an invalid host or port.") from exc
+
+    if parsed.query or parsed.fragment:
+        raise ProviderConnectionInvalid(
+            "Base URL must not include a query string or fragment; remove the '?' and '#' portions."
+        )
     if parsed.scheme not in {"http", "https"}:
         raise ProviderConnectionInvalid("Base URL must use http or https.")
     if parsed.username or parsed.password:
@@ -333,6 +359,9 @@ def _effective_base_url(kind: ProviderKind, raw: str | None) -> str:
     hostname = parsed.hostname
     if not hostname:
         raise ProviderConnectionInvalid("Base URL must include a host.")
+    if any(char.isspace() or ord(char) < 0x20 or ord(char) == 0x7F for char in hostname):
+        raise ProviderConnectionInvalid("Base URL host must not contain whitespace or controls.")
+    hostname = hostname.removesuffix(".")
     if parsed.scheme == "http" and not _is_loopback(hostname):
         raise ProviderConnectionInvalid(
             "Use HTTPS for remote providers; HTTP is allowed only for localhost."
@@ -352,25 +381,79 @@ def _resolve_base_url(kind: ProviderKind, raw: str | None) -> str:
     return value
 
 
+def _allow_private_provider_hosts() -> bool:
+    """Development-only escape hatch; disabled unless explicitly enabled."""
+    value = os.getenv("PROVIDER_ALLOW_PRIVATE_HOSTS", "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
 def _reject_unsafe_host(hostname: str) -> None:
-    if hostname.lower() in BLOCKED_HOSTNAMES:
+    host = hostname.removesuffix(".").lower()
+    if host in BLOCKED_HOSTNAMES:
         raise ProviderConnectionInvalid("This provider host is not allowed.")
-    address = _parse_ip(hostname)
+    if host == "localhost" or host.endswith(".localhost"):
+        if not _allow_private_provider_hosts():
+            raise ProviderConnectionInvalid(
+                "This provider address is not allowed. Use a public host, or set "
+                "PROVIDER_ALLOW_PRIVATE_HOSTS=true only for local development."
+            )
+        return
+    address = _parse_ip(host)
     if address is None:
         return
-    if (
-        address.is_link_local
-        or address.is_multicast
-        or address.is_unspecified
-        or str(address) == "169.254.169.254"
-    ):
+    _reject_unsafe_address(address)
+
+
+def _reject_unsafe_address(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> None:
+    # These ranges are never valid provider destinations, even in development.
+    if address.is_link_local or address.is_multicast or address.is_unspecified:
         raise ProviderConnectionInvalid("This provider address is not allowed.")
+    if getattr(address, "is_shared", False):
+        raise ProviderConnectionInvalid("This provider address is not allowed.")
+    if _allow_private_provider_hosts():
+        if address.is_loopback or (address.is_private and not address.is_reserved):
+            return
+        raise ProviderConnectionInvalid("This provider address is not allowed.")
+    if address.is_global:
+        return
+    raise ProviderConnectionInvalid(
+        "This provider address is not allowed. Use a public host, or set "
+        "PROVIDER_ALLOW_PRIVATE_HOSTS=true only for local development."
+    )
+
+
+def _assert_public_provider_host(base_url: str) -> None:
+    """Reject a hostname that resolves to a non-public address.
+
+    Resolution failures are left to the HTTP request so they surface as the
+    existing sanitized 502 instead of a validation error.
+    """
+    try:
+        parts = urlsplit(base_url)
+        hostname = parts.hostname
+        port = parts.port
+    except ValueError as exc:
+        raise ProviderConnectionInvalid("Base URL has an invalid host or port.") from exc
+    if not hostname:
+        raise ProviderConnectionInvalid("Base URL must include a host.")
+    host = hostname.removesuffix(".").lower()
+    _reject_unsafe_host(host)
+    resolved_port = port or (443 if parts.scheme == "https" else 80)
+    try:
+        results = socket.getaddrinfo(host, resolved_port, type=socket.SOCK_STREAM)
+    except (OSError, UnicodeError):
+        return
+    for _family, _type, _proto, _canonname, sockaddr in results:
+        address = _parse_ip(str(sockaddr[0]))
+        if address is not None:
+            _reject_unsafe_address(address)
 
 
 def _is_loopback(hostname: str) -> bool:
-    if hostname.lower() == "localhost":
+    host = hostname.removesuffix(".").lower()
+    if host == "localhost":
         return True
-    address = _parse_ip(hostname)
+    address = _parse_ip(host)
     return address is not None and address.is_loopback
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import socket
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+import httpx
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -23,8 +25,13 @@ from edcraft_backend.dependencies import get_ai_authoring_service
 from edcraft_backend.main import app
 from edcraft_backend.models.provider_connection import ProviderConnection
 from edcraft_backend.models.user import User
+from edcraft_backend.services import provider_connection_service
 from edcraft_backend.services.ai_authoring_providers import ProviderCredentials
 from edcraft_backend.services.ai_authoring_service import AiAuthoringService
+from edcraft_backend.services.provider_connection_service import (
+    ProviderConnectionInvalid,
+    _fetch_models_payload,
+)
 from edcraft_backend.services.provider_secrets import ProviderSecretCipher
 from tests.ai_authoring_helpers import StaticExecutor, make_checked_report
 from tests.conftest import _create_test_client
@@ -312,6 +319,165 @@ async def test_probe_rejects_plain_http_remote_host(test_client: AsyncClient, us
     )
     assert response.status_code == 422, response.text
     assert "Use HTTPS" in response.json()["detail"]
+
+
+UNSAFE_BASE_URLS = [
+    "https://127.0.0.1/v1",
+    "https://localhost/v1",
+    "https://[::1]/v1",
+    "https://10.0.0.5/v1",
+    "https://192.168.1.5/v1",
+    "https://169.254.169.254/v1",
+    "https://host:abc/v1",
+    "https://host:99999/v1",
+    "https://[::1/v1",
+    "https://exa mple.com/v1",
+    "https://host/v1?x=1",
+    "https://metadata.google.internal/v1",
+]
+
+
+@pytest.mark.parametrize("base_url", UNSAFE_BASE_URLS)
+async def test_create_rejects_unsafe_provider_urls(
+    test_client: AsyncClient,
+    db_session: AsyncSession,
+    user: User,
+    base_url: str,
+) -> None:
+    response = await test_client.post(
+        "/ai-authoring/connections",
+        json={
+            "name": "Unsafe provider",
+            "kind": "openai",
+            "base_url": base_url,
+            "api_key": API_KEY,
+            "default_model": "gpt-test",
+            "models": ["gpt-test"],
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert (await db_session.execute(select(ProviderConnection))).scalars().all() == []
+
+
+async def test_dev_flag_allows_private_hosts_but_keeps_metadata_blocked(
+    test_client: AsyncClient,
+    user: User,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PROVIDER_ALLOW_PRIVATE_HOSTS", "true")
+
+    created = await create_connection(test_client, base_url="https://10.0.0.5/v1")
+    assert created["base_url"] == "https://10.0.0.5/v1"
+
+    response = await test_client.post(
+        "/ai-authoring/connections",
+        json={
+            "name": "Metadata provider",
+            "kind": "openai",
+            "base_url": "https://169.254.169.254/v1",
+            "api_key": API_KEY,
+            "default_model": "gpt-test",
+            "models": ["gpt-test"],
+        },
+    )
+    assert response.status_code == 422, response.text
+
+
+async def test_probe_rejects_dns_name_resolving_to_private_address(
+    test_client: AsyncClient,
+    user: User,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def private_getaddrinfo(host: str, port: int, **kwargs: Any) -> list[tuple[Any, ...]]:
+        return [
+            (
+                socket.AF_INET,
+                socket.SOCK_STREAM,
+                socket.IPPROTO_TCP,
+                "",
+                ("10.0.0.5", port),
+            )
+        ]
+
+    monkeypatch.setattr(
+        "edcraft_backend.services.provider_connection_service.socket.getaddrinfo",
+        private_getaddrinfo,
+    )
+
+    response = await test_client.post(
+        "/ai-authoring/connections/probe",
+        json={
+            "kind": "openai",
+            "base_url": "https://internal.example.com/v1",
+            "api_key": API_KEY,
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert "not allowed" in response.json()["detail"]
+
+
+async def test_fetch_models_payload_joins_the_models_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self) -> dict[str, Any]:
+            return {"data": []}
+
+    class FakeAsyncClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        async def __aenter__(self) -> FakeAsyncClient:
+            return self
+
+        async def __aexit__(self, *args: Any) -> bool:
+            return False
+
+        async def get(self, url: str, headers: dict[str, str]) -> FakeResponse:
+            captured["url"] = url
+            return FakeResponse()
+
+    monkeypatch.setattr(provider_connection_service.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(
+        provider_connection_service,
+        "_assert_public_provider_host",
+        lambda _base_url: None,
+    )
+
+    assert await _fetch_models_payload("https://host/v1", API_KEY) == {"data": []}
+    assert captured["url"] == "https://host/v1/models"
+
+
+async def test_fetch_models_payload_maps_invalid_url_to_422(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class InvalidURLClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        async def __aenter__(self) -> InvalidURLClient:
+            return self
+
+        async def __aexit__(self, *args: Any) -> bool:
+            return False
+
+        async def get(self, url: str, headers: dict[str, str]) -> Any:
+            raise httpx.InvalidURL("invalid URL")
+
+    monkeypatch.setattr(provider_connection_service.httpx, "AsyncClient", InvalidURLClient)
+    monkeypatch.setattr(
+        provider_connection_service,
+        "_assert_public_provider_host",
+        lambda _base_url: None,
+    )
+
+    with pytest.raises(ProviderConnectionInvalid) as caught:
+        await _fetch_models_payload("https://host/v1", API_KEY)
+    assert caught.value.status_code == 422
 
 
 async def test_capabilities_include_the_callers_connections(
