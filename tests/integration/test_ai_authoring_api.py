@@ -699,6 +699,64 @@ async def test_cancelled_submit_keeps_a_worker_and_releases_its_slot(tmp_path: P
 
 
 @pytest.mark.asyncio
+async def test_second_cancellation_still_schedules_and_frees_slot(tmp_path: Path) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+
+    async with env_for(
+        tmp_path,
+        StaticExecutor(lambda command: make_checked_report(command)),
+        max_queue=0,
+    ) as env:
+        original_create_job = env.service.store.create_job
+
+        def blocked_create_job(job: StoredJob) -> StoredJob:
+            entered.set()
+            if not release.wait(5):
+                raise RuntimeError("test create_job gate timed out")
+            return original_create_job(job)
+
+        env.service.store.create_job = blocked_create_job  # type: ignore[method-assign]
+        request = SubmitAuthoringJobRequest(
+            prompt="Cancel twice while the queued job is being persisted",
+            difficulty="easy",
+            num_distractors=3,
+            model_profile="test-profile",
+        )
+        submission = asyncio.create_task(env.service.submit(env.user.id, request))
+        assert await asyncio.to_thread(entered.wait, 2)
+        submission.cancel()
+        # Let the first cancellation enter the settlement path, which is still
+        # blocked on persistence, before delivering the second cancellation.
+        await asyncio.sleep(0.05)
+        submission.cancel()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await submission
+        env.service.store.create_job = original_create_job  # type: ignore[method-assign]
+
+        await env.service.wait_for_idle()
+        jobs = env.service.store.list_jobs(env.user.id)
+        assert len(jobs) == 1
+        assert jobs[0].state == "completed"
+
+        # max_queue=0 leaves exactly one slot. A settlement aborted by the
+        # second cancellation would leave the job queued with no worker and
+        # the reservation held, so this follower would fail with 429.
+        follower = await env.service.submit(
+            env.user.id,
+            SubmitAuthoringJobRequest(
+                prompt="Submit after the twice-cancelled request",
+                difficulty="easy",
+                num_distractors=3,
+                model_profile="test-profile",
+            ),
+        )
+        await env.service.wait_for_idle()
+        assert env.service.store.get_job(follower.job_id).state == "completed"
+
+
+@pytest.mark.asyncio
 async def test_per_user_limits_keep_capacity_for_other_users(tmp_path: Path) -> None:
     release = threading.Event()
     started = {

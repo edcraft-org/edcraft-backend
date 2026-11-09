@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from typing import Protocol
 from uuid import UUID
 
@@ -153,6 +153,18 @@ class AuthoringRunner:
         )
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+
+    def schedule_background(
+        self,
+        coro: Coroutine[object, object, None],
+        *,
+        name: str,
+    ) -> None:
+        """Track a detached coroutine so idle/shutdown waits for it."""
+        self._ensure_loop_state()
+        task = asyncio.create_task(coro, name=name)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     async def wait_for_idle(self) -> None:
         """Test/shutdown helper: wait for currently scheduled job tasks."""

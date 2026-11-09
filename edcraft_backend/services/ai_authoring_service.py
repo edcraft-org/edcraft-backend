@@ -251,8 +251,13 @@ class AiAuthoringService:
             await asyncio.shield(persistence)
         except asyncio.CancelledError:
             # The write cannot be interrupted, so keep the job and give it
-            # a worker before propagating cancellation to the caller.
-            await self._finish_cancelled_submission(persistence, job, command, plan, owner_id)
+            # a worker before propagating cancellation to the caller. Settle
+            # from a detached task: a second cancellation of this request must
+            # not abort scheduling or leak the admission slot.
+            self.runner.schedule_background(
+                self._finish_cancelled_submission(persistence, job, command, plan, owner_id),
+                name=f"ai-authoring-settlement-{job_id}",
+            )
             raise
         except Exception:
             await self.runner.release(owner_id)
@@ -274,7 +279,12 @@ class AiAuthoringService:
     ) -> None:
         """Let persistence finish, then schedule the job so it is not orphaned."""
         try:
-            await persistence
+            await asyncio.shield(persistence)
+        except asyncio.CancelledError:
+            # Detached settlement can only be cancelled during loop shutdown;
+            # release rather than leave capacity reserved.
+            await self.runner.release(owner_id)
+            raise
         except Exception:
             await self.runner.release(owner_id)
             return
