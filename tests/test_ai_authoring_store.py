@@ -1,5 +1,7 @@
 """Durable file store, ownership and restart reconciliation tests."""
 
+import hashlib
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -17,6 +19,7 @@ from edcraft_backend.services.ai_authoring_store import (
     AuthoringRequestRecord,
     AuthoringStorageUnavailable,
     AuthoringStore,
+    EvidenceRequirement,
     StoredJob,
 )
 from tests.ai_authoring_helpers import (
@@ -245,3 +248,108 @@ def test_save_approval_and_generation_reject_changed_artifact(
     assert stored.approval is not None
     assert stored.approval.decision == "approved"
     assert stored.last_generation is None
+
+
+def _completed_store(tmp_path: Path) -> tuple[AuthoringStore, UUID, StoredJob]:
+    store = _store(tmp_path)
+    owner = uuid4()
+    command = make_command()
+    job = _job(owner, command.job_id)
+    store.create_job(job)
+    store.mark_started(job.job_id)
+    completed = store.complete_job(job.job_id, make_checked_report(command))
+    return store, owner, completed
+
+
+def _artifact_path(store: AuthoringStore, job: StoredJob) -> Path:
+    return store.root / "artifacts" / str(job.job_id) / "artifact.json"
+
+
+def _report_path(store: AuthoringStore, job: StoredJob) -> Path:
+    return store.root / "artifacts" / str(job.job_id) / "report.json"
+
+
+def test_read_evidence_returns_verified_artifact_and_report(tmp_path: Path) -> None:
+    store, owner, job = _completed_store(tmp_path)
+
+    evidence = store.read_evidence(job.job_id, owner_id=owner)
+
+    assert evidence.job.job_id == job.job_id
+    assert evidence.artifact.artifact_id == job.artifact_id
+    assert evidence.report.status == "checked"
+    assert evidence.artifact_bytes == store.read_artifact(job.job_id)
+
+
+def test_read_evidence_rejects_another_owner(tmp_path: Path) -> None:
+    store, _, job = _completed_store(tmp_path)
+
+    with pytest.raises(AuthoringNotFound):
+        store.read_evidence(job.job_id, owner_id=uuid4())
+
+
+def test_read_evidence_rejects_missing_artifact_file(tmp_path: Path) -> None:
+    store, owner, job = _completed_store(tmp_path)
+    _artifact_path(store, job).unlink()
+
+    with pytest.raises(AuthoringConflict, match="artifact is unavailable"):
+        store.read_evidence(job.job_id, owner_id=owner)
+
+
+def test_read_evidence_rejects_stale_report(tmp_path: Path) -> None:
+    store, owner, job = _completed_store(tmp_path)
+    report = store.read_report(job.job_id)
+    _report_path(store, job).write_bytes(
+        report.model_copy(update={"artifact": None}).model_dump_json().encode()
+    )
+
+    with pytest.raises(AuthoringConflict, match="does not match the job artifact"):
+        store.read_evidence(job.job_id, owner_id=owner)
+
+
+def test_read_evidence_rejects_tampered_bytes(tmp_path: Path) -> None:
+    store, owner, job = _completed_store(tmp_path)
+    _artifact_path(store, job).write_bytes(b'{"tampered":true}')
+
+    with pytest.raises(AuthoringConflict, match="integrity"):
+        store.read_evidence(job.job_id, owner_id=owner)
+
+
+def test_read_evidence_requires_a_current_approval_for_generation(
+    tmp_path: Path,
+) -> None:
+    store, owner, job = _completed_store(tmp_path)
+    digest = job.artifact_sha256 or ""
+    store.save_approval(job.job_id, _approval(digest, owner, "rejected"))
+
+    with pytest.raises(AuthoringConflict, match="must remain approved"):
+        store.read_evidence(
+            job.job_id,
+            owner_id=owner,
+            requirement=EvidenceRequirement.APPROVED,
+        )
+
+    # A rejected decision is still durable review evidence for the review view.
+    assert (
+        store.read_evidence(job.job_id, owner_id=owner).approval.decision == "rejected"
+    )
+
+
+def test_read_evidence_accepts_an_equivalent_reserialized_artifact(
+    tmp_path: Path,
+) -> None:
+    store, owner, job = _completed_store(tmp_path)
+    artifact_path = _artifact_path(store, job)
+    reserialized = json.dumps(json.loads(artifact_path.read_bytes()), indent=2).encode()
+    assert reserialized != artifact_path.read_bytes()
+    artifact_path.write_bytes(reserialized)
+    digest = hashlib.sha256(reserialized).hexdigest()
+    store._mutate(
+        job.job_id,
+        lambda current: current.model_copy(update={"artifact_sha256": digest}),
+    )
+
+    evidence = store.read_evidence(job.job_id, owner_id=owner)
+
+    # The stored raw bytes, not a report re-serialisation, define the artifact.
+    assert evidence.artifact_bytes == reserialized
+    assert evidence.artifact.artifact_id == job.artifact_id
