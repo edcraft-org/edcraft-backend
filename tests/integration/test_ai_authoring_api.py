@@ -28,6 +28,7 @@ from edcraft_backend.dependencies import (
 )
 from edcraft_backend.main import app
 from edcraft_backend.schemas.ai_authoring import SubmitAuthoringJobRequest
+from edcraft_backend.services.ai_authoring_lifecycle import AdmissionLease
 from edcraft_backend.services.ai_authoring_service import AiAuthoringService
 from edcraft_backend.services.ai_authoring_store import (
     AuthoringRequestRecord,
@@ -754,6 +755,106 @@ async def test_second_cancellation_still_schedules_and_frees_slot(tmp_path: Path
         )
         await env.service.wait_for_idle()
         assert env.service.store.get_job(follower.job_id).state == "completed"
+
+
+@pytest.mark.asyncio
+async def test_create_job_failure_releases_the_admission_slot(tmp_path: Path) -> None:
+    async with env_for(
+        tmp_path,
+        StaticExecutor(lambda command: make_checked_report(command)),
+        max_queue=0,
+    ) as env:
+        original_create_job = env.service.store.create_job
+
+        def broken_create_job(job: StoredJob) -> StoredJob:
+            raise RuntimeError("storage is full")
+
+        env.service.store.create_job = broken_create_job  # type: ignore[method-assign]
+        with pytest.raises(RuntimeError, match="storage is full"):
+            await env.service.submit(
+                env.user.id,
+                SubmitAuthoringJobRequest(
+                    prompt="Fail while persisting",
+                    difficulty="easy",
+                    num_distractors=3,
+                    model_profile="test-profile",
+                ),
+            )
+        env.service.store.create_job = original_create_job  # type: ignore[method-assign]
+
+        follower = await env.service.submit(
+            env.user.id,
+            SubmitAuthoringJobRequest(
+                prompt="Submit after a failed write",
+                difficulty="easy",
+                num_distractors=3,
+                model_profile="test-profile",
+            ),
+        )
+        await env.service.wait_for_idle()
+        assert env.service.store.get_job(follower.job_id).state == "completed"
+
+
+@pytest.mark.asyncio
+async def test_schedule_failure_marks_the_job_failed_and_frees_the_slot(
+    tmp_path: Path,
+) -> None:
+    async with env_for(
+        tmp_path,
+        StaticExecutor(lambda command: make_checked_report(command)),
+        max_queue=0,
+    ) as env:
+        original_start_job = env.service.lifecycle._start_job
+
+        def broken_start_job(*args: Any, **kwargs: Any) -> None:
+            raise RuntimeError("cannot schedule")
+
+        env.service.lifecycle._start_job = broken_start_job  # type: ignore[method-assign]
+        with pytest.raises(RuntimeError, match="cannot schedule"):
+            await env.service.submit(
+                env.user.id,
+                SubmitAuthoringJobRequest(
+                    prompt="Fail while scheduling",
+                    difficulty="easy",
+                    num_distractors=3,
+                    model_profile="test-profile",
+                ),
+            )
+        env.service.lifecycle._start_job = original_start_job  # type: ignore[method-assign]
+
+        jobs = env.service.store.list_jobs(env.user.id)
+        assert len(jobs) == 1
+        assert jobs[0].state == "failed"
+        assert jobs[0].error is not None
+        assert jobs[0].error.code == "AUTHORING_FAILED"
+
+        follower = await env.service.submit(
+            env.user.id,
+            SubmitAuthoringJobRequest(
+                prompt="Submit after a failed schedule",
+                difficulty="easy",
+                num_distractors=3,
+                model_profile="test-profile",
+            ),
+        )
+        await env.service.wait_for_idle()
+        assert env.service.store.get_job(follower.job_id).state == "completed"
+
+
+@pytest.mark.asyncio
+async def test_admission_lease_release_is_idempotent() -> None:
+    released: list[UUID] = []
+    owner_id = uuid4()
+
+    async def release(owner: UUID) -> None:
+        released.append(owner)
+
+    lease = AdmissionLease(owner_id, release)
+
+    await lease.release()
+    await lease.release()
+
+    assert released == [owner_id]
 
 
 @pytest.mark.asyncio

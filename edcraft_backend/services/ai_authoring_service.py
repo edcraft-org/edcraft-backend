@@ -9,10 +9,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from edcraft_validator.application.authoring_api import (
-    AuthoringJobCommand,
-    PublicAuthoringError,
-)
+from edcraft_validator.application.authoring_api import AuthoringJobCommand
 from edcraft_validator.application.authoring_contracts import (
     AuthoringResult,
     GenerationAttempt,
@@ -60,13 +57,14 @@ from edcraft_backend.schemas.ai_authoring import (
     ValidationLimits,
 )
 from edcraft_backend.schemas.provider_connection import ProviderConnectionResponse
+from edcraft_backend.services.ai_authoring_lifecycle import AuthoringLifecycle
 from edcraft_backend.services.ai_authoring_providers import (
     JobCredentials,
     JobModelPlan,
     ModelPlan,
     ProviderCredentials,
 )
-from edcraft_backend.services.ai_authoring_runner import AuthoringRunner, JobExecutor
+from edcraft_backend.services.ai_authoring_runner import JobExecutor
 from edcraft_backend.services.ai_authoring_store import (
     ApprovalRecord,
     AuthoringConflict,
@@ -107,17 +105,15 @@ class AiAuthoringService:
     ) -> None:
         self.settings = settings
         self.store = store or AuthoringStore(settings)
-        self.runner = AuthoringRunner(self.store, settings, executor)
+        self.lifecycle = AuthoringLifecycle(self.store, settings, executor)
 
     async def startup(self) -> None:
-        """Prepare durable storage, reconcile interruptions and bind the runner."""
-        await asyncio.to_thread(self.store.ensure_ready)
-        await asyncio.to_thread(self.store.reconcile_startup)
-        await self.runner.start()
+        """Prepare storage, reconcile interruptions and bind the lifecycle."""
+        await self.lifecycle.start()
 
     async def shutdown(self, timeout: float | None = None) -> None:
         """Allow admitted work a bounded chance to finish before process exit."""
-        await self.runner.shutdown(
+        await self.lifecycle.shutdown(
             self.settings.shutdown_timeout_seconds if timeout is None else timeout
         )
 
@@ -212,7 +208,6 @@ class AiAuthoringService:
             relevance=relevance_plan,
         )
 
-        await self.runner.reserve(owner_id)
         job_id = uuid4()
         now = _now()
         command = AuthoringJobCommand(
@@ -246,66 +241,7 @@ class AiAuthoringService:
             created_at=now,
             updated_at=now,
         )
-        persistence = asyncio.create_task(asyncio.to_thread(self.store.create_job, job))
-        try:
-            await asyncio.shield(persistence)
-        except asyncio.CancelledError:
-            # The write cannot be interrupted, so keep the job and give it
-            # a worker before propagating cancellation to the caller. Settle
-            # from a detached task: a second cancellation of this request must
-            # not abort scheduling or leak the admission slot.
-            self.runner.schedule_background(
-                self._finish_cancelled_submission(persistence, job, command, plan, owner_id),
-                name=f"ai-authoring-settlement-{job_id}",
-            )
-            raise
-        except Exception:
-            await self.runner.release(owner_id)
-            raise
-        try:
-            self.runner.start_job(job_id, command, plan, owner_id)
-        except Exception:
-            await self._fail_scheduled_job(job_id, owner_id)
-            raise
-        return job
-
-    async def _finish_cancelled_submission(
-        self,
-        persistence: asyncio.Task[StoredJob],
-        job: StoredJob,
-        command: AuthoringJobCommand,
-        plan: JobModelPlan,
-        owner_id: UUID,
-    ) -> None:
-        """Let persistence finish, then schedule the job so it is not orphaned."""
-        try:
-            await asyncio.shield(persistence)
-        except asyncio.CancelledError:
-            # Detached settlement can only be cancelled during loop shutdown;
-            # release rather than leave capacity reserved.
-            await self.runner.release(owner_id)
-            raise
-        except Exception:
-            await self.runner.release(owner_id)
-            return
-        try:
-            self.runner.start_job(job.job_id, command, plan, owner_id)
-        except Exception:
-            await self._fail_scheduled_job(job.job_id, owner_id)
-
-    async def _fail_scheduled_job(self, job_id: UUID, owner_id: UUID) -> None:
-        """Fail a persisted job that could not be scheduled and release its slot."""
-        try:
-            await asyncio.to_thread(
-                self.store.fail_job,
-                job_id,
-                PublicAuthoringError(
-                    code="AUTHORING_FAILED",
-                    message="Authoring could not be scheduled.",
-                ),
-            )
-        finally:
-            await self.runner.release(owner_id)
+        return await self.lifecycle.submit(job, command, plan)
 
     async def list_jobs(self, owner_id: UUID) -> list[StoredJob]:
         return await asyncio.to_thread(self.store.list_jobs, owner_id)
@@ -315,7 +251,7 @@ class AiAuthoringService:
 
     async def wait_for_idle(self) -> None:
         """Expose deterministic completion to focused tests."""
-        await self.runner.wait_for_idle()
+        await self.lifecycle.wait_for_idle()
 
     async def review(self, owner_id: UUID, job_id: UUID) -> AuthoringReviewResponse:
         """Return sanitized evidence sufficient for an educator decision."""
