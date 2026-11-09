@@ -8,7 +8,7 @@ from uuid import uuid4
 import pytest
 
 from edcraft_backend.services import provider_endpoint
-from edcraft_backend.services.ai_authoring_runtime import ResolvedConnection
+from edcraft_backend.services.provider_endpoint import ResolvedConnection
 
 
 def test_managed_provider_guards_the_host_and_does_not_follow_redirects(

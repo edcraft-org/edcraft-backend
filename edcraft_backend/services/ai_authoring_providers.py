@@ -11,11 +11,6 @@ from edcraft_validator.llm.llm_contracts import (
 )
 from openai import OpenAI
 
-DEFAULT_TIMEOUT_SECONDS = {
-    "soclaas": 600.0,
-    "openai": 120.0,
-}
-
 
 class ManagedProvider:
     """Adapt a validator provider and own its OpenAI client lifecycle."""

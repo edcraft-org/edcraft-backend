@@ -16,8 +16,8 @@ from edcraft_backend.schemas.ai_authoring import (
 from edcraft_backend.services.ai_authoring_runtime import (
     AuthoringValidationError,
     JobRuntime,
-    ResolvedConnection,
 )
+from edcraft_backend.services.provider_endpoint import ResolvedConnection
 from tests.ai_authoring_helpers import make_command
 
 PROFILE = AuthoringProfileSettings(

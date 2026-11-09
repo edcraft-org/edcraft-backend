@@ -9,7 +9,8 @@ from edcraft_validator.llm.provider_registry import create_model_provider
 from edcraft_validator.mcp.client import FastMcpToolClient
 from edcraft_validator.mcp.server import create_validation_server
 
-from edcraft_backend.services.ai_authoring_runtime import ResolvedConnection
+from edcraft_backend.services.ai_authoring_runtime import AuthoringValidationError
+from edcraft_backend.services.provider_endpoint import ResolvedConnection
 
 
 class SelectedModelDecisionProvider(ConfiguredDecisionProvider):
@@ -42,8 +43,8 @@ def build_plan_provider(role: ResolvedConnection) -> ModelProvider:
 
 def _named_role(role: ResolvedConnection) -> tuple[str, str]:
     model = role.selection.model
-    if model is None:
-        raise ValueError("An advisory model must name a model")
+    if not isinstance(model, str):
+        raise AuthoringValidationError("An advisory model must name a model.")
     return role.selection.provider, model
 
 

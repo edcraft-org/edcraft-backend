@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
 from typing import Protocol
-from uuid import UUID
 
 from edcraft_validator.application.authoring_api import (
     AuthoringJobCommand,
     AuthoringJobRecord,
 )
 from edcraft_validator.application.authoring_contracts import AuthoringProgress
-from edcraft_validator.llm.llm_contracts import TemplateProviderSelection
 
 from edcraft_backend.config.settings import AuthoringProfileSettings
 from edcraft_backend.exceptions import EdCraftBaseException
@@ -20,11 +17,7 @@ from edcraft_backend.schemas.ai_authoring import (
     AuthoringModelSelection,
     SubmitAuthoringJobRequest,
 )
-from edcraft_backend.services.ai_authoring_providers import (
-    DEFAULT_TIMEOUT_SECONDS,
-    ManagedProvider,
-)
-from edcraft_backend.services.provider_endpoint import ProviderEndpoint
+from edcraft_backend.services.provider_endpoint import ResolvedConnection
 
 ProgressCallback = Callable[[AuthoringProgress], None]
 
@@ -45,73 +38,6 @@ class JobExecutor(Protocol):
         runtime: JobRuntime,
         on_progress: ProgressCallback | None,
     ) -> AuthoringJobRecord: ...
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedConnection:
-    """One role's provider selection, with a BYOK secret when it has one.
-
-    A role without a secret uses a server-configured profile, so the same
-    value carries both branches and the runtime never has to branch again.
-    """
-
-    selection: TemplateProviderSelection
-    connection_id: UUID | None = None
-    api_key: str | None = field(default=None, repr=False)
-    base_url: str | None = None
-
-    @classmethod
-    def for_profile(cls, profile: AuthoringProfileSettings) -> ResolvedConnection:
-        """Resolve a server profile into a role with no per-job secret."""
-        return cls(
-            selection=TemplateProviderSelection(
-                provider=profile.provider, model=profile.model
-            )
-        )
-
-    @classmethod
-    def for_connection(
-        cls,
-        *,
-        connection_id: UUID,
-        provider: str,
-        model: str,
-        api_key: str,
-        base_url: str,
-    ) -> ResolvedConnection:
-        """Resolve one owner-scoped connection into a role with a BYOK secret."""
-        return cls(
-            selection=TemplateProviderSelection(provider=provider, model=model),
-            connection_id=connection_id,
-            api_key=api_key,
-            base_url=base_url,
-        )
-
-    @property
-    def is_byok(self) -> bool:
-        """Whether this role carries a per-job secret instead of a profile."""
-        return self.api_key is not None
-
-    @property
-    def model(self) -> str:
-        """The role's model name; every authoring role must name one."""
-        model = self.selection.model
-        if not isinstance(model, str):
-            raise ValueError("The authoring role must name a model.")
-        return model
-
-    def open_provider(self) -> ManagedProvider:
-        """Build a fresh provider; the secret stays inside this value."""
-        if self.api_key is None:
-            raise ValueError("A server profile does not carry a provider secret.")
-        endpoint = ProviderEndpoint.parse(self.selection.provider, self.base_url)
-        return endpoint.open_provider(
-            self.api_key,
-            self.model,
-            timeout_seconds=DEFAULT_TIMEOUT_SECONDS.get(
-                self.selection.provider, 120.0
-            ),
-        )
 
 
 class JobRuntime:
@@ -216,5 +142,4 @@ __all__ = [
     "JobExecutor",
     "JobRuntime",
     "ProgressCallback",
-    "ResolvedConnection",
 ]

@@ -20,8 +20,11 @@ from edcraft_backend.schemas.provider_connection import (
     ProviderModelList,
     ProviderProbeRequest,
 )
-from edcraft_backend.services.ai_authoring_runtime import ResolvedConnection
-from edcraft_backend.services.provider_endpoint import MAX_MODELS, ProviderEndpoint
+from edcraft_backend.services.provider_endpoint import (
+    MAX_MODELS,
+    ProviderEndpoint,
+    ResolvedConnection,
+)
 from edcraft_backend.services.provider_errors import (
     ProviderConnectionInvalid,
     ProviderConnectionNotFound,

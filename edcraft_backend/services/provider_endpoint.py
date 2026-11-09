@@ -1,9 +1,10 @@
-"""One owner for provider URL policy, probing and client construction.
+"""One owner for provider policy, roles, probing and client construction.
 
 The connection service persists secrets and owner-scoped records; this module
-turns a kind plus a raw URL into a validated endpoint, lists models through an
-injectable transport, and builds the validator provider used by a job. Both the
-probe path and the job path therefore share the same outbound policy.
+turns a kind plus a raw URL into a validated endpoint, carries one resolved
+role's selection and optional secret, lists models through an injectable
+transport, and builds the validator provider used by a job. Both the probe path
+and the job path therefore share the same outbound policy.
 """
 
 from __future__ import annotations
@@ -11,18 +12,23 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 from urllib.parse import urlparse, urlsplit, urlunsplit
+from uuid import UUID
 
 import httpx
-from edcraft_validator.llm.llm_contracts import ModelProvider
+from edcraft_validator.llm.llm_contracts import (
+    ModelProvider,
+    TemplateProviderSelection,
+)
 from edcraft_validator.llm.openai_compatible_provider import (
     OpenAIProvider,
     SocLaasProvider,
 )
 from openai import DefaultHttpxClient, OpenAI
 
+from edcraft_backend.config.settings import AuthoringProfileSettings
 from edcraft_backend.services import provider_host_guard
 from edcraft_backend.services.ai_authoring_providers import ManagedProvider
 from edcraft_backend.services.provider_errors import (
@@ -36,6 +42,77 @@ DEFAULT_BASE_URLS: dict[str, str | None] = {
 }
 MAX_MODELS = 500
 PROBE_TIMEOUT_SECONDS = 20.0
+DEFAULT_TIMEOUT_SECONDS = {
+    "soclaas": 600.0,
+    "openai": 120.0,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedConnection:
+    """One role's provider selection, with a BYOK secret when it has one.
+
+    A role without a secret uses a server-configured profile, so the same
+    value carries both branches and job wiring never has to branch again.
+    """
+
+    selection: TemplateProviderSelection
+    connection_id: UUID | None = None
+    api_key: str | None = field(default=None, repr=False)
+    base_url: str | None = None
+
+    @classmethod
+    def for_profile(cls, profile: AuthoringProfileSettings) -> ResolvedConnection:
+        """Resolve a server profile into a role with no per-job secret."""
+        return cls(
+            selection=TemplateProviderSelection(
+                provider=profile.provider, model=profile.model
+            )
+        )
+
+    @classmethod
+    def for_connection(
+        cls,
+        *,
+        connection_id: UUID,
+        provider: str,
+        model: str,
+        api_key: str,
+        base_url: str,
+    ) -> ResolvedConnection:
+        """Resolve one owner-scoped connection into a role with a BYOK secret."""
+        return cls(
+            selection=TemplateProviderSelection(provider=provider, model=model),
+            connection_id=connection_id,
+            api_key=api_key,
+            base_url=base_url,
+        )
+
+    @property
+    def is_byok(self) -> bool:
+        """Whether this role carries a per-job secret instead of a profile."""
+        return self.api_key is not None
+
+    @property
+    def model(self) -> str:
+        """The role's model name; every authoring role must name one."""
+        model = self.selection.model
+        if not isinstance(model, str):
+            raise ValueError("The authoring role must name a model.")
+        return model
+
+    def open_provider(self) -> ManagedProvider:
+        """Build a fresh provider; the secret stays inside this value."""
+        if self.api_key is None:
+            raise ValueError("A server profile does not carry a provider secret.")
+        endpoint = ProviderEndpoint.parse(self.selection.provider, self.base_url)
+        return endpoint.open_provider(
+            self.api_key,
+            self.model,
+            timeout_seconds=DEFAULT_TIMEOUT_SECONDS.get(
+                self.selection.provider, 120.0
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,10 +329,12 @@ def _extract_model_ids(entries: list[object]) -> list[str]:
 
 __all__ = [
     "DEFAULT_BASE_URLS",
+    "DEFAULT_TIMEOUT_SECONDS",
     "HttpxModelTransport",
     "MAX_MODELS",
     "ModelTransport",
     "PROBE_TIMEOUT_SECONDS",
     "ProviderEndpoint",
     "ProviderHttpResponse",
+    "ResolvedConnection",
 ]

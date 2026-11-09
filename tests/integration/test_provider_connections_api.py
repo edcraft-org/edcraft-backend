@@ -26,7 +26,6 @@ from edcraft_backend.main import app
 from edcraft_backend.models.provider_connection import ProviderConnection
 from edcraft_backend.models.user import User
 from edcraft_backend.services import provider_endpoint
-from edcraft_backend.services.ai_authoring_runtime import ResolvedConnection
 from edcraft_backend.services.ai_authoring_service import AiAuthoringService
 from edcraft_backend.services.provider_connection_service import (
     ProviderConnectionInvalid,
@@ -35,6 +34,7 @@ from edcraft_backend.services.provider_endpoint import (
     HttpxModelTransport,
     ProviderEndpoint,
     ProviderHttpResponse,
+    ResolvedConnection,
 )
 from edcraft_backend.services.provider_secrets import ProviderSecretCipher
 from tests.ai_authoring_helpers import StaticExecutor, make_checked_report

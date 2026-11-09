@@ -18,9 +18,10 @@ from edcraft_backend.services.ai_authoring_judge import (
 )
 from edcraft_backend.services.ai_authoring_providers import ManagedProvider
 from edcraft_backend.services.ai_authoring_runtime import (
+    AuthoringValidationError,
     JobRuntime,
-    ResolvedConnection,
 )
+from edcraft_backend.services.provider_endpoint import ResolvedConnection
 from tests.ai_authoring_helpers import make_command
 
 
@@ -211,7 +212,7 @@ def test_model_tool_client_wires_different_judges(
 
 
 def test_model_tool_client_requires_named_models() -> None:
-    with pytest.raises(ValueError, match="name a model"):
+    with pytest.raises(AuthoringValidationError, match="name a model"):
         build_model_tool_client(
             difficulty=ResolvedConnection(
                 selection=TemplateProviderSelection(provider="soclaas")

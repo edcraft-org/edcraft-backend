@@ -26,7 +26,7 @@ from edcraft_backend.schemas.ai_authoring import (
     PreviewResponse,
     SubmitAuthoringJobRequest,
 )
-from edcraft_backend.services.ai_authoring_runtime import ResolvedConnection
+from edcraft_backend.services.provider_endpoint import ResolvedConnection
 
 # FastAPI keeps its standard HTTPValidationError 422 body for request
 # validation. AuthoringValidationError can also return a sanitized

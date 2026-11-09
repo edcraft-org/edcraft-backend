@@ -33,10 +33,8 @@ from edcraft_validator.llm.llm_contracts import PlannedGenerationResponse
 from edcraft_validator.validation.check_contracts import ToolEvidence, ToolFinding
 from edcraft_validator.validation.validation_contracts import ValidationEvidence
 
-from edcraft_backend.services.ai_authoring_runtime import (
-    JobRuntime,
-    ResolvedConnection,
-)
+from edcraft_backend.services.ai_authoring_runtime import JobRuntime
+from edcraft_backend.services.provider_endpoint import ResolvedConnection
 
 CANDIDATE: dict[str, Any] = {
     "template_id": "arithmetic.linear_sum",

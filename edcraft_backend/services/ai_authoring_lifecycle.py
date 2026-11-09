@@ -2,8 +2,8 @@
 
 The lifecycle reserves admission, persists the queued record, schedules the
 worker and releases the reservation exactly once. The store stays plain
-persistence and the executor stays a synchronous adapter, so a cancellation
-or scheduling failure is settled in one place.
+persistence and the runtime owns synchronous execution, so a cancellation or
+scheduling failure is settled in one place.
 """
 
 from __future__ import annotations
@@ -100,9 +100,9 @@ class AuthoringLifecycle:
     ) -> StoredJob:
         """Admit, persist and schedule one job without waiting for model work."""
         lease = await self._reserve(job.owner_id)
-        persistence = asyncio.create_task(asyncio.to_thread(self._store.create_job, job))
+        write_task = asyncio.create_task(asyncio.to_thread(self._store.create_job, job))
         try:
-            await asyncio.shield(persistence)
+            await asyncio.shield(write_task)
         except asyncio.CancelledError:
             # The write cannot be interrupted, so keep the job and give it a
             # worker before propagating cancellation. Settlement runs detached:
@@ -110,7 +110,7 @@ class AuthoringLifecycle:
             # or leak the admission slot.
             self._schedule_background(
                 self._settle_after_cancellation(
-                    persistence, job.job_id, command, runtime, lease
+                    write_task, job.job_id, command, runtime, lease
                 ),
                 name=f"ai-authoring-settlement-{job.job_id}",
             )
@@ -148,15 +148,15 @@ class AuthoringLifecycle:
 
     async def _settle_after_cancellation(
         self,
-        persistence: asyncio.Task[StoredJob],
+        write_task: asyncio.Task[StoredJob],
         job_id: UUID,
         command: AuthoringJobCommand,
         runtime: JobRuntime,
         lease: AdmissionLease,
     ) -> None:
-        """Let persistence finish, then schedule the job so it is not orphaned."""
+        """Let the write finish, then schedule the job so it is not orphaned."""
         try:
-            await asyncio.shield(persistence)
+            await asyncio.shield(write_task)
         except asyncio.CancelledError:
             # Detached settlement can only be cancelled during loop shutdown;
             # release rather than leave capacity reserved.

@@ -59,7 +59,6 @@ from edcraft_backend.services.ai_authoring_runtime import (
     AuthoringValidationError,
     JobExecutor,
     JobRuntime,
-    ResolvedConnection,
 )
 from edcraft_backend.services.ai_authoring_store import (
     ApprovalRecord,
@@ -71,6 +70,7 @@ from edcraft_backend.services.ai_authoring_store import (
     EvidenceRequirement,
     StoredJob,
 )
+from edcraft_backend.services.provider_endpoint import ResolvedConnection
 
 ApprovalView = StoredReviewerApproval
 
