@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from typing import Any
+from uuid import uuid4
 
 import pytest
 
 from edcraft_backend.services import provider_endpoint
-from edcraft_backend.services.ai_authoring_providers import ProviderCredentials
-from edcraft_backend.services.provider_endpoint import build_managed_provider
+from edcraft_backend.services.ai_authoring_runtime import ResolvedConnection
 
 
 def test_managed_provider_guards_the_host_and_does_not_follow_redirects(
@@ -30,16 +30,17 @@ def test_managed_provider_guards_the_host_and_does_not_follow_redirects(
         "assert_public_provider_host",
         lambda base_url: guarded.append(base_url),
     )
-    credentials = ProviderCredentials(
+    connection = ResolvedConnection.for_connection(
+        connection_id=uuid4(),
         provider="openai",
         model="test-model",
         api_key="sk-test",
         base_url="https://api.example.com/v1",
     )
 
-    provider = build_managed_provider(credentials)
+    provider = connection.open_provider()
 
-    assert guarded == [credentials.base_url]
+    assert guarded == [connection.base_url]
     http_client = captured["http_client"]
     assert http_client.follow_redirects is False
     http_client.close()

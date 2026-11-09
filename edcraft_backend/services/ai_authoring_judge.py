@@ -9,8 +9,7 @@ from edcraft_validator.llm.provider_registry import create_model_provider
 from edcraft_validator.mcp.client import FastMcpToolClient
 from edcraft_validator.mcp.server import create_validation_server
 
-from edcraft_backend.services.ai_authoring_providers import ModelPlan
-from edcraft_backend.services.provider_endpoint import build_managed_provider
+from edcraft_backend.services.ai_authoring_runtime import ResolvedConnection
 
 
 class SelectedModelDecisionProvider(ConfiguredDecisionProvider):
@@ -34,24 +33,24 @@ def judge_settings_for(provider: str, model: str) -> JudgeSettings:
     )
 
 
-def build_plan_provider(plan: ModelPlan) -> ModelProvider:
-    """Build one role's provider from BYOK credentials or a server profile."""
-    if plan.credentials is not None:
-        return build_managed_provider(plan.credentials)
-    return create_model_provider(plan.selection)
+def build_plan_provider(role: ResolvedConnection) -> ModelProvider:
+    """Build one role's provider from a BYOK connection or a server profile."""
+    if role.is_byok:
+        return role.open_provider()
+    return create_model_provider(role.selection)
 
 
-def _named_role(plan: ModelPlan) -> tuple[str, str]:
-    model = plan.selection.model
+def _named_role(role: ResolvedConnection) -> tuple[str, str]:
+    model = role.selection.model
     if model is None:
         raise ValueError("An advisory model must name a model")
-    return plan.selection.provider, model
+    return role.selection.provider, model
 
 
 def build_model_tool_client(
     *,
-    difficulty: ModelPlan,
-    relevance: ModelPlan,
+    difficulty: ResolvedConnection,
+    relevance: ResolvedConnection,
 ) -> FastMcpToolClient:
     """Build validation tools with separately selected advisory models."""
     difficulty_provider, difficulty_model = _named_role(difficulty)

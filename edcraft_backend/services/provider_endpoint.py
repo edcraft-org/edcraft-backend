@@ -24,10 +24,7 @@ from edcraft_validator.llm.openai_compatible_provider import (
 from openai import DefaultHttpxClient, OpenAI
 
 from edcraft_backend.services import provider_host_guard
-from edcraft_backend.services.ai_authoring_providers import (
-    ManagedProvider,
-    ProviderCredentials,
-)
+from edcraft_backend.services.ai_authoring_providers import ManagedProvider
 from edcraft_backend.services.provider_errors import (
     ProviderConnectionInvalid,
     ProviderConnectionUnavailable,
@@ -136,11 +133,6 @@ class ProviderEndpoint:
         provider_host_guard.reject_unsafe_host(hostname)
         return cls(kind=kind, base_url=value.rstrip("/"))
 
-    @classmethod
-    def from_credentials(cls, credentials: ProviderCredentials) -> ProviderEndpoint:
-        """Revalidate credentials resolved for one job before contacting them."""
-        return cls.parse(credentials.provider, credentials.base_url)
-
     async def list_models(
         self,
         api_key: str,
@@ -215,16 +207,6 @@ class ProviderEndpoint:
         return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
 
 
-def build_managed_provider(credentials: ProviderCredentials) -> ManagedProvider:
-    """Compatibility entry point for job wiring; ownership lives here."""
-    endpoint = ProviderEndpoint.from_credentials(credentials)
-    return endpoint.open_provider(
-        credentials.api_key,
-        credentials.model,
-        timeout_seconds=credentials.timeout_seconds,
-    )
-
-
 def _resolve_base_url(kind: str, raw: str | None) -> str:
     value = (raw or "").strip()
     if not value and kind == "soclaas":
@@ -276,5 +258,4 @@ __all__ = [
     "PROBE_TIMEOUT_SECONDS",
     "ProviderEndpoint",
     "ProviderHttpResponse",
-    "build_managed_provider",
 ]

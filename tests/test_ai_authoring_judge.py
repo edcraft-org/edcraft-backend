@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 from edcraft_validator.llm.forced_decision import ClassDecision
@@ -15,11 +16,10 @@ from edcraft_backend.services.ai_authoring_judge import (
     build_plan_provider,
     judge_settings_for,
 )
-from edcraft_backend.services.ai_authoring_providers import (
-    JobModelPlan,
-    ManagedProvider,
-    ModelPlan,
-    ProviderCredentials,
+from edcraft_backend.services.ai_authoring_providers import ManagedProvider
+from edcraft_backend.services.ai_authoring_runtime import (
+    JobRuntime,
+    ResolvedConnection,
 )
 from tests.ai_authoring_helpers import make_command
 
@@ -120,15 +120,16 @@ def test_selected_model_decision_provider_rejects_providers_without_decisions() 
         )
 
 
-def test_provider_credentials_repr_hides_api_key() -> None:
-    credentials = ProviderCredentials(
+def test_resolved_connection_repr_hides_api_key() -> None:
+    connection = ResolvedConnection.for_connection(
+        connection_id=uuid4(),
         provider="openai",
         model="gpt-4.1-mini",
         api_key="sk-secret-value",
         base_url="https://api.openai.com/v1",
     )
 
-    rendered = repr(credentials)
+    rendered = repr(connection)
 
     assert "sk-secret-value" not in rendered
     assert "openai" in rendered
@@ -139,31 +140,29 @@ def test_provider_credentials_repr_hides_api_key() -> None:
 def test_build_plan_provider_prefers_byok_credentials(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    credentials = ProviderCredentials(
+    role = ResolvedConnection.for_connection(
+        connection_id=uuid4(),
         provider="openai",
         model="gpt-4.1-mini",
         api_key="sk-test",
         base_url="https://api.openai.com/v1",
     )
     managed = StubProvider()
-    plan = ModelPlan(selection("openai", "gpt-4.1-mini"), credentials)
-    monkeypatch.setattr(
-        ai_authoring_judge, "build_managed_provider", lambda _credentials: managed
-    )
+    monkeypatch.setattr(ResolvedConnection, "open_provider", lambda _self: managed)
 
-    assert build_plan_provider(plan) is managed
+    assert build_plan_provider(role) is managed
 
 
 def test_build_plan_provider_uses_a_server_profile(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     managed = StubProvider(provider="soclaas", model="x-test-2")
-    plan = ModelPlan(selection("soclaas", "x-test-2"))
+    role = ResolvedConnection(selection=selection("soclaas", "x-test-2"))
     monkeypatch.setattr(
         ai_authoring_judge, "create_model_provider", lambda _selection: managed
     )
 
-    assert build_plan_provider(plan) is managed
+    assert build_plan_provider(role) is managed
 
 
 def test_model_tool_client_wires_different_judges(
@@ -192,12 +191,12 @@ def test_model_tool_client_wires_different_judges(
     monkeypatch.setattr(
         ai_authoring_judge,
         "build_plan_provider",
-        lambda plan: providers[(plan.selection.provider, plan.selection.model)],
+        lambda role: providers[(role.selection.provider, role.selection.model)],
     )
 
     client = build_model_tool_client(
-        difficulty=ModelPlan(selection("soclaas", "x-test-2")),
-        relevance=ModelPlan(selection("openai", "gpt-4.1-mini")),
+        difficulty=ResolvedConnection(selection=selection("soclaas", "x-test-2")),
+        relevance=ResolvedConnection(selection=selection("openai", "gpt-4.1-mini")),
     )
 
     assert client.server is server
@@ -214,8 +213,10 @@ def test_model_tool_client_wires_different_judges(
 def test_model_tool_client_requires_named_models() -> None:
     with pytest.raises(ValueError, match="name a model"):
         build_model_tool_client(
-            difficulty=ModelPlan(TemplateProviderSelection(provider="soclaas")),
-            relevance=ModelPlan(selection("soclaas", "x-test-2")),
+            difficulty=ResolvedConnection(
+                selection=TemplateProviderSelection(provider="soclaas")
+            ),
+            relevance=ResolvedConnection(selection=selection("soclaas", "x-test-2")),
         )
 
 
@@ -223,10 +224,13 @@ def test_runner_profile_path_uses_server_judge_tool_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     command = make_command()
-    plan = JobModelPlan(
-        author=ModelPlan(selection("soclaas", "x-test-2")),
-        difficulty=ModelPlan(selection("soclaas", "x-test-2")),
-        relevance=ModelPlan(selection("openai", "gpt-4.1-mini")),
+    difficulty = ResolvedConnection(selection=selection("soclaas", "x-test-2"))
+    relevance = ResolvedConnection(selection=selection("openai", "gpt-4.1-mini"))
+    runtime = JobRuntime(
+        author=difficulty,
+        difficulty=difficulty,
+        relevance=relevance,
+        executor=lambda *_args: None,
     )
     tool_client = object()
     record = object()
@@ -250,12 +254,12 @@ def test_runner_profile_path_uses_server_judge_tool_client(
         lambda **kwargs: SimpleNamespace(**kwargs),
     )
 
-    result = ai_authoring_runner.run_library_authoring_job(command, plan, None)
+    result = ai_authoring_runner.run_library_authoring_job(command, runtime, None)
 
     assert result is record
     assert captured["tool_plan"] == {
-        "difficulty": plan.difficulty,
-        "relevance": plan.relevance,
+        "difficulty": runtime.difficulty,
+        "relevance": runtime.relevance,
     }
     assert captured["application_factory"]().tool_client is tool_client
     assert "provider_factory" not in captured
@@ -265,17 +269,18 @@ def test_runner_byok_path_uses_author_credentials(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     command = make_command()
-    credentials = ProviderCredentials(
+    author = ResolvedConnection.for_connection(
+        connection_id=uuid4(),
         provider="openai",
         model="gpt-4.1-mini",
         api_key="sk-test",
         base_url="https://api.openai.com/v1",
     )
-    author = ModelPlan(selection("openai", "gpt-4.1-mini"), credentials)
-    plan = JobModelPlan(
+    runtime = JobRuntime(
         author=author,
         difficulty=author,
         relevance=author,
+        executor=lambda *_args: None,
     )
     tool_client = object()
     managed = object()
@@ -289,9 +294,7 @@ def test_runner_byok_path_uses_author_credentials(
     monkeypatch.setattr(
         ai_authoring_runner, "build_model_tool_client", lambda **kwargs: tool_client
     )
-    monkeypatch.setattr(
-        ai_authoring_runner, "build_managed_provider", lambda _credentials: managed
-    )
+    monkeypatch.setattr(ResolvedConnection, "open_provider", lambda _self: managed)
     monkeypatch.setattr(ai_authoring_runner, "run_authoring_job_sync", fake_run)
     monkeypatch.setattr(
         ai_authoring_runner,
@@ -299,7 +302,7 @@ def test_runner_byok_path_uses_author_credentials(
         lambda **kwargs: SimpleNamespace(**kwargs),
     )
 
-    result = ai_authoring_runner.run_library_authoring_job(command, plan, None)
+    result = ai_authoring_runner.run_library_authoring_job(command, runtime, None)
 
     assert result is record
     assert captured["application_factory"]().tool_client is tool_client

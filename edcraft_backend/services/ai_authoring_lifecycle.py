@@ -21,11 +21,9 @@ from edcraft_validator.application.authoring_contracts import AuthoringProgress
 
 from edcraft_backend.config.settings import AuthoringSettings
 from edcraft_backend.exceptions import EdCraftBaseException
-from edcraft_backend.services.ai_authoring_providers import JobModelPlan
-from edcraft_backend.services.ai_authoring_runner import (
-    JobExecutor,
+from edcraft_backend.services.ai_authoring_runtime import (
+    JobRuntime,
     ProgressCallback,
-    run_library_authoring_job,
 )
 from edcraft_backend.services.ai_authoring_store import AuthoringStore, StoredJob
 
@@ -74,15 +72,9 @@ class AdmissionLease:
 class AuthoringLifecycle:
     """Reserve, persist, schedule, finish and release one admitted job."""
 
-    def __init__(
-        self,
-        store: AuthoringStore,
-        settings: AuthoringSettings,
-        executor: JobExecutor | None = None,
-    ) -> None:
+    def __init__(self, store: AuthoringStore, settings: AuthoringSettings) -> None:
         self._store = store
         self._settings = settings
-        self._executor: JobExecutor = executor or run_library_authoring_job
         self._loop: asyncio.AbstractEventLoop | None = None
         self._semaphore: asyncio.Semaphore | None = None
         self._owner_semaphores: dict[UUID, asyncio.Semaphore] = {}
@@ -104,7 +96,7 @@ class AuthoringLifecycle:
         self,
         job: StoredJob,
         command: AuthoringJobCommand,
-        plan: JobModelPlan,
+        runtime: JobRuntime,
     ) -> StoredJob:
         """Admit, persist and schedule one job without waiting for model work."""
         lease = await self._reserve(job.owner_id)
@@ -118,7 +110,7 @@ class AuthoringLifecycle:
             # or leak the admission slot.
             self._schedule_background(
                 self._settle_after_cancellation(
-                    persistence, job.job_id, command, plan, lease
+                    persistence, job.job_id, command, runtime, lease
                 ),
                 name=f"ai-authoring-settlement-{job.job_id}",
             )
@@ -127,7 +119,7 @@ class AuthoringLifecycle:
             await lease.release()
             raise
         try:
-            self._start_job(job.job_id, command, plan, lease)
+            self._start_job(job.job_id, command, runtime, lease)
         except Exception:
             await self._fail_scheduled_job(job.job_id, lease)
             raise
@@ -159,7 +151,7 @@ class AuthoringLifecycle:
         persistence: asyncio.Task[StoredJob],
         job_id: UUID,
         command: AuthoringJobCommand,
-        plan: JobModelPlan,
+        runtime: JobRuntime,
         lease: AdmissionLease,
     ) -> None:
         """Let persistence finish, then schedule the job so it is not orphaned."""
@@ -174,7 +166,7 @@ class AuthoringLifecycle:
             await lease.release()
             return
         try:
-            self._start_job(job_id, command, plan, lease)
+            self._start_job(job_id, command, runtime, lease)
         except Exception:
             await self._fail_scheduled_job(job_id, lease)
 
@@ -223,13 +215,13 @@ class AuthoringLifecycle:
         self,
         job_id: UUID,
         command: AuthoringJobCommand,
-        plan: JobModelPlan,
+        runtime: JobRuntime,
         lease: AdmissionLease,
     ) -> None:
         """Schedule an admitted job without waiting for model work."""
         self._ensure_loop_state()
         task = asyncio.create_task(
-            self._run(job_id, command, plan, lease),
+            self._run(job_id, command, runtime, lease),
             name=f"ai-authoring-{job_id}",
         )
         self._tasks.add(task)
@@ -251,7 +243,7 @@ class AuthoringLifecycle:
         self,
         job_id: UUID,
         command: AuthoringJobCommand,
-        plan: JobModelPlan,
+        runtime: JobRuntime,
         lease: AdmissionLease,
     ) -> None:
         owner_semaphore = self._owner_semaphore(lease.owner_id)
@@ -264,9 +256,8 @@ class AuthoringLifecycle:
                     await asyncio.to_thread(self._store.mark_started, job_id)
                     try:
                         record = await asyncio.to_thread(
-                            self._executor,
+                            runtime.run,
                             command,
-                            plan,
                             self._progress_callback(job_id),
                         )
                         await asyncio.to_thread(

@@ -26,10 +26,7 @@ from edcraft_backend.schemas.ai_authoring import (
     PreviewResponse,
     SubmitAuthoringJobRequest,
 )
-from edcraft_backend.services.ai_authoring_providers import (
-    JobCredentials,
-    ProviderCredentials,
-)
+from edcraft_backend.services.ai_authoring_runtime import ResolvedConnection
 
 # FastAPI keeps its standard HTTPValidationError 422 body for request
 # validation. AuthoringValidationError can also return a sanitized
@@ -76,32 +73,30 @@ async def submit_job(
 ) -> AuthoringJobSubmittedResponse:
     """Admit one authoring job and return its polling URL."""
 
-    async def resolve_credentials(
+    async def resolve_connection(
         selection: AuthoringModelSelection | None,
-    ) -> ProviderCredentials | None:
+    ) -> ResolvedConnection | None:
         if selection is None or selection.connection_id is None:
             return None
         return await connections.resolve(
             user.id, selection.connection_id, selection.model
         )
 
-    author_credentials = None
+    author_connection = None
     if payload.connection_id is not None:
-        author_credentials = await connections.resolve(
+        author_connection = await connections.resolve(
             user.id, payload.connection_id, payload.model
         )
     judges = payload.judges
     job = await service.submit(
         user.id,
         payload,
-        JobCredentials(
-            author=author_credentials,
-            difficulty=await resolve_credentials(
-                judges.difficulty if judges else None
-            ),
-            relevance=await resolve_credentials(
-                judges.relevance if judges else None
-            ),
+        author_connection=author_connection,
+        difficulty_connection=await resolve_connection(
+            judges.difficulty if judges else None
+        ),
+        relevance_connection=await resolve_connection(
+            judges.relevance if judges else None
         ),
     )
     return AuthoringJobSubmittedResponse(

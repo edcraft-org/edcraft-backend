@@ -20,7 +20,7 @@ from edcraft_backend.schemas.provider_connection import (
     ProviderModelList,
     ProviderProbeRequest,
 )
-from edcraft_backend.services.ai_authoring_providers import ProviderCredentials
+from edcraft_backend.services.ai_authoring_runtime import ResolvedConnection
 from edcraft_backend.services.provider_endpoint import MAX_MODELS, ProviderEndpoint
 from edcraft_backend.services.provider_errors import (
     ProviderConnectionInvalid,
@@ -139,7 +139,7 @@ class ProviderConnectionService:
         owner_id: UUID,
         connection_id: UUID,
         model: str | None,
-    ) -> ProviderCredentials:
+    ) -> ResolvedConnection:
         """Decrypt one connection for a single job, never persisting the key."""
         connection = await self._owned(owner_id, connection_id)
         if not connection.enabled:
@@ -150,7 +150,8 @@ class ProviderConnectionService:
         endpoint = ProviderEndpoint.parse(
             cast(ProviderKind, connection.kind), connection.base_url
         )
-        return ProviderCredentials(
+        return ResolvedConnection.for_connection(
+            connection_id=connection.id,
             provider=connection.kind,
             model=selected,
             api_key=self._decrypt(connection),

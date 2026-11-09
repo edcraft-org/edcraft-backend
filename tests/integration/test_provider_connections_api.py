@@ -26,7 +26,7 @@ from edcraft_backend.main import app
 from edcraft_backend.models.provider_connection import ProviderConnection
 from edcraft_backend.models.user import User
 from edcraft_backend.services import provider_endpoint
-from edcraft_backend.services.ai_authoring_providers import ProviderCredentials
+from edcraft_backend.services.ai_authoring_runtime import ResolvedConnection
 from edcraft_backend.services.ai_authoring_service import AiAuthoringService
 from edcraft_backend.services.provider_connection_service import (
     ProviderConnectionInvalid,
@@ -518,8 +518,9 @@ async def test_submit_uses_connection_credentials(
         assert status.status_code == 200, status.text
         assert status.json()["state"] == "completed"
 
-        assert executor.credentials == [
-            ProviderCredentials(
+        assert executor.author_connections == [
+            ResolvedConnection.for_connection(
+                connection_id=UUID(created["id"]),
                 provider="openai",
                 model="gpt-test",
                 api_key=API_KEY,
@@ -553,7 +554,7 @@ async def test_submit_keeps_legacy_profile_path_working(
         assert response.status_code == 202, response.text
         await service.wait_for_idle()
 
-        assert executor.credentials == [None]
+        assert executor.author_connections == [None]
         command = executor.commands[0]
         assert command.author.provider == "stub"
         assert command.author.model == "stub-model"
@@ -579,9 +580,9 @@ async def test_judges_inherit_the_question_model_by_default(
         job_id = UUID(response.json()["job_id"])
         await service.wait_for_idle()
 
-        plan = executor.plans[0]
-        assert plan.difficulty == plan.author
-        assert plan.relevance == plan.author
+        runtime = executor.runtimes[0]
+        assert runtime.difficulty == runtime.author
+        assert runtime.relevance == runtime.author
         stored = await service.get_job(user.id, job_id)
         assert stored.request.judges is None
 
@@ -617,26 +618,28 @@ async def test_judges_use_their_own_connection_and_model(
         job_id = UUID(response.json()["job_id"])
         await service.wait_for_idle()
 
-        plan = executor.plans[0]
-        assert plan.author.selection.provider == "stub"
-        assert plan.author.selection.model == "stub-model"
-        assert plan.difficulty.selection.provider == "openai"
-        assert plan.difficulty.selection.model == "gpt-test"
-        assert plan.relevance.selection.provider == "openai"
-        assert plan.relevance.selection.model == "gpt-other"
-        assert plan.difficulty.credentials == ProviderCredentials(
+        runtime = executor.runtimes[0]
+        assert runtime.author.selection.provider == "stub"
+        assert runtime.author.selection.model == "stub-model"
+        assert runtime.difficulty.selection.provider == "openai"
+        assert runtime.difficulty.selection.model == "gpt-test"
+        assert runtime.relevance.selection.provider == "openai"
+        assert runtime.relevance.selection.model == "gpt-other"
+        assert runtime.difficulty == ResolvedConnection.for_connection(
+            connection_id=UUID(created["id"]),
             provider="openai",
             model="gpt-test",
             api_key=API_KEY,
             base_url=BASE_URL,
         )
-        assert plan.relevance.credentials == ProviderCredentials(
+        assert runtime.relevance == ResolvedConnection.for_connection(
+            connection_id=UUID(created["id"]),
             provider="openai",
             model="gpt-other",
             api_key=API_KEY,
             base_url=BASE_URL,
         )
-        assert plan.author.credentials is None
+        assert runtime.author.is_byok is False
 
         stored = await service.get_job(user.id, job_id)
         assert stored.request.judges is not None
@@ -669,14 +672,14 @@ async def test_judge_can_use_a_server_profile_while_author_uses_a_connection(
         assert response.status_code == 202, response.text
         await service.wait_for_idle()
 
-        plan = executor.plans[0]
-        assert plan.author.selection.provider == "openai"
-        assert plan.author.selection.model == "gpt-test"
-        assert plan.author.credentials is not None
-        assert plan.difficulty.selection.provider == "stub"
-        assert plan.difficulty.selection.model == "stub-model"
-        assert plan.difficulty.credentials is None
-        assert plan.relevance == plan.author
+        runtime = executor.runtimes[0]
+        assert runtime.author.selection.provider == "openai"
+        assert runtime.author.selection.model == "gpt-test"
+        assert runtime.author.is_byok is True
+        assert runtime.difficulty.selection.provider == "stub"
+        assert runtime.difficulty.selection.model == "stub-model"
+        assert runtime.difficulty.is_byok is False
+        assert runtime.relevance == runtime.author
 
 
 async def test_submit_rejects_unknown_disabled_or_mixed_judge_selections(
