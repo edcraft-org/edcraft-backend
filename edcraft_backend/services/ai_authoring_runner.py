@@ -20,11 +20,9 @@ from edcraft_validator.application.template_workflow import TemplateApplication
 from edcraft_backend.config.settings import AuthoringSettings
 from edcraft_backend.exceptions import EdCraftBaseException
 from edcraft_backend.services.ai_authoring_judge import build_model_tool_client
-from edcraft_backend.services.ai_authoring_providers import (
-    JobModelPlan,
-    build_managed_provider,
-)
+from edcraft_backend.services.ai_authoring_providers import JobModelPlan
 from edcraft_backend.services.ai_authoring_store import AuthoringStore
+from edcraft_backend.services.provider_endpoint import build_managed_provider
 
 logger = logging.getLogger(__name__)
 

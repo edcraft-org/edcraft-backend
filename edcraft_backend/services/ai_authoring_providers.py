@@ -11,11 +11,7 @@ from edcraft_validator.llm.llm_contracts import (
     StructuredGenerationRequest,
     TemplateProviderSelection,
 )
-from edcraft_validator.llm.openai_compatible_provider import (
-    OpenAIProvider,
-    SocLaasProvider,
-)
-from openai import DefaultHttpxClient, OpenAI
+from openai import OpenAI
 
 DEFAULT_TIMEOUT_SECONDS = {
     "soclaas": 600.0,
@@ -104,38 +100,3 @@ class ManagedProvider:
     def close(self) -> None:
         self._client.close()
 
-
-def build_managed_provider(credentials: ProviderCredentials) -> ManagedProvider:
-    """Build a fresh provider for one job; secrets stay in this closure."""
-    if credentials.base_url:
-        # Apply the same resolved-host guard used for provider probing so a
-        # stored hostname cannot be rebound to a private address at job time.
-        # Imported locally because provider_connection_service imports
-        # ProviderCredentials from this module.
-        from edcraft_backend.services.provider_connection_service import (
-            _assert_public_provider_host,
-        )
-
-        _assert_public_provider_host(credentials.base_url)
-    client = OpenAI(
-        api_key=credentials.api_key,
-        base_url=credentials.base_url,
-        timeout=credentials.timeout_seconds,
-        max_retries=1,
-        # Base URLs are user-supplied. A redirect could otherwise point the
-        # SDK at a private address after the guard above has passed.
-        http_client=DefaultHttpxClient(follow_redirects=False),
-    )
-    if credentials.provider == "soclaas":
-        delegate: ModelProvider = SocLaasProvider(client=client, model=credentials.model)
-    elif credentials.provider == "openai":
-        delegate = OpenAIProvider(client=client, model=credentials.model)
-    else:
-        client.close()
-        raise ValueError(f"Unsupported provider: {credentials.provider}")
-    return ManagedProvider(
-        delegate,
-        client,
-        provider=credentials.provider,
-        model=credentials.model,
-    )

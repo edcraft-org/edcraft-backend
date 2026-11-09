@@ -25,12 +25,16 @@ from edcraft_backend.dependencies import get_ai_authoring_service
 from edcraft_backend.main import app
 from edcraft_backend.models.provider_connection import ProviderConnection
 from edcraft_backend.models.user import User
-from edcraft_backend.services import provider_connection_service
+from edcraft_backend.services import provider_endpoint
 from edcraft_backend.services.ai_authoring_providers import ProviderCredentials
 from edcraft_backend.services.ai_authoring_service import AiAuthoringService
 from edcraft_backend.services.provider_connection_service import (
     ProviderConnectionInvalid,
-    _fetch_models_payload,
+)
+from edcraft_backend.services.provider_endpoint import (
+    HttpxModelTransport,
+    ProviderEndpoint,
+    ProviderHttpResponse,
 )
 from edcraft_backend.services.provider_secrets import ProviderSecretCipher
 from tests.ai_authoring_helpers import StaticExecutor, make_checked_report
@@ -227,16 +231,15 @@ async def test_probe_returns_sorted_models(
     class FakeResponse:
         status_code = 200
 
-        def json(self) -> dict[str, Any]:
-            return {
-                "data": [
-                    {"id": "zeta-model"},
-                    {"id": "Alpha-Model"},
-                    {"id": "zeta-model"},
-                    {"id": ""},
-                    {"not_a_model": True},
-                ]
-            }
+        content = (
+            b'{"data": ['
+            b'{"id": "zeta-model"},'
+            b'{"id": "Alpha-Model"},'
+            b'{"id": "zeta-model"},'
+            b'{"id": ""},'
+            b'{"not_a_model": true}'
+            b"]}"
+        )
 
     class FakeAsyncClient:
         def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -254,7 +257,7 @@ async def test_probe_returns_sorted_models(
             return FakeResponse()
 
     monkeypatch.setattr(
-        "edcraft_backend.services.provider_connection_service.httpx.AsyncClient",
+        "edcraft_backend.services.provider_endpoint.httpx.AsyncClient",
         FakeAsyncClient,
     )
 
@@ -278,8 +281,7 @@ async def test_probe_maps_provider_rejection_to_safe_error(
     class FakeResponse:
         status_code = 401
 
-        def json(self) -> dict[str, Any]:
-            raise AssertionError("401 responses must not be parsed")
+        content = b"unauthorized"
 
     class FakeAsyncClient:
         def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -295,7 +297,7 @@ async def test_probe_maps_provider_rejection_to_safe_error(
             return FakeResponse()
 
     monkeypatch.setattr(
-        "edcraft_backend.services.provider_connection_service.httpx.AsyncClient",
+        "edcraft_backend.services.provider_endpoint.httpx.AsyncClient",
         FakeAsyncClient,
     )
 
@@ -400,7 +402,7 @@ async def test_probe_rejects_dns_name_resolving_to_private_address(
         ]
 
     monkeypatch.setattr(
-        "edcraft_backend.services.provider_connection_service.socket.getaddrinfo",
+        "edcraft_backend.services.provider_host_guard.socket.getaddrinfo",
         private_getaddrinfo,
     )
 
@@ -416,43 +418,33 @@ async def test_probe_rejects_dns_name_resolving_to_private_address(
     assert "not allowed" in response.json()["detail"]
 
 
-async def test_fetch_models_payload_joins_the_models_path(
+async def test_list_models_joins_the_models_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, Any] = {}
 
-    class FakeResponse:
-        status_code = 200
-
-        def json(self) -> dict[str, Any]:
-            return {"data": []}
-
-    class FakeAsyncClient:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        async def __aenter__(self) -> FakeAsyncClient:
-            return self
-
-        async def __aexit__(self, *args: Any) -> bool:
-            return False
-
-        async def get(self, url: str, headers: dict[str, str]) -> FakeResponse:
+    class FakeTransport:
+        async def get(
+            self, url: str, headers: dict[str, str], timeout: float
+        ) -> ProviderHttpResponse:
             captured["url"] = url
-            return FakeResponse()
+            captured["headers"] = headers
+            return ProviderHttpResponse(status_code=200, body=b'{"data": []}')
 
-    monkeypatch.setattr(provider_connection_service.httpx, "AsyncClient", FakeAsyncClient)
     monkeypatch.setattr(
-        provider_connection_service,
-        "_assert_public_provider_host",
+        provider_endpoint.provider_host_guard,
+        "assert_public_provider_host",
         lambda _base_url: None,
     )
 
-    assert await _fetch_models_payload("https://host/v1", API_KEY) == {"data": []}
+    endpoint = ProviderEndpoint(kind="openai", base_url="https://host/v1")
+
+    assert await endpoint.list_models(API_KEY, transport=FakeTransport()) == []
     assert captured["url"] == "https://host/v1/models"
+    assert captured["headers"] == {"Authorization": f"Bearer {API_KEY}"}
 
 
-async def test_fetch_models_payload_maps_invalid_url_to_422(
+async def test_httpx_transport_maps_invalid_url_to_422(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class InvalidURLClient:
@@ -468,15 +460,10 @@ async def test_fetch_models_payload_maps_invalid_url_to_422(
         async def get(self, url: str, headers: dict[str, str]) -> Any:
             raise httpx.InvalidURL("invalid URL")
 
-    monkeypatch.setattr(provider_connection_service.httpx, "AsyncClient", InvalidURLClient)
-    monkeypatch.setattr(
-        provider_connection_service,
-        "_assert_public_provider_host",
-        lambda _base_url: None,
-    )
+    monkeypatch.setattr(provider_endpoint.httpx, "AsyncClient", InvalidURLClient)
 
     with pytest.raises(ProviderConnectionInvalid) as caught:
-        await _fetch_models_payload("https://host/v1", API_KEY)
+        await HttpxModelTransport().get("https://host/v1/models", {}, 20.0)
     assert caught.value.status_code == 422
 
 

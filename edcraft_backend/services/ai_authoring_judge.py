@@ -9,10 +9,8 @@ from edcraft_validator.llm.provider_registry import create_model_provider
 from edcraft_validator.mcp.client import FastMcpToolClient
 from edcraft_validator.mcp.server import create_validation_server
 
-from edcraft_backend.services.ai_authoring_providers import (
-    ModelPlan,
-    build_managed_provider,
-)
+from edcraft_backend.services.ai_authoring_providers import ModelPlan
+from edcraft_backend.services.provider_endpoint import build_managed_provider
 
 
 class SelectedModelDecisionProvider(ConfiguredDecisionProvider):
