@@ -79,6 +79,7 @@ async def env_for(
     max_inflight_jobs_per_user: int = 10,
     max_queue: int = 10,
     max_quantity: int = 50,
+    job_timeout_seconds: float = 1800.0,
 ) -> AsyncGenerator[AuthoringHarness, None]:
     settings = AuthoringSettings(
         storage_dir=tmp_path / "authoring",
@@ -89,6 +90,7 @@ async def env_for(
         max_queue=max_queue,
         max_quantity=max_quantity,
         shutdown_timeout_seconds=1.0,
+        job_timeout_seconds=job_timeout_seconds,
     )
     service = AiAuthoringService(settings, executor=executor)
     await service.startup()
@@ -641,6 +643,60 @@ async def test_admission_is_bounded_and_progress_is_running_only(
         await env.service.wait_for_idle()
         assert (await env.client.get(f"/ai-authoring/jobs/{first}")).json()["state"] == "completed"
         assert (await env.client.get(f"/ai-authoring/jobs/{second}")).json()["state"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_job_deadline_fails_the_job_and_holds_its_slot(tmp_path: Path) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+
+    class SlowExecutor:
+        def __call__(self, command: Any, plan: Any, on_progress: Any = None) -> Any:
+            entered.set()
+            if not release.wait(5):
+                raise RuntimeError("test executor timed out")
+            finished.set()
+            return make_checked_report(command)
+
+    async with env_for(
+        tmp_path,
+        SlowExecutor(),
+        max_active_jobs=1,
+        max_active_jobs_per_user=1,
+        max_inflight_jobs_per_user=1,
+        max_queue=0,
+        job_timeout_seconds=0.05,
+    ) as env:
+        job_id = await submit(env)
+        assert await asyncio.to_thread(entered.wait, 2)
+
+        job: dict[str, Any] = {}
+        for _ in range(100):
+            job = (await env.client.get(f"/ai-authoring/jobs/{job_id}")).json()
+            if job["state"] == "failed":
+                break
+            await asyncio.sleep(0.01)
+        assert job["state"] == "failed"
+        assert job["error"] == {
+            "code": "AUTHORING_TIMEOUT",
+            "message": "Authoring timed out before the job produced a result.",
+        }
+
+        # The executor thread is still alive, so its capacity must stay reserved.
+        blocked = await env.client.post("/ai-authoring/jobs", json=payload())
+        assert blocked.status_code == 429
+
+        release.set()
+        assert await asyncio.to_thread(finished.wait, 2)
+        await env.service.wait_for_idle()
+
+        # The late outcome is discarded and the slot is reusable again.
+        stored = (await env.client.get(f"/ai-authoring/jobs/{job_id}")).json()
+        assert stored["state"] == "failed"
+        assert stored["error"]["code"] == "AUTHORING_TIMEOUT"
+        await submit(env)
+        await env.service.wait_for_idle()
 
 
 @pytest.mark.asyncio

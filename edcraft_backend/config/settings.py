@@ -229,6 +229,15 @@ class AuthoringSettings(BaseSettings):
     max_queue: int = Field(default=40, ge=0, le=100)
     max_quantity: int = Field(default=50, ge=1, le=50)
     shutdown_timeout_seconds: float = Field(default=30.0, gt=0)
+    job_timeout_seconds: float = Field(
+        default=1800.0,
+        gt=0,
+        description=(
+            "Maximum time one inline authoring job may run before it is failed. "
+            "The executor thread cannot be interrupted, so its admission slot "
+            "stays held until that thread returns."
+        ),
+    )
     model_profiles: list[AuthoringProfileSettings] = Field(default_factory=list)
     encryption_key: SecretStr | None = Field(
         default=None,

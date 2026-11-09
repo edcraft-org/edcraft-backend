@@ -15,6 +15,7 @@ from uuid import UUID
 
 from edcraft_validator.application.authoring_api import (
     AuthoringJobCommand,
+    AuthoringJobRecord,
     PublicAuthoringError,
 )
 from edcraft_validator.application.authoring_contracts import AuthoringProgress
@@ -37,10 +38,20 @@ _EXECUTION_FAILED = PublicAuthoringError(
     code="AUTHORING_FAILED",
     message="Authoring stopped before a usable artifact was saved.",
 )
+_EXECUTION_TIMEOUT = PublicAuthoringError(
+    code="AUTHORING_TIMEOUT",
+    message="Authoring timed out before the job produced a result.",
+)
 _SCHEDULE_FAILED = PublicAuthoringError(
     code="AUTHORING_FAILED",
     message="Authoring could not be scheduled.",
 )
+
+
+def _consume_execution_result(task: asyncio.Task[AuthoringJobRecord]) -> None:
+    """Retrieve a late executor outcome so a timed-out task cannot warn."""
+    if not task.cancelled():
+        task.exception()
 
 
 class AuthoringAdmissionFull(EdCraftBaseException):
@@ -255,14 +266,11 @@ class AuthoringLifecycle:
                 async with self._semaphore:
                     await asyncio.to_thread(self._store.mark_started, job_id)
                     try:
-                        record = await asyncio.to_thread(
-                            runtime.run,
-                            command,
-                            self._progress_callback(job_id),
-                        )
-                        await asyncio.to_thread(
-                            self._store.complete_job, job_id, record.report
-                        )
+                        record = await self._run_executor(job_id, command, runtime)
+                        if record is not None:
+                            await asyncio.to_thread(
+                                self._store.complete_job, job_id, record.report
+                            )
                     except Exception:
                         logger.exception(
                             "AI authoring job failed", extra={"job_id": str(job_id)}
@@ -275,6 +283,52 @@ class AuthoringLifecycle:
             await asyncio.to_thread(self._store.fail_job, job_id, _START_FAILED)
         finally:
             await lease.release()
+
+    async def _run_executor(
+        self,
+        job_id: UUID,
+        command: AuthoringJobCommand,
+        runtime: JobRuntime,
+    ) -> AuthoringJobRecord | None:
+        """Run the synchronous executor under the per-job deadline.
+
+        A Python thread cannot be interrupted. When the deadline fires the job
+        is failed immediately, but its admission slot is held until the thread
+        actually returns, so a late worker cannot oversubscribe the process.
+        """
+        execution = asyncio.create_task(
+            asyncio.to_thread(
+                runtime.run,
+                command,
+                self._progress_callback(job_id),
+            )
+        )
+        execution.add_done_callback(_consume_execution_result)
+        try:
+            return await asyncio.wait_for(
+                asyncio.shield(execution),
+                timeout=self._settings.job_timeout_seconds,
+            )
+        except TimeoutError:
+            logger.warning(
+                "AI authoring job timed out",
+                extra={
+                    "job_id": str(job_id),
+                    "timeout_seconds": self._settings.job_timeout_seconds,
+                },
+            )
+            await asyncio.to_thread(self._store.fail_job, job_id, _EXECUTION_TIMEOUT)
+            try:
+                await asyncio.shield(execution)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.debug(
+                    "Timed-out authoring worker also failed",
+                    exc_info=True,
+                    extra={"job_id": str(job_id)},
+                )
+            return None
 
     def _owner_semaphore(self, owner_id: UUID) -> asyncio.Semaphore:
         """Return the loop-bound active-job semaphore for one owner."""
