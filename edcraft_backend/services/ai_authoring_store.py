@@ -32,8 +32,9 @@ from edcraft_validator.application.authoring_contracts import (
     AuthoringProgress,
     AuthoringResult,
 )
-from edcraft_validator.domains.code.code_schemas import ValidatedCodeTemplate
+from edcraft_validator.artifact_contracts import ValidatedTemplateArtifact
 from edcraft_validator.domains.code.code_types import DEFAULT_DISTRACTORS
+from edcraft_validator.domains.domain_registry import create_domain
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from edcraft_backend.config.settings import AuthoringSettings
@@ -82,7 +83,7 @@ class AuthoringRequestRecord(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    domain: Literal["code"] = "code"
+    domain: str = "code"
     prompt: str
     difficulty: Literal["easy", "medium", "hard"]
     num_distractors: DistractorCount = DEFAULT_DISTRACTORS
@@ -146,7 +147,7 @@ class AuthoringEvidence:
 
     job: StoredJob
     artifact_bytes: bytes
-    artifact: ValidatedCodeTemplate
+    artifact: ValidatedTemplateArtifact
     report: AuthoringResult
     approval: ApprovalRecord | None
 
@@ -408,9 +409,7 @@ class AuthoringStore:
             self._require_reusable_state(job)
         expected = expected_artifact_sha256 or job.artifact_sha256
         if job.artifact_id is None or job.artifact_sha256 is None:
-            raise AuthoringConflict(
-                "Authoring review evidence does not match the job artifact."
-            )
+            raise AuthoringConflict("Authoring review evidence does not match the job artifact.")
         if expected is None or job.artifact_sha256 != expected:
             raise AuthoringConflict(self._artifact_changed_message(requirement))
         # Raw artifact bytes are authoritative; re-serialising the report's
@@ -422,7 +421,8 @@ class AuthoringStore:
                 "The stored artifact failed its integrity check; refresh the review."
             )
         try:
-            artifact = ValidatedCodeTemplate.model_validate_json(artifact_bytes)
+            domain = create_domain(job.request.domain)
+            artifact = domain.validated_model.model_validate_json(artifact_bytes)
         except (ValidationError, ValueError) as exc:
             raise AuthoringConflict("The stored artifact is not usable.") from exc
         if artifact.artifact_id != job.artifact_id:
@@ -435,9 +435,7 @@ class AuthoringStore:
             or report.artifact is None
             or report.artifact.artifact_id != job.artifact_id
         ):
-            raise AuthoringConflict(
-                "Authoring review evidence does not match the job artifact."
-            )
+            raise AuthoringConflict("Authoring review evidence does not match the job artifact.")
         approval = job.approval
         if requirement is EvidenceRequirement.APPROVED and (
             approval is None
