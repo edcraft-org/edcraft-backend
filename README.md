@@ -165,6 +165,44 @@ GET /jobs/{job_id}
 }
 ```
 
+## 🤖 AI Template Authoring
+
+Issues 48-50 add owner-scoped AI authoring endpoints under `/ai-authoring`.
+The backend uses the pinned `edcraft-validator` workflow in a bounded
+in-process runner (one active job, ten waiting) and persists state as files,
+not database rows. Run exactly one backend process (one Uvicorn worker/replica)
+against each authoring storage volume: the process-local lock, admission
+counters and startup reconciliation are not multi-process safe.
+
+Configure at least one server-side model profile in `.env.development`:
+
+```bash
+AUTHORING_MODEL_PROFILES=[{"id":"default","label":"Default code author","provider":"soclaas","model":"x-test-2"}]
+AUTHORING_STORAGE_DIR=.data/authoring
+```
+
+Server profiles are the legacy fallback. Users can instead bring their own
+OpenAI or SocLaas key under **Settings → Model connections**. The backend
+stores only an encrypted key (never plaintext) and returns safe metadata such
+as the key's last four characters. Keys are decrypted in memory for a single
+job and are never written to job records or logs. Set a stable
+`AUTHORING_ENCRYPTION_KEY` in production (generate with
+`openssl rand -hex 32`); when omitted, the installation `JWT_SECRET` is used.
+Changing the encryption key makes existing connections undecryptable.
+
+Provider credentials for server profiles remain in the provider-specific
+environment. They are never returned by the API. Docker Compose mounts the
+durable `authoring_data` volume at `/app/.data`, and the image runs as the
+non-root `edcraft` user. Files are written atomically with `os.replace`;
+startup marks interrupted queued/running jobs failed with `SERVER_RESTARTED`
+instead of replaying them.
+
+Advisory difficulty and relevance checks use the same model and credentials as
+the selected authoring model, so BYOK jobs are billed entirely to the caller's
+key. `EDCRAFT_JUDGE_REASONING_EFFORT` and `EDCRAFT_RELEVANCE_THRESHOLD` still
+configure those checks; `EDCRAFT_JUDGE_PROVIDER`/`MODEL` only affect direct
+CLI or MCP use of `edcraft-validator`.
+
 ## 🖥️ WSL2 Nomad Setup
 
 If you're using **WSL2**, if you are facing issues using nomad, follow the instructions in this section.

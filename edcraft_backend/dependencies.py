@@ -1,11 +1,13 @@
 """Dependency injection setup for repositories and services."""
 
+from functools import lru_cache
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import Cookie, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from edcraft_backend.config import settings
 from edcraft_backend.database import get_db
 from edcraft_backend.executors.nomad import NomadExecutor
 from edcraft_backend.models.user import User
@@ -21,6 +23,9 @@ from edcraft_backend.repositories.job_repository import (
 from edcraft_backend.repositories.oauth_account_repository import OAuthAccountRepository
 from edcraft_backend.repositories.one_time_token_repository import (
     OneTimeTokenRepository,
+)
+from edcraft_backend.repositories.provider_connection_repository import (
+    ProviderConnectionRepository,
 )
 from edcraft_backend.repositories.question_bank_repository import QuestionBankRepository
 from edcraft_backend.repositories.question_repository import QuestionRepository
@@ -39,6 +44,7 @@ from edcraft_backend.repositories.target_element_repository import (
 )
 from edcraft_backend.repositories.user_repository import UserRepository
 from edcraft_backend.security import decode_token
+from edcraft_backend.services.ai_authoring_service import AiAuthoringService
 from edcraft_backend.services.assessment_service import AssessmentService
 from edcraft_backend.services.assessment_template_service import (
     AssessmentTemplateService,
@@ -50,6 +56,10 @@ from edcraft_backend.services.folder_service import FolderService
 from edcraft_backend.services.job_service import JobService
 from edcraft_backend.services.oauth_service import OAuthService
 from edcraft_backend.services.post_processing_service import PostProcessingService
+from edcraft_backend.services.provider_connection_service import (
+    ProviderConnectionService,
+)
+from edcraft_backend.services.provider_secrets import ProviderSecretCipher
 from edcraft_backend.services.question_bank_service import QuestionBankService
 from edcraft_backend.services.question_service import QuestionService
 from edcraft_backend.services.question_template_bank_service import (
@@ -482,3 +492,41 @@ def get_job_service(
 
 
 JobServiceDep = Annotated[JobService, Depends(get_job_service)]
+
+
+@lru_cache
+def get_ai_authoring_service() -> AiAuthoringService:
+    """Get the process-wide file-backed AI authoring service."""
+    return AiAuthoringService(settings.authoring)
+
+
+AiAuthoringServiceDep = Annotated[
+    AiAuthoringService, Depends(get_ai_authoring_service)
+]
+
+
+def get_provider_connection_repository(
+    db: AsyncSession = Depends(get_db),
+) -> ProviderConnectionRepository:
+    """Get the owner-scoped provider connection repository."""
+    return ProviderConnectionRepository(db)
+
+
+def get_provider_secret_cipher() -> ProviderSecretCipher:
+    """Use the dedicated authoring key, falling back to the JWT secret."""
+    configured = settings.authoring.encryption_key
+    secret = configured.get_secret_value() if configured is not None else settings.jwt.secret
+    return ProviderSecretCipher(secret)
+
+
+def get_provider_connection_service(
+    repository: ProviderConnectionRepository = Depends(get_provider_connection_repository),
+    cipher: ProviderSecretCipher = Depends(get_provider_secret_cipher),
+) -> ProviderConnectionService:
+    """Get the provider connection service for the current request."""
+    return ProviderConnectionService(repository, cipher)
+
+
+ProviderConnectionServiceDep = Annotated[
+    ProviderConnectionService, Depends(get_provider_connection_service)
+]

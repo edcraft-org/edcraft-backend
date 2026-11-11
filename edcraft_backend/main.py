@@ -9,8 +9,10 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from edcraft_backend.config import settings
 from edcraft_backend.database import close_db
+from edcraft_backend.dependencies import get_ai_authoring_service
 from edcraft_backend.exceptions import EdCraftBaseException
 from edcraft_backend.routers import (
+    ai_authoring,
     assessment_templates,
     assessments,
     auth,
@@ -18,6 +20,7 @@ from edcraft_backend.routers import (
     folders,
     input_generator,
     jobs,
+    provider_connections,
     question_bank,
     question_generation,
     question_template_banks,
@@ -38,8 +41,13 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Manage application lifespan events."""
-    yield
-    await close_db()
+    authoring_service = get_ai_authoring_service()
+    await authoring_service.startup()
+    try:
+        yield
+    finally:
+        await authoring_service.shutdown()
+        await close_db()
 
 
 app = FastAPI(
@@ -79,6 +87,8 @@ app.add_middleware(
 app.include_router(input_generator.router)
 app.include_router(question_generation.router)
 app.include_router(jobs.router)
+app.include_router(ai_authoring.router)
+app.include_router(provider_connections.router)
 app.include_router(users.router)
 app.include_router(auth.router)
 app.include_router(folders.router)

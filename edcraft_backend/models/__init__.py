@@ -7,6 +7,7 @@ from edcraft_backend.models.folder import Folder
 from edcraft_backend.models.job import Job, JobStatus, JobToken, JobType
 from edcraft_backend.models.oauth_account import OAuthAccount
 from edcraft_backend.models.one_time_token import OneTimeToken, TokenType
+from edcraft_backend.models.provider_connection import ProviderConnection
 from edcraft_backend.models.question import Question
 from edcraft_backend.models.question_bank import QuestionBank
 from edcraft_backend.models.question_data import MCQData, MRQData, ShortAnswerData
@@ -29,6 +30,7 @@ __all__ = [
     "QuestionTemplate",
     "TargetElement",
     "OAuthAccount",
+    "ProviderConnection",
     "RefreshToken",
     "OneTimeToken",
     "TokenType",
