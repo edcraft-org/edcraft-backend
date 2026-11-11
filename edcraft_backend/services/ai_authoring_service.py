@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 from edcraft_validator.application.authoring_api import AuthoringJobCommand
@@ -14,18 +15,14 @@ from edcraft_validator.application.authoring_contracts import (
     GenerationAttempt,
 )
 from edcraft_validator.application.template_workflow import TemplateApplication
-from edcraft_validator.domains.code.code_schemas import (
-    CodeQuestionInstance,
-    CodeTemplateCandidate,
-    TemplateValidationSummary,
-    ValidatedCodeTemplate,
-)
+from edcraft_validator.artifact_contracts import ValidatedTemplateArtifact
 from edcraft_validator.domains.code.code_types import (
     DEFAULT_DISTRACTORS,
     MAX_DISTRACTORS,
     MIN_DISTRACTORS,
 )
-from edcraft_validator.domains.domain_registry import create_domain
+from edcraft_validator.domains.domain_contract import DomainModule
+from edcraft_validator.domains.domain_registry import available_domains, create_domain
 from edcraft_validator.llm.judge_configuration import load_judge_settings
 from pydantic import ValidationError
 
@@ -77,7 +74,7 @@ ApprovalView = StoredReviewerApproval
 logger = logging.getLogger(__name__)
 
 # Must match [tool.uv.sources].edcraft-validator.rev in pyproject.toml.
-LIBRARY_REVISION = "a7326fc30b33ce1b71f7d836d152df5145f135b8"
+LIBRARY_REVISION = "783c32a2b3c186f669807a97e30d2fa9b9b3b744"
 MAX_FINDING_TEXT = 2_000
 
 
@@ -131,7 +128,7 @@ class AiAuthoringService:
             logger.warning("Configured advisory judge settings are invalid")
             judge = None
         return AuthoringCapabilitiesResponse(
-            enabled_domains=["code"],
+            enabled_domains=list(available_domains()),
             difficulty_labels=["easy", "medium", "hard"],
             model_profiles=profiles,
             # Disabled connections stay visible in settings but cannot write questions.
@@ -153,6 +150,7 @@ class AiAuthoringService:
         relevance_connection: ResolvedConnection | None = None,
     ) -> StoredJob:
         """Admit and persist one queued authoring job."""
+        domain_request = _domain_request(request)
         runtime = JobRuntime.prepare(
             request,
             profile_lookup=self._profile,
@@ -171,13 +169,9 @@ class AiAuthoringService:
         now = _now()
         command = AuthoringJobCommand(
             job_id=job_id,
-            domain="code",
+            domain=request.domain,
             author=author.selection,
-            request={
-                "prompt": request.prompt,
-                "difficulty": request.difficulty,
-                "num_distractors": request.num_distractors,
-            },
+            request=domain_request.model_dump(mode="json"),
         )
         job = StoredJob(
             job_id=job_id,
@@ -186,7 +180,7 @@ class AiAuthoringService:
                 prompt=request.prompt,
                 difficulty=request.difficulty,
                 num_distractors=request.num_distractors,
-                domain="code",
+                domain=request.domain,
                 model_profile=profile_id,
                 connection_id=connection_id,
                 model=model,
@@ -215,8 +209,9 @@ class AiAuthoringService:
     async def review(self, owner_id: UUID, job_id: UUID) -> AuthoringReviewResponse:
         """Return sanitized evidence sufficient for an educator decision."""
         job = await self.get_job(owner_id, job_id)
+        domain = _require_domain(job.request.domain)
         report: AuthoringResult | None = None
-        artifact: ValidatedCodeTemplate | None = None
+        artifact: ValidatedTemplateArtifact | None = None
         if job.artifact_sha256 and job.artifact_id:
             evidence = await asyncio.to_thread(
                 self.store.read_evidence,
@@ -226,7 +221,7 @@ class AiAuthoringService:
             )
             job = evidence.job
             report = evidence.report
-            artifact = evidence.artifact
+            artifact = _validated_artifact(domain, evidence.artifact_bytes)
         elif job.state in {"completed", "failed"}:
             try:
                 report = await asyncio.to_thread(self.store.read_report, job_id)
@@ -238,7 +233,8 @@ class AiAuthoringService:
         ]
         checks = attempts[-1].checks if attempts else []
         candidate = attempts[-1].candidate if attempts else None
-        limits = self._limits(artifact.validation) if artifact is not None else None
+        template = _template_view(artifact)
+        limits = _limits(artifact) if artifact is not None else None
         summary = job.result
         return AuthoringReviewResponse(
             job_id=job.job_id,
@@ -247,14 +243,7 @@ class AiAuthoringService:
             artifact_sha256=job.artifact_sha256,
             library_revision=job.library_revision,
             request=AuthoringRequestView.model_validate(job.request.model_dump()),
-            template=(
-                ReviewTemplate(
-                    template_id=artifact.template.template_id,
-                    candidate=artifact.template,
-                )
-                if artifact is not None
-                else None
-            ),
+            template=template,
             checks=checks,
             attempts=attempts,
             fixed_plan=list(report.fixed_plan) if report else [],
@@ -277,11 +266,12 @@ class AiAuthoringService:
             requirement=EvidenceRequirement.REUSABLE,
         )
         job = evidence.job
-        question = self._generate(evidence.artifact, seed)
+        question = self._generate(evidence.artifact, _require_domain(job.request.domain), seed)
         if job.artifact_id is None or job.artifact_sha256 is None:
             raise AuthoringConflict("The validated artifact is unavailable.")
         return PreviewResponse(
             job_id=job.job_id,
+            domain=job.request.domain,
             artifact_id=job.artifact_id,
             artifact_sha256=job.artifact_sha256,
             seed=seed,
@@ -335,19 +325,22 @@ class AiAuthoringService:
         )
         job = evidence.job
         artifact = evidence.artifact
+        domain = _require_domain(job.request.domain)
 
-        questions: list[CodeQuestionInstance] = []
+        questions: list[dict[str, Any]] = []
         warnings: list[str] = []
         for offset in range(request.quantity):
             seed = request.seed + offset
             try:
-                questions.append(self._generate_raw(artifact, seed))
+                questions.append(self._generate_raw(artifact, domain, seed))
             except (ValidationError, ValueError):
                 warnings.append(
                     f"Seed {seed} did not produce a usable question from the "
                     "finite template domain."
                 )
-        fingerprints = {question.model_dump_json(exclude={"seed"}) for question in questions}
+        fingerprints = {
+            json.dumps(_without_seed(question), sort_keys=True) for question in questions
+        }
         distinct_count = len(fingerprints)
         duplicates = len(questions) - distinct_count
         if duplicates:
@@ -374,6 +367,7 @@ class AiAuthoringService:
         )
         return GeneratedQuestionsBatch(
             job_id=job.job_id,
+            domain=job.request.domain,
             artifact_id=job.artifact_id,
             artifact_sha256=job.artifact_sha256,
             base_seed=request.seed,
@@ -400,6 +394,7 @@ class AiAuthoringService:
     def job_summary(self, job: StoredJob) -> AuthoringJobSummary:
         return AuthoringJobSummary(
             job_id=job.job_id,
+            domain=job.request.domain,
             state=job.state,
             result_status=job.result.status if job.result is not None else None,
             created_at=job.created_at,
@@ -415,16 +410,19 @@ class AiAuthoringService:
         raise AuthoringValidationError("Unknown model profile.")
 
     @staticmethod
-    def _generate_raw(artifact: ValidatedCodeTemplate, seed: int) -> CodeQuestionInstance:
-        result = TemplateApplication().generate_question(
-            artifact, domain=create_domain("code"), seed=seed
-        )
-        return CodeQuestionInstance.model_validate(result.model_dump())
+    def _generate_raw(
+        artifact: ValidatedTemplateArtifact, domain: DomainModule, seed: int
+    ) -> dict[str, Any]:
+        result = TemplateApplication().generate_question(artifact, domain=domain, seed=seed)
+        question = domain.question_model.model_validate(result)
+        return cast(dict[str, Any], question.model_dump(mode="json"))
 
     @classmethod
-    def _generate(cls, artifact: ValidatedCodeTemplate, seed: int) -> CodeQuestionInstance:
+    def _generate(
+        cls, artifact: ValidatedTemplateArtifact, domain: DomainModule, seed: int
+    ) -> dict[str, Any]:
         try:
-            return cls._generate_raw(artifact, seed)
+            return cls._generate_raw(artifact, domain, seed)
         except (ValidationError, ValueError) as exc:
             raise AuthoringConflict(
                 "The artifact could not produce a question for this seed."
@@ -439,19 +437,6 @@ class AiAuthoringService:
             complete=attempt.complete,
             passed=attempt.passed,
             checks=[_project_check(execution) for execution in attempt.executions],
-        )
-
-    @staticmethod
-    def _limits(validation: TemplateValidationSummary) -> ValidationLimits:
-        return ValidationLimits(
-            validator_version=validation.validator_version,
-            checking_mode=validation.checking_mode,
-            examples_checked=validation.examples_checked,
-            execution_calls=validation.execution_calls,
-            max_examples=validation.max_examples,
-            max_execution_calls=validation.max_execution_calls,
-            timeout_seconds=validation.timeout_seconds,
-            seed=validation.seed,
         )
 
     @staticmethod
@@ -493,11 +478,82 @@ def _project_check(execution: Any) -> ReviewCheck:
     )
 
 
-def _candidate(value: Any) -> CodeTemplateCandidate | None:
+def _domain_request(request: SubmitAuthoringJobRequest) -> Any:
+    """Validate the portable request fields through the selected domain."""
     try:
-        return CodeTemplateCandidate.model_validate(value)
-    except (ValidationError, ValueError):
+        domain = create_domain(request.domain)
+        return domain.request_model.model_validate(
+            {
+                "prompt": request.prompt,
+                "difficulty": request.difficulty,
+                "num_distractors": request.num_distractors,
+            }
+        )
+    except (ValidationError, ValueError) as exc:
+        raise AuthoringValidationError("The request does not satisfy the selected domain.") from exc
+
+
+def _require_domain(name: str) -> DomainModule:
+    try:
+        return create_domain(name)
+    except ValueError as exc:
+        raise AuthoringConflict("The domain for this authoring job is not available.") from exc
+
+
+def _validated_artifact(domain: DomainModule, artifact_bytes: bytes) -> ValidatedTemplateArtifact:
+    try:
+        return domain.validated_model.model_validate_json(artifact_bytes)
+    except (ValidationError, ValueError) as exc:
+        raise AuthoringConflict("The stored artifact is not usable.") from exc
+
+
+def _template_view(artifact: ValidatedTemplateArtifact | None) -> ReviewTemplate | None:
+    if artifact is None:
         return None
+    template = getattr(artifact, "template", None)
+    template_id = getattr(template, "template_id", None)
+    candidate = _candidate(template)
+    if template_id is None or candidate is None:
+        return None
+    return ReviewTemplate(
+        template_id=template_id,
+        candidate=candidate,
+        language=getattr(template, "language", None),
+    )
+
+
+def _limits(artifact: ValidatedTemplateArtifact) -> ValidationLimits | None:
+    validation = getattr(artifact, "validation", None)
+    if validation is None:
+        return None
+    return ValidationLimits(
+        validator_version=validation.validator_version,
+        checking_mode=validation.checking_mode,
+        examples_checked=validation.examples_checked,
+        execution_calls=validation.execution_calls,
+        max_examples=validation.max_examples,
+        max_execution_calls=validation.max_execution_calls,
+        timeout_seconds=validation.timeout_seconds,
+        seed=validation.seed,
+    )
+
+
+def _candidate(value: Any) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return value
+    dump = getattr(value, "model_dump", None)
+    if dump is None:
+        return None
+    try:
+        return cast(dict[str, Any], dump(mode="json"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _without_seed(question: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in question.items() if key != "seed"}
 
 
 def _truncate(value: str, limit: int) -> str:

@@ -21,6 +21,7 @@ from edcraft_validator.application.authoring_contracts import (
     GenerationAttempt,
 )
 from edcraft_validator.application.template_workflow import TemplateApplication
+from edcraft_validator.artifact_contracts import ValidatedTemplateArtifact
 from edcraft_validator.domains.code.code_schemas import (
     CodeQuestionInstance,
     CodeTemplateCandidate,
@@ -32,6 +33,7 @@ from edcraft_validator.domains.domain_registry import create_domain
 from edcraft_validator.llm.llm_contracts import PlannedGenerationResponse
 from edcraft_validator.validation.check_contracts import ToolEvidence, ToolFinding
 from edcraft_validator.validation.validation_contracts import ValidationEvidence
+from pydantic import BaseModel, ConfigDict
 
 from edcraft_backend.services.ai_authoring_runtime import JobRuntime
 from edcraft_backend.services.provider_endpoint import ResolvedConnection
@@ -77,6 +79,69 @@ PROPOSAL_FIELDS = (
 
 def proposal() -> CodeTemplateProposal:
     return CodeTemplateProposal.model_validate({key: CANDIDATE[key] for key in PROPOSAL_FIELDS})
+
+
+class StubRequest(BaseModel):
+    """Minimal request model for an out-of-tree test domain."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    prompt: str
+    difficulty: str
+    num_distractors: int
+
+
+class StubCandidate(BaseModel):
+    """Minimal candidate model with the shared template_id convention."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    template_id: str
+    instructions: str
+    choices: list[str]
+
+
+class StubValidatedTemplate(ValidatedTemplateArtifact):
+    """Validated artifact without a validation budget to test optional limits."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    format_version: str = "1.0.0"
+    template: StubCandidate
+
+
+class StubQuestion(BaseModel):
+    """Deterministic question model produced by the stub domain."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    template_id: str
+    artifact_id: str | None = None
+    seed: int
+    prompt: str
+    choices: list[str]
+
+
+class StubDomain:
+    """In-memory domain used to prove generic service plumbing."""
+
+    name = "stub"
+    request_model = StubRequest
+    candidate_model = StubCandidate
+    validated_model = StubValidatedTemplate
+    question_model = StubQuestion
+
+    def generate_question(self, validated: Any, *, seed: int) -> StubQuestion:
+        if not isinstance(validated, StubValidatedTemplate):
+            validated = StubValidatedTemplate.model_validate(validated.model_dump())
+        template = validated.template
+        return StubQuestion(
+            template_id=template.template_id,
+            artifact_id=validated.artifact_id,
+            seed=seed,
+            prompt=f"{template.instructions} Variant {seed}.",
+            choices=list(template.choices),
+        )
 
 
 class ScriptedProvider:
@@ -134,6 +199,43 @@ def _evidence(tool: str, status: str, **details: Any) -> ToolEvidence:
         status=status,
         findings=findings,
         details=details,
+    )
+
+
+def make_stub_checked_report(command: AuthoringJobCommand) -> AuthoringResult:
+    """Build a checked report for the out-of-tree stub domain."""
+    candidate = StubCandidate(
+        template_id="stub.greeting",
+        instructions="Choose the greeting.",
+        choices=["Hello", "Hi", "Hey"],
+    )
+    artifact = StubValidatedTemplate(artifact_id=uuid4().hex, template=candidate)
+    execution = CheckExecution(
+        call_id="attempt-1:stub_check",
+        tool="stub_check",
+        advisory=False,
+        requested_arguments={},
+        evidence=_evidence("stub_check", "passed"),
+    )
+    attempt = GenerationAttempt(
+        number=1,
+        candidate=candidate.model_dump(mode="json"),
+        executions=[execution],
+        pending=[],
+        complete=True,
+        passed=True,
+    )
+    return AuthoringResult(
+        status="checked",
+        provider="stub",
+        model="stub-model",
+        domain="stub",
+        request=command.request,
+        prompt_version="stub-v1",
+        fixed_plan=[execution.tool],
+        tool_catalogue=[],
+        attempts=[attempt],
+        artifact=artifact,
     )
 
 
@@ -275,10 +377,7 @@ class StaticExecutor:
     @property
     def author_connections(self) -> list[ResolvedConnection | None]:
         """Convenience view of the author role used by each job."""
-        return [
-            runtime.author if runtime.author.is_byok else None
-            for runtime in self.runtimes
-        ]
+        return [runtime.author if runtime.author.is_byok else None for runtime in self.runtimes]
 
     def __call__(
         self,

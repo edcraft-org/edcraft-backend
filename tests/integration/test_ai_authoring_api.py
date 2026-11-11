@@ -15,6 +15,7 @@ from uuid import UUID, uuid4
 import pytest
 import pytest_asyncio
 from edcraft_validator.application.authoring_contracts import AuthoringProgress
+from edcraft_validator.domains.domain_registry import register_domain, unregister_domain
 from httpx import ASGITransport, AsyncClient
 
 from edcraft_backend.config.settings import (
@@ -27,7 +28,11 @@ from edcraft_backend.dependencies import (
     get_provider_connection_service,
 )
 from edcraft_backend.main import app
-from edcraft_backend.schemas.ai_authoring import SubmitAuthoringJobRequest
+from edcraft_backend.schemas.ai_authoring import (
+    ApprovalRequest,
+    GenerateRequest,
+    SubmitAuthoringJobRequest,
+)
 from edcraft_backend.services.ai_authoring_lifecycle import AdmissionLease
 from edcraft_backend.services.ai_authoring_service import AiAuthoringService
 from edcraft_backend.services.ai_authoring_store import (
@@ -36,8 +41,10 @@ from edcraft_backend.services.ai_authoring_store import (
 )
 from tests.ai_authoring_helpers import (
     StaticExecutor,
+    StubDomain,
     make_checked_report,
     make_needs_review_report,
+    make_stub_checked_report,
     run_scripted_pipeline,
 )
 
@@ -123,6 +130,16 @@ async def checked_env(tmp_path: Path) -> AsyncGenerator[AuthoringHarness, None]:
         yield env
 
 
+@pytest.fixture
+def stub_domain() -> Any:
+    """Register an out-of-tree domain for exactly one test."""
+    register_domain("stub", StubDomain)
+    try:
+        yield "stub"
+    finally:
+        unregister_domain("stub")
+
+
 def payload(**overrides: Any) -> dict[str, Any]:
     value: dict[str, Any] = {
         "domain": "code",
@@ -196,6 +213,23 @@ async def test_capabilities_are_safe_and_server_configured(checked_env: Authorin
     assert body["judge"]["model"]
     assert "api_key" not in response.text
     assert "http" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_capabilities_reflect_the_domain_registry(
+    checked_env: AuthoringHarness, stub_domain: Any
+) -> None:
+    registered = await checked_env.client.get("/ai-authoring/capabilities")
+    assert registered.status_code == 200
+    assert registered.json()["enabled_domains"] == ["code", "stub"]
+
+    unregister_domain("stub")
+    try:
+        missing = await checked_env.client.get("/ai-authoring/capabilities")
+        assert missing.status_code == 200
+        assert missing.json()["enabled_domains"] == ["code"]
+    finally:
+        register_domain("stub", StubDomain)
 
 
 @pytest.mark.asyncio
@@ -315,6 +349,106 @@ async def test_real_scripted_library_pipeline_round_trips_through_api(
         )
         assert batch.status_code == 200, batch.text
         assert [item["seed"] for item in batch.json()["questions"]] == [3, 4]
+
+
+@pytest.mark.asyncio
+async def test_stub_domain_round_trips_through_the_real_service(
+    tmp_path: Path, stub_domain: Any
+) -> None:
+    async with env_for(tmp_path, StaticExecutor(make_stub_checked_report)) as env:
+        job_id = await complete_job(env, domain="stub")
+        status = (await env.client.get(f"/ai-authoring/jobs/{job_id}")).json()
+        assert status["result"]["domain"] == "stub"
+
+        envelope = await review(env, job_id)
+        assert envelope["request"]["domain"] == "stub"
+        assert envelope["template"]["template_id"] == "stub.greeting"
+        assert envelope["template"]["candidate"]["instructions"] == "Choose the greeting."
+        assert envelope["validation_limits"] is None
+        assert envelope["candidate"]["choices"] == ["Hello", "Hi", "Hey"]
+        digest = envelope["artifact_sha256"]
+
+        assert (await approve(env, job_id, "0" * 64)).status_code == 409
+        assert (await approve(env, job_id, digest)).status_code == 200
+
+        preview = await env.client.post(f"/ai-authoring/jobs/{job_id}/preview", json={"seed": 7})
+        assert preview.status_code == 200, preview.text
+        assert preview.json()["domain"] == "stub"
+        assert preview.json()["question"]["template_id"] == "stub.greeting"
+        assert preview.json()["question"]["seed"] == 7
+
+        generated = await env.client.post(
+            f"/ai-authoring/jobs/{job_id}/generate",
+            json={"artifact_sha256": digest, "seed": 4, "quantity": 2},
+        )
+        assert generated.status_code == 200, generated.text
+        batch = generated.json()
+        assert batch["domain"] == "stub"
+        assert [question["seed"] for question in batch["questions"]] == [4, 5]
+        assert all(item["template_id"] == "stub.greeting" for item in batch["questions"])
+
+        listed = (await env.client.get("/ai-authoring/jobs")).json()
+        assert listed[0]["domain"] == "stub"
+
+
+@pytest.mark.asyncio
+async def test_stub_domain_survives_a_service_restart(tmp_path: Path, stub_domain: Any) -> None:
+    settings = AuthoringSettings(
+        storage_dir=tmp_path / "authoring",
+        model_profiles=[PROFILE],
+        shutdown_timeout_seconds=1.0,
+    )
+    owner = uuid4()
+    first = AiAuthoringService(settings, executor=StaticExecutor(make_stub_checked_report))
+    await first.startup()
+    try:
+        submitted = await first.submit(
+            owner,
+            SubmitAuthoringJobRequest(
+                domain="stub",
+                prompt="Write a greeting question",
+                difficulty="easy",
+                num_distractors=3,
+                model_profile="test-profile",
+            ),
+        )
+        await first.wait_for_idle()
+        envelope = await first.review(owner, submitted.job_id)
+        assert envelope.artifact_sha256 is not None
+        await first.decide(
+            owner,
+            submitted.job_id,
+            ApprovalRequest(
+                artifact_sha256=envelope.artifact_sha256,
+                decision="approved",
+            ),
+        )
+    finally:
+        await first.shutdown(0.5)
+
+    second = AiAuthoringService(settings, executor=StaticExecutor(make_stub_checked_report))
+    await second.startup()
+    try:
+        reloaded = await second.review(owner, submitted.job_id)
+        assert reloaded.state == "completed"
+        assert reloaded.request.domain == "stub"
+        assert reloaded.approval is not None
+        assert reloaded.approval.decision == "approved"
+        preview = await second.preview(owner, submitted.job_id, 11)
+        assert preview.domain == "stub"
+        assert preview.question["template_id"] == "stub.greeting"
+        batch = await second.generate(
+            owner,
+            submitted.job_id,
+            GenerateRequest(
+                artifact_sha256=reloaded.artifact_sha256 or "",
+                seed=11,
+                quantity=1,
+            ),
+        )
+        assert batch.domain == "stub"
+    finally:
+        await second.shutdown(0.5)
 
 
 @pytest.mark.asyncio
@@ -578,7 +712,7 @@ async def test_strict_input_bounds_and_unknown_profile(checked_env: AuthoringHar
         payload(num_distractors=0),
         payload(num_distractors=11),
         payload(num_distractors=True),
-        payload(domain="math"),
+        payload(domain="unsupported-domain"),
         payload(model_profile="missing"),
     ):
         response = await env.client.post("/ai-authoring/jobs", json=bad_payload)

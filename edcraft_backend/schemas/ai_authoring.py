@@ -1,7 +1,7 @@
 """Request and response contracts for AI template authoring."""
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from edcraft_validator.application.authoring_api import (
@@ -13,15 +13,12 @@ from edcraft_validator.application.authoring_contracts import (
     DifficultyOutcome,
     RelevanceOutcome,
 )
-from edcraft_validator.domains.code.code_schemas import (
-    CodeQuestionInstance,
-    CodeTemplateCandidate,
-)
 from edcraft_validator.domains.code.code_types import (
     DEFAULT_DISTRACTORS,
     MAX_DISTRACTORS,
     MIN_DISTRACTORS,
 )
+from edcraft_validator.domains.domain_registry import available_domains
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from edcraft_backend.schemas.provider_connection import ProviderConnectionResponse
@@ -30,9 +27,7 @@ Difficulty = Literal["easy", "medium", "hard"]
 MAX_SEED = 2_147_483_647
 StrictSeed = Annotated[int, Field(strict=True, ge=0, le=MAX_SEED)]
 StrictQuantity = Annotated[int, Field(strict=True, ge=1, le=50)]
-DistractorCount = Annotated[
-    int, Field(strict=True, ge=MIN_DISTRACTORS, le=MAX_DISTRACTORS)
-]
+DistractorCount = Annotated[int, Field(strict=True, ge=MIN_DISTRACTORS, le=MAX_DISTRACTORS)]
 Sha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 
 
@@ -67,7 +62,7 @@ class JudgeDisplay(BaseModel):
 class AuthoringCapabilitiesResponse(BaseModel):
     """Enabled domains and server-configured model choices."""
 
-    enabled_domains: list[Literal["code"]]
+    enabled_domains: list[str]
     difficulty_labels: list[Difficulty]
     model_profiles: list[AuthoringModelProfile]
     connections: list[ProviderConnectionResponse] = Field(default_factory=list)
@@ -112,9 +107,9 @@ class AuthoringJudgeSelections(BaseModel):
 
 
 class SubmitAuthoringJobRequest(AuthoringModelSelection):
-    """One request to author a reusable code-question template."""
+    """One request to author a reusable question template."""
 
-    domain: Literal["code"] = "code"
+    domain: str = "code"
     prompt: str = Field(min_length=1, max_length=4000)
     difficulty: Difficulty
     num_distractors: DistractorCount = DEFAULT_DISTRACTORS
@@ -125,6 +120,14 @@ class SubmitAuthoringJobRequest(AuthoringModelSelection):
     def reject_blank_prompt(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("prompt must not be blank")
+        return value
+
+    @field_validator("domain")
+    @classmethod
+    def require_registered_domain(cls, value: str) -> str:
+        if value not in available_domains():
+            supported = ", ".join(available_domains())
+            raise ValueError(f"Unsupported domain {value!r}; choose one of: {supported}")
         return value
 
 
@@ -179,6 +182,7 @@ class AuthoringJobSummary(BaseModel):
     """Small owned-job item used to reopen saved work."""
 
     job_id: UUID
+    domain: str
     state: Literal["queued", "running", "completed", "failed"]
     result_status: Literal["checked", "needs_review", "error"] | None = None
     created_at: datetime
@@ -193,7 +197,7 @@ class AuthoringRequestView(BaseModel):
     prompt: str
     difficulty: Difficulty
     num_distractors: DistractorCount
-    domain: Literal["code"]
+    domain: str
     model_profile: str | None = None
     connection_id: UUID | None = None
     model: str | None = None
@@ -228,7 +232,7 @@ class ReviewAttempt(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     number: int
-    candidate: CodeTemplateCandidate | None = None
+    candidate: dict[str, Any] | None = None
     pending: list[str] = Field(default_factory=list)
     complete: bool
     passed: bool
@@ -241,8 +245,8 @@ class ReviewTemplate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     template_id: str
-    candidate: CodeTemplateCandidate
-    language: Literal["python"] = "python"
+    candidate: dict[str, Any]
+    language: str | None = None
 
 
 class ValidationLimits(BaseModel):
@@ -274,7 +278,7 @@ class AuthoringReviewResponse(BaseModel):
     attempts: list[ReviewAttempt] = Field(default_factory=list)
     fixed_plan: list[str] = Field(default_factory=list)
     validation_limits: ValidationLimits | None = None
-    candidate: CodeTemplateCandidate | None = None
+    candidate: dict[str, Any] | None = None
     candidate_is_historical_attempt: bool = False
     difficulty: DifficultyOutcome | None = None
     relevance: RelevanceOutcome | None = None
@@ -295,10 +299,11 @@ class PreviewResponse(BaseModel):
     """One deterministic question generated from the exact artifact."""
 
     job_id: UUID
+    domain: str
     artifact_id: str
     artifact_sha256: Sha256
     seed: StrictSeed
-    question: CodeQuestionInstance
+    question: dict[str, Any]
 
 
 class ApprovalRequest(BaseModel):
@@ -348,6 +353,7 @@ class GeneratedQuestionsBatch(BaseModel):
 
     format_version: Literal["1"] = "1"
     job_id: UUID
+    domain: str
     artifact_id: str
     artifact_sha256: Sha256
     base_seed: StrictSeed
@@ -355,7 +361,7 @@ class GeneratedQuestionsBatch(BaseModel):
     actual_quantity: int
     distinct_count: int
     duplicates: int
-    questions: list[CodeQuestionInstance]
+    questions: list[dict[str, Any]]
     warnings: list[str] = Field(default_factory=list)
 
 
